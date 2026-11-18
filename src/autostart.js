@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, sep } from "node:path";
 
 const SERVICE_NAME = "pi-plus";
 
@@ -32,14 +32,25 @@ function xmlEscape(value) {
     .replace(/"/g, "&quot;");
 }
 
-function pathForUnit(scriptPath) {
-  return join(dirname(scriptPath), "..", "..");
+// Directory holding local executables the agent may need (`node_modules/.bin`), if any.
+// A global npm install already has its bin dir in PATH via dirname(process.execPath).
+function projectBinDir(scriptPath) {
+  let dir = dirname(scriptPath);
+  for (let depth = 0; depth < 6; depth += 1) {
+    if (dir.endsWith(`${sep}node_modules`)) return null;
+    const candidate = join(dir, "node_modules", ".bin");
+    if (existsSync(candidate)) return candidate;
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
 }
 
 export function buildServicePath(scriptPath, env = process.env) {
   const dirs = [
     dirname(process.execPath),
-    join(pathForUnit(scriptPath), "node_modules", ".bin"),
+    projectBinDir(scriptPath),
     env.HOME ? join(env.HOME, ".local", "bin") : null,
     "/usr/local/bin",
     "/opt/homebrew/bin",
@@ -114,7 +125,7 @@ export function renderLaunchAgent({ scriptPath, configPath, env = process.env, w
     <key>PATH</key><string>${xmlEscape(path)}</string>
   </dict>
   <key>RunAtLoad</key><true/>
-${watch ? `  <key>StartInterval</key><integer>${Math.max(30, Math.floor(watch))}</integer>\n` : ""}
+${watch ? `  <key>StartInterval</key><integer>${Math.max(30, Math.floor(watch))}</integer>` : ""}
   <key>ProcessType</key><string>Background</string>
   <key>ThrottleInterval</key><integer>30</integer>
   <key>StandardOutPath</key><string>${xmlEscape(log)}</string>
