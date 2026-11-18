@@ -1,7 +1,7 @@
 {
   "name": "pi-plus",
   "version": "0.2.0",
-  "description": "Declarative tmux farm for pi coding agents: one YAML file drives the tmux session, pi session id/name and remote-pi mesh name, and survives reboots.",
+  "description": "pp — declarative tmux sessions for pi coding agents: one YAML drives the tmux session, pi session id/name and remote-pi mesh name, and survives reboots.",
   "type": "module",
   "bin": {
     "pp": "bin/pp.js"
@@ -11,7 +11,6 @@
     "src",
     "examples",
     "completions",
-    "test/e2e.sh",
     "README.md",
     "LICENSE"
   ],
@@ -19,6 +18,7 @@
     "node": ">=18.0.0"
   },
   "scripts": {
+    "prepublishOnly": "npm test",
     "test": "node --test test/*.test.js",
     "start": "node bin/pp.js",
     "syntax": "node --check bin/pp.js && for f in src/*.js; do node --check \"$f\"; done"
@@ -44,5 +44,9 @@
   "bugs": {
     "url": "https://github.com/HardyDou/pi-plus/issues"
   },
-  "homepage": "https://github.com/HardyDou/pi-plus#readme"
+  "homepage": "https://github.com/HardyDou/pi-plus#readme",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  }
 }
