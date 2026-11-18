@@ -4,7 +4,7 @@ _pp() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local commands="new n create up start down stop restart status ls list attach a logs log send mesh check validate doctor init install autostart uninstall alias link version help"
+  local commands="new n create up start down stop restart status ls list attach a logs log send mesh check validate doctor init install autostart uninstall alias link update upgrade version help"
 
   case "$prev" in
     -c|--config)
@@ -42,7 +42,7 @@ _pp() {
   esac
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "--config --socket --json --dry-run --force --reconcile --quiet --verbose --lines --watch --print --path --no-enter --attach --log --save --no-remote-pi --dir --agent --as --wait --reply --no-wait --body-json --bin-dir --help --version" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--config --socket --json --dry-run --force --reconcile --quiet --verbose --lines --watch --print --path --no-enter --attach --log --save --no-remote-pi --dir --agent --as --wait --reply --no-wait --body-json --bin-dir --check --registry --help --version" -- "$cur") )
     return 0
   fi
   if [[ $COMP_CWORD -eq 2 && "${COMP_WORDS[1]}" == "help" ]]; then

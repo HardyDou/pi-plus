@@ -37,6 +37,16 @@ import {
 } from "./autostart.js";
 import { clearStopped, isStopped, markStopped } from "./state.js";
 import {
+  compareVersions,
+  fetchLatestVersion,
+  installKind,
+  packageRoot,
+  planUpdate,
+  readManifest,
+  UpdateError,
+} from "./update.js";
+import { spawnSync } from "node:child_process";
+import {
   BROADCAST_TARGET,
   connectPeer,
   describeEnvelope,
@@ -1125,6 +1135,89 @@ function cmdUninstall(options, ui) {
   ui.info(`removed ${result.removed.join(", ")}`);
 }
 
+async function cmdUpdate(options, ui) {
+  const current = readManifest(packageRoot()).version;
+  const info = installKind(scriptPath(options));
+  const registry = options.registry ?? process.env.PP_NPM_REGISTRY ?? undefined;
+
+  let latest = null;
+  try {
+    latest = await fetchLatestVersion(registry ? { registry } : undefined);
+  } catch (error) {
+    if (!(error instanceof UpdateError)) throw error;
+    if (ui.json) ui.out(JSON.stringify({ current, latest: null, error: error.message }, null, 2));
+    else ui.error(error.message);
+    if (options.json) return;
+    ui.info(ui.paint("dim", "hint: upgrade by hand: npm i -g pi-farm@latest"));
+    process.exit(2);
+  }
+
+  const behind = compareVersions(latest, current) > 0;
+  const plan = planUpdate({
+    kind: info.kind,
+    currentVersion: current,
+    latestVersion: latest,
+    registry: registry ?? "https://registry.npmjs.org",
+    root: info.root,
+    path: info.path,
+  });
+
+  if (options.json) {
+    ui.out(
+      JSON.stringify(
+        { current, latest, upToDate: !behind, installKind: info.kind, command: plan ? [plan.command, ...plan.args] : null },
+        null,
+        2,
+      ),
+    );
+    process.exitCode = behind ? 1 : 0;
+    return;
+  }
+
+  if (!behind) {
+    ui.info(`pi-farm ${current} is up to date (latest ${latest})`);
+    return;
+  }
+  ui.info(`update available: ${current} → ${latest}  (${info.kind} install)`);
+  if (!plan) {
+    ui.error(`cannot tell how this copy was installed (${info.path})`);
+    ui.info(ui.paint("dim", `upgrade by hand: npm i -g ${"pi-farm"}@${latest}`));
+    process.exit(1);
+  }
+  const line = [plan.command, ...plan.args].join(" ");
+  if (plan.note) ui.info(ui.paint("dim", `note: ${plan.note}`));
+
+  if (options.check) {
+    ui.info(ui.paint("dim", `would run: ${line}`));
+    process.exitCode = 1; // 1 = "an update is available", handy for scripts
+    return;
+  }
+  if (options.dryRun) {
+    ui.info(`[dry-run] ${line}`);
+    return;
+  }
+
+  ui.info(ui.paint("dim", `$ ${line}`));
+  const result = spawnSync(plan.command, plan.args, { stdio: "inherit", cwd: plan.cwd ?? process.cwd() });
+  if (result.error) {
+    ui.error(`failed to run ${plan.command}: ${result.error.message}`);
+    process.exit(1);
+  }
+  if (plan.kind === "git") {
+    // A checkout upgraded in place: the running process is still the old code.
+    ui.info(`pulled; restart pp to use ${latest}`);
+    return;
+  }
+  const after = readManifest(packageRoot()).version;
+  if (compareVersions(after, latest) >= 0) ui.info(`now pi-farm ${after}`);
+  else if (result.status === 0) {
+    ui.error(`npm finished but this copy is still ${after} (another pi-farm may shadow it: type -a pp)`);
+    process.exitCode = 1;
+  } else {
+    process.exitCode = result.status ?? 1;
+  }
+}
+
 function cmdAlias(config, options, ui) {
   const sub = options.names[0] ?? "ls";
   const rest = options.names.slice(1);
@@ -1294,6 +1387,10 @@ export async function runCommand(command, options) {
     case "autostart": {
       const config = requireConfig(options, ui);
       return cmdInstall(config, options, ui);
+    }
+    case "update":
+    case "upgrade": {
+      return cmdUpdate(options, ui);
     }
     case "alias":
     case "link": {

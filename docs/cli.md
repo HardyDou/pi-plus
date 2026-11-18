@@ -32,6 +32,8 @@ pp <command> [names...] [options]
 | `--no-wait` | `mesh send` 只发不等 ACK |
 | `--body-json <json>` | `mesh send` 发结构化 JSON（默认发纯文本） |
 | `--bin-dir <dir>` | `alias` 的软链目录，默认 `~/.local/bin` 或 `$PP_BIN_DIR` |
+| `--check` | `update` 只报告：有新版时退出码 1 |
+| `--registry <url>` | `update` 查询/安装用的 npm 源，默认 `https://registry.npmjs.org`（也可用 `$PP_NPM_REGISTRY`） |
 | `--print` | `install` 只打印单元文件 |
 | `--watch [secs]` | `install` 额外装一个定时器，每 N 秒（默认 300）巡检一次 |
 | `-h, --help` | 帮助（`pp help`、`pp <cmd> --help` 等价） |
@@ -132,6 +134,26 @@ pp mesh send api --body-json '{"task":"test","id":42}'   # 结构化消息
 - 发送内容默认是字符串（对方看到的就是这句话）；`--body-json` 发送任意 JSON，对方收到的是序列化后的 JSON 文本
 - 地址后缀 `#N` 是 broker 对同 `(cwd, name)` 重复身份的自动去重，`livePeersFor` 会把它一并算作同一个会话
 - 跨机投递走 broker leader 的 relay 桥，发送端不需要做任何配对
+
+### `pp update [--check]`
+
+升级到最新发布版。先判断这份是从哪装的，再跑对应命令：
+
+| 安装方式 | 判断依据 | 执行的命令 |
+|---|---|---|
+| npm 全局 | 脚本路径含 `node_modules/pi-farm/bin/pp.js` | `npm i -g pi-farm@<latest> --registry <url>` |
+| git clone + `install.sh` | `<root>/bin/pp.js` 且 `<root>/.git` 存在 | `git -C <root> pull --ff-only` |
+| 其它 | — | 不猜，打印手动升级提示并退出 1 |
+
+```bash
+pp update                 # 已是最新则什么都不做
+pp update --check         # 0=最新，1=有新版（会打印将要执行的命令），2=查不到
+pp update --dry-run       # 只打印命令
+pp --json update --check
+PP_NPM_REGISTRY=https://nexus.local/repository/npm-group pp update
+```
+
+升级不动配置文件、tmux 会话和自启单元——单元里的 ExecStart 指向安装路径，下次运行自然用新版。
 
 ### `pp alias [ls|add|rm]`
 

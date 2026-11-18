@@ -69,6 +69,8 @@ function parseArgs(argv) {
         case "--no-wait": options.noWait = true; break;
         case "--body-json": options.bodyJson = takeValue(flag, inline); break;
         case "--bin-dir": options.binDir = takeValue(flag, inline); break;
+        case "--check": options.check = true; break;
+        case "--registry": options.registry = takeValue(flag, inline); break;
         case "--reply": options.reply = Number(takeValue(flag, inline)) || 0; break;
         case "--local": options.local = true; break;
         case "--path": options.path = takeValue(flag, inline); break;

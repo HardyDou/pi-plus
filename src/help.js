@@ -269,6 +269,31 @@ export const COMMANDS = [
     see: ["install"],
   },
   {
+    name: "update",
+    aliases: ["upgrade"],
+    summary: "Upgrade this install to the newest published version",
+    usage: "pp update [--check] [--dry-run] [--registry <url>]",
+    details: [
+      "Asks the registry for the newest version and upgrades whichever way this copy was installed: an npm global install runs `npm i -g pi-farm@<latest>`, a git checkout (install.sh) runs `git pull --ff-only`.",
+      "Nothing runs when you are already current. `--check` only reports and exits 1 when an update exists, which makes it usable from a script or a cron job.",
+      "The version check needs network access; set PP_NPM_REGISTRY or --registry when the default https://registry.npmjs.org is not reachable.",
+      "Upgrading does not touch your config, your sessions or the autostart unit — the unit points at the installed script, so it picks up the new version on the next run.",
+    ].join("\n"),
+    options: [
+      "--check          report only; exit 1 when an update is available",
+      "--dry-run        print the upgrade command without running it",
+      "--registry <url> registry to ask (default https://registry.npmjs.org)",
+      "--json           machine-readable output",
+    ],
+    examples: [
+      "pp update",
+      "pp update --check",
+      "pp update --dry-run",
+      "PP_NPM_REGISTRY=https://nexus.local/repository/npm-group pp update",
+    ],
+    see: ["version", "doctor"],
+  },
+  {
     name: "alias",
     aliases: ["link"],
     summary: "Add another command name when `pp` is taken by another program",

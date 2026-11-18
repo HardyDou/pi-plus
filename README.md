@@ -46,6 +46,16 @@ cd pi-plus && ./install.sh
 
 依赖：Node.js ≥ 18、tmux、pi（非 pi 的 agent 也可以，见 `agent` 字段）。
 
+### 升级
+
+```bash
+pp update            # 查最新版并升级（npm 全局装的就 npm i -g，git clone 的就 git pull）
+pp update --check    # 只看有没有新版；有则退出码 1，适合脚本/定时任务
+pp update --dry-run  # 只打印会跑的升级命令
+```
+
+> 内网镜像访问不到公共源时：`PP_NPM_REGISTRY=https://nexus.../npm-group pp update`；若报 `notarget`，是 npm 的 packument 缓存过期，`npm cache clean --force` 后重试。
+
 ### 命令名被别的程序占了？（macOS 自带 `/usr/bin/pp`）
 
 macOS 上 `/usr/bin/pp` 是一个 ASN.1 转换工具，`pp ls` 会打出它的用法说明。除了 `pp`，安装时还会一起装两个名字：
@@ -301,6 +311,7 @@ pp init                    写示例配置
 pp install [--watch N]     安装开机自启（别名 autostart）
 pp uninstall               卸载自启
 pp alias [ls|add|rm]       换/加一个命令名（pp 被别的程序占用时用）
+pp update [--check]        升级到最新发布版（npm / git 安装自动判断）
 pp help [命令]             帮助（不带参数为总览）
 pp version                 打印版本
 ```

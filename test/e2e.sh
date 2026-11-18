@@ -217,6 +217,13 @@ check "alias rm again is quiet"   0 'nothing to remove'  pp alias rm pif --bin-d
 check "help alias page"           0 'bin-dir'            pp help alias
 check "doctor names the binary"   0 'command name'       bash -c 'pp doctor 2>&1 || true'  # exits 1 until autostart is installed
 
+section "update"
+# network-dependent: keep it tolerant, the unit tests cover the logic
+check "update --check json"      0 '"current"'   bash -c 'pp --json update --check 2>&1 || true'
+check "update --dry-run"         0 'up to date|update available|would run|\[dry-run\]' bash -c 'pp update --dry-run 2>&1 || true'
+check "update offline errors"    2 'cannot reach' pp update --registry http://127.0.0.1:1/none
+check "update help page"         0 'npm i -g'    pp help update
+
 section "mesh (fake broker)"
 MESH_HOME=$E2E/fake
 MESH=("env" "REMOTE_PI_HOME=$MESH_HOME")

@@ -23,6 +23,7 @@ src/autostart.js   systemd / launchd 单元渲染与安装/卸载/状态查询
 src/commands.js    各子命令实现（up/down/restart/status/attach/logs/send/mesh/check/doctor/init/install/new/alias）
 src/help.js        COMMANDS 单一数据源 + 总览/单命令页/拼写建议
 src/aliases.js     备用命令名（pifarm/pi-plus/自定义软链）+ PATH 上 pp 归属判定
+src/update.js      自升级：安装方式判定（npm/git/unknown）、registry 版本查询、命令规划
 src/example.js     `pp init` 写入的示例配置
 ```
 

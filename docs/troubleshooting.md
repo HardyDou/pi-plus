@@ -24,6 +24,29 @@ pp alias ls                # 看已有别名 + 目录是否在 PATH
 
 别名只接受 `[A-Za-z0-9._-]`，且不能以 `-` 开头（避免被当成 flag）。
 
+## 升级类
+
+### `pp update` 报 `notarget No matching version found`
+
+npm 的 packument 缓存过期（刚发布时很常见）：
+
+```bash
+npm cache clean --force
+pp update
+```
+
+### `pp update` 报 `cannot reach https://registry.npmjs.org/pi-farm/latest`
+
+内网拿不到公共源。换源即可，包只在 npmjs 上有：
+
+```bash
+PP_NPM_REGISTRY=https://nexus.inner.example.com/repository/npm-group pp update
+```
+
+### `pp update` 提示 `cannot tell how this copy was installed`
+
+脚本既不在 `node_modules/pi-farm/` 下，也不在 git 检出里（比如被手工拷过）。按提示手动升级：`npm i -g pi-farm@latest`，或重新 `git clone` + `./install.sh`。
+
 ## 启动类
 
 ### `session "backend" exited immediately`
