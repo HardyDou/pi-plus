@@ -184,6 +184,38 @@ pp up backend        # 点名启动会清掉这条记录，重新纳入巡检
 - 远程：`ssh -t host 'pp attach backend'`（`-t` 必须有）
 - 只想看输出：`pp logs backend -n 500` 或 `tail -f ~/.pi/plus/logs/backend.log`
 
+## pi 扩展类
+
+### pi 里没有 `/pp-ls`、`/pp-sw` 这些命令
+
+扩展随 npm 包发布，但不会自动进 pi 的配置：
+
+```bash
+pi list                    # 看有没有 npm:pi-farm
+pi install npm:pi-farm     # 装（写 ~/.pi/agent/settings.json）
+```
+
+装完在运行的会话里 `/reload`，或重开 pi。启动横幅的 `[Extensions]` 一节应出现 `pp-tmux.js`。
+
+### `not running inside tmux (TMUX is unset)`
+
+扩展靠 `$TMUX` 定位 tmux 服务器。pi 不在 tmux pane 里就会这样报。
+
+```bash
+tmux new -s work -c ~/code/api "pi"     # 在 tmux 里起
+pp attach backend                        # 或者接到已有会话上
+```
+
+### `cannot switch: no tmux client is attached — attach first (pp attach <session>)`
+
+会话是 `pp up` 在后台起的，没有终端 attach 在它上面，所以没有 client 可以切换/断开。
+先 `pp attach <session>`，或在某个终端里 `tmux attach -t <session>`。
+
+### `/pp-ls` 看不到某个会话
+
+扩展只列**当前 `$TMUX` 指向的那个服务器**里的会话。`pp up --socket other` 起的会话在另一个
+socket 上，`tmux -L other list-sessions` 才看得到。
+
 ## 发布 / 安装类
 
 ### `npm i -g pi-farm` 装到的是别的东西或 404

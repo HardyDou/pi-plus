@@ -25,6 +25,8 @@ src/help.js        COMMANDS 单一数据源 + 总览/单命令页/拼写建议
 src/aliases.js     备用命令名（pifarm/pi-plus/自定义软链）+ PATH 上 pp 归属判定
 src/update.js      自升级：安装方式判定（npm/git/unknown）、registry 版本查询、命令规划
 src/example.js     `pp init` 写入的示例配置
+src/ppui.js        pi 扩展用的纯函数（$TMUX 解析、会话标签、前缀匹配、peek 参数、client 选择）
+extensions/pp-tmux.js  pi 扩展入口：/pp-ls /pp-sw /pp-quit /pp-status /pp-peek
 ```
 
 `src/help.js` 的 `COMMANDS` 是命令表的唯一来源：总览、单命令帮助、别名解析和拼写建议都由它生成，测试会断言「每个规范命令都有完整帮助页」，所以加命令时不会出现文档漂移。

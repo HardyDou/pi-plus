@@ -307,6 +307,9 @@ section "packaging"
 check "npm test green"           0 'fail 0'                   bash -c "cd $ROOT && npm test 2>&1 | tail -20"
 check "npm pack contents"        0 'bin/pp.js'             bash -c "cd $ROOT && npm pack --dry-run 2>&1 | grep bin/pp.js"
 check "install.sh syntax"        0 ''                           bash -n "$ROOT/install.sh"
+check "extension ships in the package" 0 'extensions/pp-tmux.js' bash -c "cd $ROOT && npm pack --dry-run 2>&1 | grep extensions/pp-tmux.js"
+check "package declares the pi manifest" 0 'pp-tmux.js'         bash -c "cd $ROOT && node -p \"JSON.stringify(require('./package.json').pi)\""
+check "extension exposes the five commands" 0 '^5$'         bash -c "cd $ROOT && grep -c 'command(\"pp-' extensions/pp-tmux.js"
 
 printf '\n==========================\nPASS %d  FAIL %d\n' "$PASS" "$FAIL"
 if [[ $FAIL -gt 0 ]]; then printf 'failed: %s\n' "${FAILED_NAMES[*]}"; exit 1; fi

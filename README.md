@@ -146,6 +146,29 @@ pp mesh send backend "跑一下测试" --reply 60000        # 等它回话，收
   `pp mesh send` 是走 agent 之间的消息通道（对方收到 `[agent-network] message from …` 信封）
 - broker 没起来时会明确报 `no mesh broker at …`；`pp mesh ls/resolve` 可离线用来看地址
 
+## 在 pi 里用 `/pp-*`（扩展）
+
+`pp` 自带一个 pi 扩展：把 tmux 的 `Ctrl-b s`、`Ctrl-b d` 变成斜杠命令，不用离开对话。
+
+```bash
+pi install npm:pi-farm     # 装进 ~/.pi/agent/settings.json，之后每个会话都有
+pi -e npm:pi-farm          # 只想这次带着它
+```
+
+| 命令 | tmux 等价 | 作用 |
+| --- | --- | --- |
+| `/pp-ls` | `Ctrl-b s` | 列出所有会话，上下选择、回车切换 |
+| `/pp-sw <会话>` | `Ctrl-b s` + 回车 | 直接切，支持唯一前缀与参数补全 |
+| `/pp-quit` | `Ctrl-b d` | 断开当前终端，会话和 pi 继续跑 |
+| `/pp-status` | — | 当前会话/窗口/pane/cwd/pi 会话 id/remote-pi 名字/pp 版本 |
+| `/pp-peek [会话] [-n N]` | — | 看另一个会话最近 N 行输出，不切换 |
+
+细节与排障见 [docs/extension.md](docs/extension.md)：
+
+- 只操作"看着你"的那个 tmux client（`switch-client -c` / `detach-client -t`），没有 client 附着时给提示而不是报错；
+- `/pp-status`、`/pp-peek` 用 `appendEntry` 渲染，**不占模型上下文**；`pi -p` 下改为写 stdout；
+- 只在 tmux pane 里可用（靠 `$TMUX` 定位服务器）。
+
 ## 文档
 
 | 文档 | 内容 |
@@ -156,6 +179,7 @@ pp mesh send backend "跑一下测试" --reply 60000        # 等它回话，收
 | [docs/architecture.md](docs/architecture.md) | 内部实现：模块职责、`up` 数据流、名字解析、restart 状态机、tmux 目标规则 |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | 排障手册：按报错原文查（起不来、`can't find pane`、名字不对、自启没生效、attach 乱码…） |
 | [docs/development.md](docs/development.md) | 开发指南：跑测试、改代码的规矩、测试分层、发布流程（含 npm staged publishing 的坑） |
+| [docs/extension.md](docs/extension.md) | pi 扩展 `/pp-*`：在会话里切 tmux、看别人的屏幕、断开连接（安装与全部命令） |
 
 ## 配置参考
 ```yaml
@@ -458,6 +482,9 @@ sessions:
 Name overrides: `tmux_name`, `pi_session_name`, `remote_pi_name`.
 remote-pi mode: `config` (default, writes `<cwd>/.pi/remote-pi/config.json`),
 `env` (`REMOTE_PI_DIRECT_CONFIG`), `off`.
+
+Inside pi, the bundled extension adds `/pp-ls`, `/pp-sw <session>`, `/pp-quit`,
+`/pp-status` and `/pp-peek [session] [-n N]` (install with `pi install npm:pi-farm`).
 
 Commands: `up`, `down`, `restart`, `status`, `attach`, `logs`, `send`, `check`,
 `doctor`, `init`, `install`, `uninstall`. Options: `--config`, `--socket`,

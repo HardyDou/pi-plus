@@ -413,6 +413,9 @@ export function renderOverview(version) {
   lines.push("  pi --name      pi_session_name | name");
   lines.push("  remote-pi      remote_pi_name | name");
   lines.push("");
+  lines.push("Inside a pi session (extension, `pi install npm:pi-farm`):");
+  lines.push("  /pp-ls  /pp-sw <session>  /pp-quit  /pp-status  /pp-peek [session] [-n N]");
+  lines.push("");
   lines.push(`Run 'pp help <command>' for details, e.g. 'pp help install'.`);
   return `${lines.join("\n")}\n`;
 }
