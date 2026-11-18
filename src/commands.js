@@ -65,8 +65,10 @@ function requireConfig(options, ui) {
   return config;
 }
 
-function selectSessions(config, names, ui) {
-  if (!names || names.length === 0) return config.sessions.filter((s) => s.enabled !== false);
+function selectSessions(config, names, ui, { all = false } = {}) {
+  if (!names || names.length === 0) {
+    return all ? config.sessions : config.sessions.filter((s) => s.enabled !== false);
+  }
   const byKey = new Map();
   for (const s of config.sessions) {
     byKey.set(s.name, s);
@@ -207,7 +209,8 @@ async function cmdUp(config, options, ui) {
 }
 
 function cmdDown(config, options, ui) {
-  const sessions = selectSessions(config, options.names, ui);
+  // Stopping is always safe: a bare "down" stops everything, enabled or not.
+  const sessions = selectSessions(config, options.names, ui, { all: true });
   const tmux = makeTmux(config, options);
   let killed = 0;
   let missing = 0;
@@ -237,7 +240,7 @@ async function cmdRestart(config, options, ui) {
 
 function cmdStatus(config, options, ui) {
   // status lists every configured session, including enabled: false ones.
-  const sessions = options.names?.length ? selectSessions(config, options.names, ui) : config.sessions;
+  const sessions = selectSessions(config, options.names, ui, { all: true });
   const tmux = makeTmux(config, options);
   const live = tmux.listSessions();
 
