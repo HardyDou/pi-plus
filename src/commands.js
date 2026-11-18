@@ -13,6 +13,17 @@ import {
   shellQuote,
 } from "./config.js";
 import { readRemotePiConfig, remotePiConfigPath, writeRemotePiName } from "./remote-pi.js";
+import {
+  addAlias,
+  aliasDir,
+  BUILTIN_NAMES,
+  AliasError,
+  describeCommandNames,
+  dirOnPath,
+  inspectCommandNames,
+  listAliases,
+  removeAlias,
+} from "./aliases.js";
 import { resolveExecutable, Tmux } from "./tmux.js";
 import {
   installAutostart,
@@ -25,7 +36,16 @@ import {
   systemdUserDir,
 } from "./autostart.js";
 import { clearStopped, isStopped, markStopped } from "./state.js";
-import { BROADCAST_TARGET, connectPeer, livePeersFor, MeshError, peerPc, probePeers, sessionMeshAddress } from "./mesh.js";
+import {
+  BROADCAST_TARGET,
+  connectPeer,
+  describeEnvelope,
+  livePeersFor,
+  MeshError,
+  peerPc,
+  probePeers,
+  sessionMeshAddress,
+} from "./mesh.js";
 import { findCommand, suggestCommand } from "./help.js";
 import { EXAMPLE_CONFIG } from "./example.js";
 
@@ -573,6 +593,10 @@ async function cmdMesh(config, options, ui) {
     case "resolve":
     case "addr":
       return cmdMeshResolve(config, { ...options, names: rest }, ui);
+    case "inbox":
+    case "listen":
+    case "watch":
+      return cmdMeshInbox(config, { ...options, names: rest }, ui);
     default:
       ui.error(`unknown mesh subcommand: ${sub}`);
       return meshUsage(ui);
@@ -658,6 +682,70 @@ async function cmdMeshResolve(config, options, ui) {
       for (const match of row.matches) ui.out(`  ${ui.paint("dim", match)}`);
     }
   }
+}
+
+async function cmdMeshInbox(config, options, ui) {
+  const name = options.as ?? "pp-inbox";
+  let peer;
+  try {
+    peer = await connectPeer({ name, cwd: options.cwd ?? process.cwd(), timeoutMs: options.wait ?? 5000 });
+  } catch (err) {
+    ui.error(err.message);
+    process.exit(1);
+  }
+  let received = 0;
+  let closing = false;
+  const leave = (reason) => {
+    if (closing) return;
+    closing = true;
+    try {
+      peer.close();
+    } catch {
+      /* socket already gone */
+    }
+    if (reason === "signal") {
+      if (!ui.json) ui.info(`left the mesh as ${peer.address} (${received} message(s))`);
+      process.exit(0);
+    }
+  };
+  const onBrokerFrame = (envelope) => {
+    if (!ui.verbose) return;
+    const event = envelope?.body ?? {};
+    ui.out(ui.paint("dim", `${event.type ?? "event"}: ${event.address ?? event.name ?? "?"}`));
+  };
+  peer.onMessage((envelope) => {
+    // The broker pushes its own lifecycle events as envelopes from "broker"
+    // (peer_joined / peer_left); they are not messages for us.
+    const eventType = envelope?.body?.type;
+    if (envelope?.from === "broker" || eventType === "peer_joined" || eventType === "peer_left") {
+      onBrokerFrame(envelope);
+      return;
+    }
+    if (!envelope || eventType === "ack") return; // ACKs belong to senders
+    received += 1;
+    const message = describeEnvelope(envelope);
+    if (ui.json) {
+      ui.out(JSON.stringify(message));
+      return;
+    }
+    const header = message.re ? `from ${message.from}  re=${message.re}` : `from ${message.from}`;
+    ui.out(`${ui.paint("green", header)}`);
+    for (const line of message.body.split("\n")) ui.out(`  ${line}`);
+  });
+  for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => leave("signal"));
+  peer.socket.on("close", () => {
+    if (closing) return;
+    ui.error(`mesh connection closed by the broker (was ${peer.address})`);
+    process.exitCode = 1;
+    process.exit(1);
+  });
+  if (!ui.json) {
+    const where = config?.path ? `  config: ${config.path}` : "";
+    ui.out(`${ui.paint("green", `listening as ${peer.address}`)}${where}`);
+    ui.out(ui.paint("dim", "Ctrl-C to leave; messages are printed as they arrive"));
+  }
+  // keep the process alive while the socket is open
+  await new Promise(() => {});
 }
 
 async function cmdMeshSend(config, options, ui) {
@@ -923,6 +1011,8 @@ function cmdDoctor(config, options, ui) {
   // A missing server is normal (tmux starts on demand) — not a failure.
   add("tmux server", true, hasServer ? "running" : "not running (starts on demand)");
   add("pi", commandExists("pi"), resolveExecutable("pi"));
+  const names = inspectCommandNames({ target: scriptPath(options) });
+  add("command name", names.ok, describeCommandNames(names));
   add("config", Boolean(config), config?.path ?? "not found");
   const autostart = autostartState();
   add("autostart", Boolean(autostart.kind) && autostart.installed && autostart.enabled, describeAutostart(autostart));
@@ -940,6 +1030,12 @@ function cmdDoctor(config, options, ui) {
     ui.out(`${mark} ${check.label.padEnd(14)} ${ui.paint("dim", check.detail ?? "")}`);
   }
   if (!config) ui.out(`\n${ui.paint("dim", "hint:")} no config found; run pp init`);
+  if (!names.ok) {
+    ui.out(
+      `${ui.paint("dim", "hint:")} another program owns the name on PATH; pick one with ` +
+        `pp alias add pif  (or use pifarm / pi-plus) — see pp help alias`,
+    );
+  }
   if (autostart.kind === "systemd") {
     ui.out(`\n${ui.paint("dim", "systemd unit dir:")} ${systemdUserDir()}`);
     ui.out(`${ui.paint("dim", "hint:")} systemctl --user status pi-plus`);
@@ -970,15 +1066,19 @@ function cmdInit(options, ui) {
   ui.info(`start with:    pp up --config ${target}`);
 }
 
+function scriptPath(options = {}) {
+  return options.scriptPath ?? resolve(process.argv[1]);
+}
+
 function cmdInstall(config, options, ui) {
-  const scriptPath = options.scriptPath ?? resolve(process.argv[1]);
+  const scriptPath_ = scriptPath(options);
   const watch = options.watch === true ? 300 : Number(options.watch) || 0;
   if (options.watch !== undefined && watch < 30) {
     ui.error("--watch interval must be at least 30 seconds");
     process.exit(2);
   }
   const result = installAutostart({
-    scriptPath,
+    scriptPath: scriptPath_,
     configPath: config.path,
     watch,
     print: options.print,
@@ -1023,6 +1123,92 @@ function cmdUninstall(options, ui) {
     return;
   }
   ui.info(`removed ${result.removed.join(", ")}`);
+}
+
+function cmdAlias(config, options, ui) {
+  const sub = options.names[0] ?? "ls";
+  const rest = options.names.slice(1);
+  const target = scriptPath(options);
+  const dir = aliasDir(process.env, options.binDir);
+  const onPath = dirOnPath(dir);
+
+  const show = (payload) => {
+    if (ui.json) {
+      ui.out(JSON.stringify(payload, null, 2));
+      return true;
+    }
+    return false;
+  };
+
+  try {
+    switch (sub) {
+      case "ls":
+      case "list": {
+        const aliases = listAliases({ dir, target });
+        if (show({ dir, onPath, aliases })) return;
+        if (aliases.length === 0) {
+          ui.out(`no aliases in ${dir}`);
+        } else {
+          for (const alias of aliases) {
+            ui.out(`${ui.paint("bold", alias.name.padEnd(12))} ${ui.paint("dim", alias.path)}`);
+          }
+        }
+        ui.out(
+          ui.paint(
+            "dim",
+            `${onPath ? "" : `note: ${dir} is not on PATH; `}built in: ${BUILTIN_NAMES.join(", ")}`,
+          ),
+        );
+        ui.out(ui.paint("dim", "add one with: pp alias add pif"));
+        return;
+      }
+      case "add":
+      case "create":
+      case "link": {
+        const name = rest[0];
+        assertAliasNameSafe(name);
+        const result = addAlias(name, { dir, target, force: options.force });
+        if (show({ ...result, dir, onPath })) return;
+        ui.info(`${result.changed ? "linked" : "already linked"} ${result.path} → ${target}`);
+        if (!onPath) {
+          ui.info(ui.paint("yellow", `note: ${dir} is not on PATH; add it, e.g. export PATH="${dir}:$PATH"`));
+        }
+        ui.info(ui.paint("dim", `try: ${name} ls`));
+        return;
+      }
+      case "rm":
+      case "remove":
+      case "delete":
+      case "unlink": {
+        const name = rest[0];
+        assertAliasNameSafe(name);
+        const removed = removeAlias(name, { dir, target });
+        if (show({ name, removed, dir })) return;
+        if (!removed) {
+          ui.info(`nothing to remove at ${join(dir, name)}`);
+          return;
+        }
+        ui.info(`removed ${join(dir, name)}`);
+        return;
+      }
+      default:
+        ui.error(`unknown alias subcommand: ${sub}`);
+        ui.error("usage: pp alias [ls | add <name> | rm <name>] [--bin-dir <dir>]");
+        process.exit(2);
+    }
+  } catch (err) {
+    if (err instanceof AliasError) {
+      ui.error(err.message);
+      process.exit(err.code === "usage" ? 2 : 1);
+    }
+    throw err;
+  }
+}
+
+function assertAliasNameSafe(name) {
+  if (!name) {
+    throw new AliasError("alias name is required, e.g. pp alias add pif", "usage");
+  }
 }
 
 export async function runCommand(command, options) {
@@ -1108,6 +1294,10 @@ export async function runCommand(command, options) {
     case "autostart": {
       const config = requireConfig(options, ui);
       return cmdInstall(config, options, ui);
+    }
+    case "alias":
+    case "link": {
+      return cmdAlias(null, options, ui); // aliasing does not need a config
     }
     case "uninstall": {
       return cmdUninstall(options, ui);

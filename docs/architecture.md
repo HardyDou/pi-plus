@@ -20,8 +20,9 @@ src/remote-pi.js   读写 <cwd>/.pi/remote-pi/config.json，构造 REMOTE_PI_DIR
 src/state.js       手动停止记录（XDG state），给 restart 策略用
 src/mesh.js        remote-pi broker 的零依赖客户端（探测 / 注册 / 发送 / ACK）
 src/autostart.js   systemd / launchd 单元渲染与安装/卸载/状态查询
-src/commands.js    各子命令实现（up/down/restart/status/attach/logs/send/mesh/check/doctor/init/install/new）
+src/commands.js    各子命令实现（up/down/restart/status/attach/logs/send/mesh/check/doctor/init/install/new/alias）
 src/help.js        COMMANDS 单一数据源 + 总览/单命令页/拼写建议
+src/aliases.js     备用命令名（pifarm/pi-plus/自定义软链）+ PATH 上 pp 归属判定
 src/example.js     `pp init` 写入的示例配置
 ```
 

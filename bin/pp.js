@@ -68,6 +68,7 @@ function parseArgs(argv) {
         case "--wait": options.wait = Number(takeValue(flag, inline)) || 5000; break;
         case "--no-wait": options.noWait = true; break;
         case "--body-json": options.bodyJson = takeValue(flag, inline); break;
+        case "--bin-dir": options.binDir = takeValue(flag, inline); break;
         case "--reply": options.reply = Number(takeValue(flag, inline)) || 0; break;
         case "--local": options.local = true; break;
         case "--path": options.path = takeValue(flag, inline); break;

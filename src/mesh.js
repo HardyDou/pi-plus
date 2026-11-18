@@ -50,6 +50,21 @@ export function sessionMeshAddress(session) {
  * two agents in the same directory ask for the same name, so an exact match is
  * not enough.
  */
+/**
+ * Normalise an inbound envelope for display: remote-pi renders string bodies
+ * verbatim and JSON-stringifies everything else, so we do the same.
+ */
+export function describeEnvelope(envelope) {
+  const body =
+    typeof envelope?.body === "string" ? envelope.body : JSON.stringify(envelope?.body ?? null);
+  return {
+    from: typeof envelope?.from === "string" ? envelope.from : "unknown",
+    re: typeof envelope?.re === "string" ? envelope.re : null,
+    id: typeof envelope?.id === "string" ? envelope.id : null,
+    body,
+  };
+}
+
 export function livePeersFor(peers, address) {
   if (!address) return [];
   return peers.filter((peer) => peer === address || peer.startsWith(`${address}#`));

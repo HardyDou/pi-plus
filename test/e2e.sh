@@ -54,6 +54,9 @@ ncheck() { # name pattern cmd...
 section() { printf '\n### %s\n' "$1"; }
 
 cleanup() {
+  [[ -n ${INBOX_PID:-} ]] && kill "$INBOX_PID" >/dev/null 2>&1
+  [[ -n ${INBOX_JSON_PID:-} ]] && kill "$INBOX_JSON_PID" >/dev/null 2>&1
+  [[ -n ${FAKE_PID:-} ]] && kill "$FAKE_PID" >/dev/null 2>&1
   systemctl --user stop pi-plus.service >/dev/null 2>&1
   tmux -L "$SOCK" kill-server >/dev/null 2>&1
   rm -rf "$E2E"
@@ -200,6 +203,46 @@ check "mesh bad body json"         2 'not valid JSON'      "${MESH_ENV[@]}" pp -
 check "mesh help page"             0 'broker'              pp help mesh
 check "mesh unknown subcommand"    2 'unknown mesh subcommand' pp mesh wat
 
+section "alias"
+check "alias add"                 0 'linked'             pp alias add pif --bin-dir "$E2E/aliasbin"
+check "alias runs the CLI"        0 '^0\.'                "$E2E/aliasbin/pif" -V
+check "alias ls json"             0 '"pif"'              pp --json alias ls --bin-dir "$E2E/aliasbin"
+echo not-a-symlink > "$E2E/aliasbin/real"
+check "alias refuses a real file" 1 'is not a symlink'   pp alias add real --bin-dir "$E2E/aliasbin"
+check "alias --force replaces it" 0 'linked'             pp alias add real --bin-dir "$E2E/aliasbin" --force
+check "alias rejects bad name"    1 'not a valid command name' pp alias add 'a b' --bin-dir "$E2E/aliasbin"
+check "alias add needs a name"    2 'alias name is required'  pp alias add
+check "alias rm"                  0 'removed'            pp alias rm pif --bin-dir "$E2E/aliasbin"
+check "alias rm again is quiet"   0 'nothing to remove'  pp alias rm pif --bin-dir "$E2E/aliasbin"
+check "help alias page"           0 'bin-dir'            pp help alias
+check "doctor names the binary"   0 'command name'       bash -c 'pp doctor 2>&1 || true'  # exits 1 until autostart is installed
+
+section "mesh (fake broker)"
+MESH_HOME=$E2E/fake
+MESH=("env" "REMOTE_PI_HOME=$MESH_HOME")
+node "$ROOT/test/fake-broker.js" "$MESH_HOME/.pi/remote/sessions/local/broker.sock" &
+FAKE_PID=$!
+sleep 0.6
+# exec so the background pid *is* node (a subshell would swallow the SIGINT)
+bash -c "cd '$E2E' && exec env REMOTE_PI_HOME='$MESH_HOME' pp mesh inbox --as e-inbox" > "$E2E/inbox.out" 2>&1 &
+INBOX_PID=$!
+bash -c "cd '$E2E' && exec env REMOTE_PI_HOME='$MESH_HOME' pp --json mesh inbox --as e-inbox-json" > "$E2E/inbox.jsonl" 2>&1 &
+INBOX_JSON_PID=$!
+sleep 1.5
+check "mesh ls sees the inbox"    0 '@e-inbox'          "${MESH[@]}" pp mesh ls
+check "mesh send to an inbox"     0 'delivered'         "${MESH[@]}" pp mesh send "$E2E@e-inbox" "hello-inbox"
+check "mesh send --reply"         0 'reply from .*: pong' "${MESH[@]}" pp mesh send "$E2E@e-inbox" "?reply pong" --reply 5000
+check "mesh send to json inbox"   0 'delivered'         "${MESH[@]}" pp mesh send "$E2E@e-inbox-json" "json-inbox"
+sleep 0.6
+check "inbox printed the message" 0 'hello-inbox'      cat "$E2E/inbox.out"
+check "inbox hid broker events"   0 '^$'               bash -c "! grep -q 'peer_joined' '$E2E/inbox.out'"
+check "inbox json line"           0 '"from".*"body".*json-inbox' cat "$E2E/inbox.jsonl"
+kill -INT "$INBOX_PID" 2>/dev/null
+kill -INT "$INBOX_JSON_PID" 2>/dev/null
+sleep 0.8
+check "inbox leaves on SIGINT"    0 'left the mesh as .*e-inbox' cat "$E2E/inbox.out"
+kill "$FAKE_PID" 2>/dev/null
+
 section "autostart unit files"
 check "install --print"          0 'ExecStart='                 PFc install --print
 check "print includes reconcile" 0 'up.*--reconcile'            PFc install --print
@@ -235,8 +278,8 @@ sessions:
     log: /tmp/e2e-pifarm/e-pi.log
 YAML
 check "pi up"                    0 'started e-pi'               pp -c "$E2E/pi.yml" --socket "$SOCK" up
-for i in $(seq 1 20); do
-  grep -qiE 'connected as|Local mesh' "$E2E/e-pi.log" 2>/dev/null && break
+for i in $(seq 1 30); do
+  grep -q 'connected as "e-pi-mesh"' "$E2E/e-pi.log" 2>/dev/null && break
   sleep 1
 done
 check "pi joined mesh"           0 'connected as "e-pi-mesh"'   bash -c "grep -o 'connected as \"e-pi-mesh\"[^\"]*' $E2E/e-pi.log | head -1"

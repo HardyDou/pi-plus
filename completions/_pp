@@ -16,12 +16,14 @@ _pp() {
     'attach:attach to a session (starts it if needed)'
     'logs:print pane output'
     'send:type text into a pane'
-    'mesh:remote-pi mesh (ls/send/resolve)'
+    'mesh:remote-pi mesh (ls/send/resolve/inbox)'
     'check:validate the config'
     'doctor:environment diagnostics'
     'init:write an example config'
     'install:install reboot autostart'
     'uninstall:remove autostart'
+    'alias:add another command name (ls/add/rm)'
+    'link:alias for alias'
     'version:print version'
     'help:show help (help <command> for one command)'
   )
@@ -51,6 +53,7 @@ _pp() {
     '--reply[wait for a reply after the ACK]:ms:' \
     '--no-wait[do not wait for the mesh ACK]' \
     '--body-json[mesh body as JSON]:json:' \
+    '--bin-dir[directory for pp alias symlinks]:dir:_files -/' \
     '--watch[reconcile interval for install]:seconds:' \
     '--print[print autostart unit and exit]' \
     '1:command:->command' \

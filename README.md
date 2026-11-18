@@ -46,6 +46,22 @@ cd pi-plus && ./install.sh
 
 依赖：Node.js ≥ 18、tmux、pi（非 pi 的 agent 也可以，见 `agent` 字段）。
 
+### 命令名被别的程序占了？（macOS 自带 `/usr/bin/pp`）
+
+macOS 上 `/usr/bin/pp` 是一个 ASN.1 转换工具，`pp ls` 会打出它的用法说明。除了 `pp`，安装时还会一起装两个名字：
+
+```bash
+pifarm ls        # 等价于 pp ls
+pi-plus ls
+
+pp alias add pif # 或者自己起个短名字（软链到同一个脚本，升级不会失效）
+pp alias ls      # 看有哪些别名、目录是否在 PATH 里
+pp alias rm pif
+pp doctor        # 会提示 PATH 上的 pp 到底是不是我们
+```
+
+`install.sh` 也支持换名字：`PP_BIN_NAME=pifarm ./install.sh`（或 `PP_BIN_NAME="pp pif"`）。
+
 > 若你的 `npm config get registry` 指向内网镜像（例如 Nexus），装不到这个包时显式指定公共源：
 > `npm i -g pi-farm --registry https://registry.npmjs.org/`
 
@@ -284,6 +300,7 @@ pp doctor                  环境诊断（含自启状态、WSL 提示）
 pp init                    写示例配置
 pp install [--watch N]     安装开机自启（别名 autostart）
 pp uninstall               卸载自启
+pp alias [ls|add|rm]       换/加一个命令名（pp 被别的程序占用时用）
 pp help [命令]             帮助（不带参数为总览）
 pp version                 打印版本
 ```
@@ -378,6 +395,7 @@ sessions:
 | remote-pi 名字不对 | 看 `<cwd>/.pi/remote-pi/config.json` 的 `agent_name`；同名冲突时 broker 可能显示 `name#2` |
 | 自启没生效 | `systemctl --user status pi-plus`；WSL 确认 systemd 开启；`pp doctor` |
 | pi 找不到 | systemd 的 PATH 由 `install` 自动写入 node 所在目录；自定义路径用 `agent: /abs/path/pi` |
+| `pp ls` 打出一大段 ASN.1 用法 | 那是 macOS 自带的 `/usr/bin/pp`。用 `pifarm ls`，或 `pp alias add pif` 换个名字（见[安装](#命令名被别的程序占了macos-自带-usrbinpp)） |
 
 ## 开发
 

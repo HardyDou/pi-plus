@@ -2,6 +2,28 @@
 
 按「你看到的原文」查。每条都附上验证命令。
 
+## 命令名类
+
+### 敲 `pp ls` 却打出 `Usage: pp [-t type] [-a] [-i input] ...`
+
+那是 macOS（以及部分发行版）自带的 ASN.1 工具 `/usr/bin/pp`，不是我们。PATH 里谁靠前谁生效，而 `/usr/bin` 常常压过 npm 的全局 bin。
+
+```bash
+type -a pp                 # 看 PATH 上有几个 pp
+pp doctor                  # 会直接写：ours: pp 0.3.0 (installed) / pp → /usr/bin/pp (not pi-plus)
+pifarm ls                  # 安装时就带的备用名字（另一个是 pi-plus）
+pp alias add pif           # 自己起名字：~/.local/bin/pif → 同一个脚本
+pp alias ls                # 看已有别名 + 目录是否在 PATH
+```
+
+- 别名的默认目录是 `~/.local/bin`（可用 `--bin-dir` 或 `$PP_BIN_DIR` 改），它会提示该目录是否在 PATH 里
+- `pp alias rm <name>` 只删指向本 CLI 的软链；指向别的东西会拒绝，交给你自己处理
+- `install.sh` 也能一步换名：`PP_BIN_NAME=pifarm ./install.sh`，或 `PP_BIN_NAME="pp pif" ./install.sh`
+
+### `error: ... is not a valid command name`
+
+别名只接受 `[A-Za-z0-9._-]`，且不能以 `-` 开头（避免被当成 flag）。
+
 ## 启动类
 
 ### `session "backend" exited immediately`
