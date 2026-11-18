@@ -293,6 +293,7 @@ sessions:
 
 ```bash
 npm test            # node --test，纯单元测试，不需要 tmux
+./test/e2e.sh       # 端到端冒烟测试（需 tmux/pi，约 3 分钟，会临时装一个 systemd unit 再删掉）
 node bin/pi-farm.js --help
 ```
 

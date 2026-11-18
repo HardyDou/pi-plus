@@ -161,7 +161,7 @@ export class Tmux {
   }
 
   pipeLog(name, path) {
-    this.run(["pipe-pane", "-o", "-t", `=${name}`, `cat >> '${String(path).replace(/'/g, `'\\''`)}'`], {
+    this.run(["pipe-pane", "-o", "-t", paneTarget(name), `cat >> '${String(path).replace(/'/g, `'\\''`)}'`], {
       allowFailure: true,
     });
   }

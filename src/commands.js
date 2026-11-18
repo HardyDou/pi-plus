@@ -341,6 +341,10 @@ async function cmdAttach(config, options, ui) {
   }
   const [session] = selectSessions(config, [name], ui);
   const tmux = makeTmux(config, options);
+  if (options.dryRun) {
+    ui.info(`[dry-run] tmux attach-session -t =${session.tmuxName}`);
+    return;
+  }
   if (!tmux.sessionExists(session.tmuxName)) {
     ui.info(`${session.tmuxName} is not running; starting it first...`);
     await cmdUp({ ...config, sessions: [session] }, { ...options, names: [], quiet: false }, ui);
@@ -361,6 +365,10 @@ function cmdLogs(config, options, ui) {
   }
   const [session] = selectSessions(config, [name], ui);
   const tmux = makeTmux(config, options);
+  if (options.dryRun) {
+    ui.info(`[dry-run] tmux capture-pane -p -t =${session.tmuxName}: -S -${options.lines ?? 200}`);
+    return;
+  }
   if (!tmux.sessionExists(session.tmuxName)) {
     ui.error(`session "${session.name}" is not running`);
     process.exit(1);
@@ -377,11 +385,16 @@ function cmdSend(config, options, ui) {
   }
   const [session] = selectSessions(config, [name], ui);
   const tmux = makeTmux(config, options);
+  const text = rest.join(" ");
+  if (options.dryRun) {
+    ui.info(`[dry-run] tmux send-keys -t =${session.tmuxName}: -- ${shellQuote(text)}${options.noEnter ? "" : " Enter"}`);
+    return;
+  }
   if (!tmux.sessionExists(session.tmuxName)) {
     ui.error(`session "${session.name}" is not running`);
     process.exit(1);
   }
-  tmux.sendText(session.tmuxName, rest.join(" "), { enter: !options.noEnter });
+  tmux.sendText(session.tmuxName, text, { enter: !options.noEnter });
   ui.info(`sent to ${session.name}`);
 }
 
@@ -471,7 +484,8 @@ function cmdDoctor(config, options, ui) {
   })();
   add("tmux", Boolean(tmuxVersion), tmuxVersion ?? "not found");
   const hasServer = tmux.hasServer();
-  add("tmux server", hasServer, hasServer ? "running" : "not running (will start on up)");
+  // A missing server is normal (tmux starts on demand) — not a failure.
+  add("tmux server", true, hasServer ? "running" : "not running (starts on demand)");
   add("pi", commandExists("pi"), resolveExecutable("pi"));
   add("config", Boolean(config), config?.path ?? "not found");
   const kind = autostartKind();
@@ -536,7 +550,7 @@ function cmdInstall(config, options, ui) {
     return;
   }
   if (options.dryRun) {
-    ui.info(`[dry-run] would install ${result.kind} autostart for ${config.path}`);
+    ui.info(`\n[dry-run] nothing written; would install ${result.kind} autostart for ${config.path}`);
     return;
   }
   if (result.kind === "systemd") {

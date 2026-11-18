@@ -146,10 +146,10 @@ export function installAutostart({ scriptPath, configPath, watch = false, print 
     const timerPath = join(dir, `${SERVICE_NAME}.timer`);
     const service = renderSystemdService({ scriptPath, configPath, watch });
     const timer = watch ? renderSystemdTimer({ intervalSeconds: watch }) : null;
-    if (print) {
+    if (print || dryRun) {
       process.stdout.write(service);
       if (timer) process.stdout.write(`\n# --- ${SERVICE_NAME}.timer ---\n${timer}`);
-      return { kind, servicePath, timerPath: timer ? timerPath : null };
+      return { kind, servicePath, timerPath: timer ? timerPath : null, dryRun };
     }
     if (!dryRun) {
       mkdirSync(dir, { recursive: true });
@@ -169,9 +169,9 @@ export function installAutostart({ scriptPath, configPath, watch = false, print 
 
   const plistPath = launchAgentPath();
   const plist = renderLaunchAgent({ scriptPath, configPath, watch });
-  if (print) {
+  if (print || dryRun) {
     process.stdout.write(plist);
-    return { kind, plistPath };
+    return { kind, plistPath, dryRun };
   }
   if (!dryRun) {
     mkdirSync(dirname(plistPath), { recursive: true });

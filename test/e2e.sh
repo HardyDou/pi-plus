@@ -1,0 +1,242 @@
+#!/usr/bin/env bash
+# End-to-end feature test for pi-farm (manual, not part of `npm test`).
+#
+# What it does: exercises every feature against a throw-away tmux socket
+# (pfe2e), its own XDG_STATE_HOME and config, up to and including installing a
+# real `pi-farm.service` systemd user unit and starting ONE real pi agent.
+#
+# Requirements: tmux, bash, a working `pi` CLI (only the last two sections).
+#
+#   ./test/e2e.sh              # full run (~3 minutes)
+#
+# It cleans up after itself (kills its tmux server, stops/uninstalls the unit,
+# removes /tmp/e2e-pifarm). Do not run it on a machine where you rely on a
+# `pi-farm.service` of your own: the autostart section installs and removes it.
+set -uo pipefail
+
+ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+E2E=/tmp/e2e-pifarm
+SOCK=pfe2e
+export XDG_STATE_HOME=$E2E/state
+CFG=$E2E/farm.yml
+PASS=0; FAIL=0; FAILED_NAMES=()
+
+check() { # name want_rc pattern cmd...
+  local name="$1" want_rc="$2" pat="$3"; shift 3
+  local out rc
+  out=$("$@" 2>&1); rc=$?
+  local ok=1
+  [[ "$rc" -eq "$want_rc" ]] || ok=0
+  if [[ -n "$pat" ]]; then grep -qE -- "$pat" <<<"$out" || ok=0; fi
+  if [[ $ok -eq 1 ]]; then
+    PASS=$((PASS+1)); printf 'ok   %s\n' "$name"
+  else
+    FAIL=$((FAIL+1)); FAILED_NAMES+=("$name")
+    printf 'FAIL %s  (rc=%s want=%s /pat= %s)\n' "$name" "$rc" "$want_rc" "$pat"
+    sed -n '1,12p' <<<"$out" | sed 's/^/     | /'
+  fi
+}
+
+# ncheck: command must succeed and must NOT print the pattern
+ncheck() { # name pattern cmd...
+  local name="$1" pat="$2"; shift 2
+  local out rc
+  out=$("$@" 2>&1); rc=$?
+  if [[ $rc -eq 0 ]] && ! grep -qE -- "$pat" <<<"$out"; then
+    PASS=$((PASS+1)); printf 'ok   %s\n' "$name"
+  else
+    FAIL=$((FAIL+1)); FAILED_NAMES+=("$name")
+    printf 'FAIL %s  (rc=%s /absent= %s)\n' "$name" "$rc" "$pat"
+    sed -n '1,12p' <<<"$out" | sed 's/^/     | /'
+  fi
+}
+
+section() { printf '\n### %s\n' "$1"; }
+
+cleanup() {
+  systemctl --user stop pi-farm.service >/dev/null 2>&1
+  tmux -L "$SOCK" kill-server >/dev/null 2>&1
+  rm -rf "$E2E"
+}
+trap cleanup EXIT
+
+rm -rf "$E2E"; mkdir -p "$E2E" "$E2E/piws"
+cat > "$CFG" <<'YAML'
+version: 1
+tmux:
+  socket: pfe2e
+defaults:
+  agent: bash
+sessions:
+  - name: e-always
+    cwd: /tmp
+    restart: always
+    remain_on_exit: true
+    log: /tmp/e2e-pifarm/e-always.log
+  - name: e-no
+    cwd: /tmp
+    restart: no
+  - name: e-unless
+    cwd: /tmp
+    restart: unless-stopped
+  - name: e-onfail
+    cwd: /tmp
+    restart: on-failure
+YAML
+PF() { pi-farm --socket "$SOCK" "$@"; }
+PFc() { pi-farm --socket "$SOCK" -c "$CFG" "$@"; }
+
+section "help"
+check "help overview"            0 'Commands:'                 pi-farm help
+check "help up"                  0 '\-\-reconcile'             pi-farm help up
+check "help alias ls"            0 'status \(alias'            pi-farm help ls
+check "up --help"                0 'Usage:'                    pi-farm up --help
+check "help typo suggestion"     2 "did you mean 'pi-farm help install'" pi-farm help instal
+check "unknown command"          2 "run 'pi-farm help'"        pi-farm upstat
+check "version"                  0 '^0\.1\.0$'                 pi-farm -V
+check "no args shows help"       0 'Usage:'                    pi-farm
+
+section "init / check"
+check "init --path"              0 'wrote'                     pi-farm init --path "$E2E/init.yml"
+check "init refuses overwrite"   1 'already exists'            pi-farm init --path "$E2E/init.yml"
+check "init --force"             0 'wrote'                     pi-farm init --path "$E2E/init.yml" --force
+check "check flags missing cwd"  1 'cwd does not exist'        pi-farm check -c "$E2E/init.yml"
+check "check --json ok"          0 '"ok": true'                pi-farm check -c "$CFG" --json
+
+section "config validation"
+printf 'version: 1\nsessions:\n  - name: a\n\tcwd: /tmp\n' > "$E2E/tabs.yml"
+check "tab indentation rejected" 2 'tab'                       pi-farm check -c "$E2E/tabs.yml"
+printf 'version: 1\nsessions:\n  - name: dup\n    cwd: /tmp\n  - name: dup\n    cwd: /tmp\n' > "$E2E/dup.yml"
+check "duplicate name rejected"  2 'duplicate'                 pi-farm check -c "$E2E/dup.yml"
+printf 'version: 1\nsessions:\n  - name: "bad name"\n    cwd: /tmp\n' > "$E2E/badname.yml"
+check "invalid tmux name"        2 'tmux_name|name'             pi-farm check -c "$E2E/badname.yml"
+printf 'version: 1\nsessions:\n  - name: x\n    cwd: /tmp\n    restart: sometimes\n' > "$E2E/badrestart.yml"
+check "invalid restart policy"   2 'restart must be one of'     pi-farm check -c "$E2E/badrestart.yml"
+printf 'version: 1\nsessions:\n  - name: x\n    cwd: /tmp\n    bogus_key: 1\n' > "$E2E/unknown.yml"
+check "unknown key warns"        0 'unknown key'                pi-farm check -c "$E2E/unknown.yml"
+printf 'version: 1\nsessions:\n  - name: x\n    cwd: /nope/nope\n' > "$E2E/nocwd.yml"
+check "missing cwd fails up"     1 'does not exist'             pi-farm -c "$E2E/nocwd.yml" up --socket "$SOCK"
+check "missing config"           2 'config file not found'            pi-farm -c "$E2E/absent.yml" status --socket "$SOCK"
+
+section "dry-run"
+check "up --dry-run prints argv" 0 'new-session -d -s e-always' PFc up --dry-run
+check "dry-run creates nothing"  1 ''                           tmux -L "$SOCK" has-session -t e-always
+check "attach --dry-run"         0 'attach-session'             PFc attach e-always --dry-run
+check "logs --dry-run"           0 'capture-pane'               PFc logs e-always --dry-run
+check "send --dry-run"           0 'send-keys'                  PFc send e-always 'echo hi' --dry-run
+check "down --dry-run"           0 'stopped|absent|not running'              PFc down --dry-run
+
+section "up / status"
+check "bare up starts 3"         0 '3 started'                  PFc up
+check "up is idempotent"         0 '0 started'                  PFc up
+check "status table"             0 'e-no +off'                  PFc status
+check "status shows restart col" 0 'RESTART'                    PFc status
+check "status --json valid"      0 '"sessions"|e-always'        bash -c "pi-farm -c $CFG --socket $SOCK status --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d)[:40])'"
+check "status named row only"    0 '^e-always'                  bash -c "pi-farm -c $CFG --socket $SOCK status e-always | sed -n 2p | grep ^e-always"
+check "status unknown name"      2 'unknown session'            PFc status nosuch
+
+section "logs / send"
+check "send text"                0 'sent to e-always'           PFc send e-always 'echo hello-e2e'
+sleep 1
+check "logs see output"          0 'hello-e2e'                  PFc logs e-always -n 50
+check "log file written"         0 '^[1-9][0-9]*$'              bash -c "sleep 1; grep -c hello-e2e $E2E/e-always.log"
+check "send --no-enter"          0 'sent to e-onfail'           PFc send e-onfail 'touch /tmp/e2e-pifarm/noenter.flag' --no-enter
+sleep 0.5
+check "no-enter did not run"     1 ''                           test -f "$E2E/noenter.flag"
+check "clear the typed line"     0 ''                           bash -c "tmux -L $SOCK send-keys -t '=e-onfail:' C-u"
+check "typed line can be run"    0 'sent to e-onfail'           PFc send e-onfail 'touch /tmp/e2e-pifarm/enter.flag'
+sleep 0.6
+check "enter ran it"             0 ''                           test -f "$E2E/enter.flag"
+check "logs unknown session"     2 'unknown session'            PFc logs nosuch
+
+section "restart policies"
+check "down unless-stopped"      0 'stopped e-unless'           PFc down e-unless
+check "state recorded"           0 'e-unless'                   bash -c "grep -q e-unless $XDG_STATE_HOME/pi-farm/state.json && echo e-unless"
+ncheck "reconcile skips stopped" 'started e-unless'            PFc up --reconcile
+check "status off for stopped"   0 'e-unless +off'              PFc status
+check "explicit up clears stop"  0 'started e-unless'           PFc up e-unless
+check "state cleared"            0 'no state'                   bash -c "grep -q e-unless $XDG_STATE_HOME/pi-farm/state.json || echo 'no state'"
+
+section "crash handling"
+PFc send e-always 'exit 3' >/dev/null 2>&1; sleep 1.5
+check "dead pane visible"        0 'e-always +dead'             PFc status
+check "reconcile restarts dead"  0 'restart e-always'            PFc up --reconcile
+check "back to running"          0 'e-always +running'          PFc status
+PFc up e-no >/dev/null 2>&1; PFc send e-no 'exit 9' >/dev/null 2>&1; sleep 1.5
+check "restart:no keeps pane"    0 'e-no +dead'                 PFc status
+check "restart:no logs readable" 0 'Pane is dead'               PFc logs e-no -n 5
+ncheck "bare up leaves it dead"  'started e-no'                PFc up
+check "explicit up rebuilds"     0 'started e-no'               PFc up e-no
+check "restart named"            0 'started e-always'           PFc restart e-always
+
+section "down"
+check "down named"               0 'stopped e-always'           PFc down e-always
+check "down bare stops all"      0 '4 stopped|stopped e-'       PFc down
+check "status all stopped"       0 '0/4 running'                PFc status
+check "down unknown name"        2 'unknown session'            PFc down nosuch
+
+section "attach"
+check "attach without name"      2 'usage: pi-farm attach'      PFc attach
+check "attach unknown name"      2 'unknown session'            PFc attach nosuch
+
+section "doctor"
+check "doctor runs"              0 'tmux|node'                  PFc doctor
+check "doctor --json"            0 '"checks"|"ok"'              PFc doctor --json
+
+section "autostart unit files"
+check "install --print"          0 'ExecStart='                 PFc install --print
+check "print includes reconcile" 0 'up.*--reconcile'            PFc install --print
+check "print includes watch timer" 0 'Timer|StartInterval'      PFc install --print --watch 120
+check "install --dry-run"        0 'ExecStart='                 PFc install --dry-run
+check "uninstall --dry-run"      0 'dry-run|remove'             PFc uninstall --dry-run
+
+section "autostart real (systemd user)"
+if systemctl --user show-environment >/dev/null 2>&1; then
+  check "install enables unit"   0 'enabled|installed'          PFc install
+  check "unit is enabled"        0 '^enabled$'                  bash -c 'systemctl --user is-enabled pi-farm.service'
+  sleep 3
+  check "unit started sessions"  0 'e-always +running'          PFc status
+  check "uninstall removes unit" 0 'removed|disabled'           PFc uninstall
+  check "unit is gone"          4 'not-found'                  bash -c 'systemctl --user is-enabled pi-farm.service' 
+else
+  printf 'skip systemd user bus unavailable\n'
+fi
+
+section "real pi session + remote-pi"
+cat > "$E2E/pi.yml" <<'YAML'
+version: 1
+tmux:
+  socket: pfe2e
+sessions:
+  - name: e-pi
+    cwd: /tmp/e2e-pifarm/piws
+    pi_session: e2esession1
+    remote_pi_name: e-pi-mesh
+    log: /tmp/e2e-pifarm/e-pi.log
+YAML
+check "pi up"                    0 'started e-pi'               pi-farm -c "$E2E/pi.yml" --socket "$SOCK" up
+for i in $(seq 1 20); do
+  grep -qiE 'connected as|Local mesh' "$E2E/e-pi.log" 2>/dev/null && break
+  sleep 1
+done
+check "pi joined mesh"           0 'connected as "e-pi-mesh"'   bash -c "grep -o 'connected as \"e-pi-mesh\"[^\"]*' $E2E/e-pi.log | head -1"
+check "remote-pi config written" 0 'e-pi-mesh'                  bash -c "python3 -c 'import json;print(json.load(open(\"/tmp/e2e-pifarm/piws/.pi/remote-pi/config.json\"))[\"agent_name\"])'"
+check "pi answers a prompt"      0 'sent to e-pi'               pi-farm -c "$E2E/pi.yml" --socket "$SOCK" send e-pi 'reply with the single word OK'
+for i in $(seq 1 40); do
+  ls ~/.pi/agent/sessions/--tmp-e2e-pifarm-piws--/ 2>/dev/null | grep -q e2esession1 && break
+  sleep 1
+done
+check "pi session file created"  0 'e2esession1'                bash -c "ls ~/.pi/agent/sessions/--tmp-e2e-pifarm-piws--/ | grep e2esession1"
+check "pi status shows session"  0 'e2esession1'                pi-farm -c "$E2E/pi.yml" --socket "$SOCK" status
+check "pi restart resumes"       0 'started e-pi'               pi-farm -c "$E2E/pi.yml" --socket "$SOCK" restart
+sleep 6
+check "resumed same session"     0 '^1$'                        bash -c "ls ~/.pi/agent/sessions/--tmp-e2e-pifarm-piws--/ | grep -c e2esession1"
+check "pi down"                  0 'stopped e-pi'               pi-farm -c "$E2E/pi.yml" --socket "$SOCK" down
+
+section "packaging"
+check "npm test green"           0 'fail 0'                   bash -c "cd $ROOT && npm test 2>&1 | tail -20"
+check "npm pack contents"        0 'bin/pi-farm.js'             bash -c "cd $ROOT && npm pack --dry-run 2>&1 | grep bin/pi-farm.js"
+check "install.sh syntax"        0 ''                           bash -n "$ROOT/install.sh"
+
+printf '\n==========================\nPASS %d  FAIL %d\n' "$PASS" "$FAIL"
+if [[ $FAIL -gt 0 ]]; then printf 'failed: %s\n' "${FAILED_NAMES[*]}"; exit 1; fi
