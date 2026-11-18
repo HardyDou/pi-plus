@@ -28,14 +28,13 @@ pi-farm.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --n
 ## 安装
 
 ```bash
-# npm（推荐，之后可直接用 pi-farm 命令）
-npm i -g pi-farm
+# 从 GitHub 安装（可执行命令直接就叫 pi-farm）
+npm i -g github:HardyDou/pi-farm
 
-# 或直接从仓库跑
+# 或克隆后本地软链到 ~/.local/bin/pi-farm
 git clone https://github.com/HardyDou/pi-farm.git
-cd pi-farm
-./install.sh          # 软链到 ~/.local/bin/pi-farm
-# 或：node bin/pi-farm.js <command>
+cd pi-farm && ./install.sh
+# 直接运行也可以：node bin/pi-farm.js <command>
 ```
 
 依赖：Node.js ≥ 18、tmux、pi（非 pi 的 agent 也可以，见 `agent` 字段）。
@@ -245,7 +244,7 @@ tmux session, a pi session (resumed by id or freshly created), a pi display
 name, and a remote-pi mesh name — all defaulting to the same `name`.
 
 ```bash
-npm i -g pi-farm
+npm i -g github:HardyDou/pi-farm
 pi-farm init && $EDITOR ~/.pi/farm.yml
 pi-farm check && pi-farm up && pi-farm status
 pi-farm attach backend

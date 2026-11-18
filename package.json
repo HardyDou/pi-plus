@@ -18,7 +18,7 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test test/*.test.js",
     "start": "node bin/pi-farm.js",
     "syntax": "node --check bin/pi-farm.js && for f in src/*.js; do node --check \"$f\"; done"
   },
