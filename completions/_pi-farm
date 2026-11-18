@@ -1,0 +1,51 @@
+#compdef pi-farm
+# zsh completion for pi-farm
+_pi-farm() {
+  local -a commands
+  commands=(
+    'up:start sessions in the background'
+    'down:stop sessions'
+    'restart:restart sessions'
+    'status:show tmux/pi/remote-pi state'
+    'attach:attach to a session (starts it if needed)'
+    'logs:print pane output'
+    'send:type text into a pane'
+    'check:validate the config'
+    'doctor:environment diagnostics'
+    'init:write an example config'
+    'install:install reboot autostart'
+    'uninstall:remove autostart'
+    'version:print version'
+  )
+
+  _arguments -C \
+    '(-c --config)'{-c,--config}'[config file]:file:_files' \
+    '(-h --help)'{-h,--help}'[show help]' \
+    '(-V --version)'{-V,--version}'[print version]' \
+    '--socket[tmux socket name]:socket:' \
+    '--json[machine-readable output]' \
+    '--dry-run[print actions without touching tmux]' \
+    '--force[recreate running sessions]' \
+    '(-q --quiet)'{-q,--quiet}'[only errors]' \
+    '(-v --verbose)'{-v,--verbose}'[echo tmux commands]' \
+    '(-n --lines)'{-n,--lines}'[scrollback lines]:lines:' \
+    '--no-enter[do not press Enter after send]' \
+    '--watch[reconcile interval for install]:seconds:' \
+    '--print[print autostart unit and exit]' \
+    '1:command:->command' \
+    '*:session:->session'
+
+  case $state in
+    command) _describe 'command' commands ;;
+    session)
+      local cfg=${(v)opt_args[(i)-c|--config]}
+      [[ -z $cfg ]] && cfg=$HOME/.pi/farm.yml
+      if [[ -r $cfg ]]; then
+        local -a names
+        names=(${(f)"$(sed -n 's/^[[:space:]-]*name:[[:space:]]*\([^[:space:]#]*\).*/\1/p' $cfg)"})
+        _describe 'session' names
+      fi
+      ;;
+  esac
+}
+_pi-farm "$@"

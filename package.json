@@ -1,0 +1,47 @@
+{
+  "name": "pi-farm",
+  "version": "0.1.0",
+  "description": "Declarative tmux farm for pi coding agents: one YAML file drives the tmux session, pi session id/name and remote-pi mesh name, and survives reboots.",
+  "type": "module",
+  "bin": {
+    "pi-farm": "bin/pi-farm.js"
+  },
+  "files": [
+    "bin",
+    "src",
+    "examples",
+    "completions",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "test": "node --test test/",
+    "start": "node bin/pi-farm.js",
+    "syntax": "node --check bin/pi-farm.js && for f in src/*.js; do node --check \"$f\"; done"
+  },
+  "keywords": [
+    "pi",
+    "pi-coding-agent",
+    "tmux",
+    "agent-farm",
+    "session-manager",
+    "remote-pi",
+    "cli",
+    "autostart",
+    "systemd",
+    "launchd"
+  ],
+  "author": "HardyDou",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HardyDou/pi-farm.git"
+  },
+  "bugs": {
+    "url": "https://github.com/HardyDou/pi-farm/issues"
+  },
+  "homepage": "https://github.com/HardyDou/pi-farm#readme"
+}

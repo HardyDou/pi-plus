@@ -1,0 +1,27 @@
+# pi-farm — declarative tmux farm for pi agents
+# Docs: https://github.com/HardyDou/pi-farm
+version: 1
+
+# Optional: run every session on a dedicated tmux socket.
+# tmux:
+#   socket: pi-farm
+
+defaults:
+  agent: pi
+  args: []
+  env: {}
+
+sessions:
+  - name: backend
+    cwd: ~/code/backend
+
+  - name: docs
+    cwd: ~/code/docs
+    # pi_session: 1a2b3c4d          # resume this pi session id (or .jsonl path)
+    # pi_session_name: docs         # default: session name
+    # remote_pi_name: docs          # default: session name
+    # remote_pi_mode: config        # config | env | off
+
+  - name: ops
+    cwd: ~/code/ops
+    agent: bash                     # non-pi agent: no pi flags added
