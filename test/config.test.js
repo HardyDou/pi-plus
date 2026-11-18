@@ -134,6 +134,15 @@ test("warns when one cwd is used with different remote-pi names", () => {
   ]);
   assert.equal(cfg.warnings.length, 1);
   assert.match(cfg.warnings[0], /share cwd/);
+  assert.match(cfg.warnings[0], /remote_pi_mode: env/);
+});
+
+test("env mode silences the shared-cwd remote-pi warning", () => {
+  const cfg = base([
+    { name: "a", cwd: "/tmp", remote_pi_name: "one", remote_pi_mode: "env" },
+    { name: "b", cwd: "/tmp", remote_pi_name: "two", remote_pi_mode: "env" },
+  ]);
+  assert.deepEqual(cfg.warnings, []);
 });
 
 test("unknown keys are warnings, not errors", () => {

@@ -181,8 +181,9 @@ sessions:
 ```
 
 > remote-pi 的 `agent_name` 是**按目录**存的。同一 `cwd` 下多个 session 配不同
-> `remote_pi_name` 会互相覆盖，`pi-plus` 会给出 warning；想让同目录多个 agent
-> 各自有名字，用 `remote_pi_mode: env`（每个进程独立环境变量）。
+> `remote_pi_name`（且用默认的 `remote_pi_mode: config`）会互相覆盖，`pi-plus` 会给出
+> warning；想让同目录多个 agent 各自有名字，用 `remote_pi_mode: env`（每个进程独立
+> 环境变量），这样 `pp check` 不再告警。
 
 > 小提示：`remote_pi_mode: config` 会在项目里生成 `.pi/remote-pi/config.json`，
 > 建议加到全局 gitignore：`echo '.pi/remote-pi/' >> ~/.config/git/ignore`。

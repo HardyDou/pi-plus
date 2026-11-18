@@ -315,7 +315,8 @@ export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
 
   const byCwd = new Map();
   for (const s of sessions) {
-    if (!s.remotePiName || s.remotePiMode === "off") continue;
+    // Only "config" mode is affected: it writes agent_name into the shared per-directory file.
+    if (!s.remotePiName || s.remotePiMode !== "config") continue;
     const list = byCwd.get(s.cwd) ?? [];
     list.push(s);
     byCwd.set(s.cwd, list);
@@ -326,7 +327,8 @@ export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
       warnings.push(
         `${configPath}: sessions ${list.map((s) => `"${s.name}"`).join(", ")} share cwd ${cwd} ` +
           `but request different remote-pi names (${[...names].map((n) => `"${n}"`).join(", ")}). ` +
-          `remote-pi stores agent_name per directory, so the last write wins.`,
+          `remote-pi stores agent_name per directory, so the last write wins — ` +
+          `use remote_pi_mode: env to give each session its own name.`,
       );
     }
   }
