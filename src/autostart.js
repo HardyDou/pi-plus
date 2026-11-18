@@ -52,7 +52,9 @@ export function buildServicePath(scriptPath, env = process.env) {
 
 export function renderSystemdService({ scriptPath, configPath, env = process.env, watch = false }) {
   const path = buildServicePath(scriptPath, env);
-  const args = [scriptPath, "up", "--config", configPath, "--quiet"].map(quoteSystemd).join(" ");
+  const args = [scriptPath, "up", "--config", configPath, "--reconcile", "--quiet"]
+    .map(quoteSystemd)
+    .join(" ");
   return `[Unit]
 Description=pi-farm: start pi agents in tmux
 Documentation=https://github.com/HardyDou/pi-farm
@@ -104,6 +106,7 @@ export function renderLaunchAgent({ scriptPath, configPath, env = process.env, w
     <string>up</string>
     <string>--config</string>
     <string>${xmlEscape(configPath)}</string>
+    <string>--reconcile</string>
     <string>--quiet</string>
   </array>
   <key>EnvironmentVariables</key>

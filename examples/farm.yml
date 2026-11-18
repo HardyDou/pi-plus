@@ -14,6 +14,7 @@ defaults:
 sessions:
   - name: backend
     cwd: ~/code/backend
+    restart: always                 # no | always | on-failure | unless-stopped
 
   - name: docs
     cwd: ~/code/docs
@@ -28,4 +29,4 @@ sessions:
 
   #  - name: spare
   #    cwd: ~/code/spare
-  #    enabled: false               # not started by a bare "up"; start with: pi-farm up spare
+  #    restart: no                  # never auto-started; bring it up with: pi-farm up spare

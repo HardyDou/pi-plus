@@ -130,7 +130,11 @@ export class Tmux {
     const command = envPairs.length ? ["env", ...envPairs, ...argv] : argv;
     this.run(["new-session", "-d", "-s", session.tmuxName, "-c", session.cwd, "--", ...command]);
     if (session.remainOnExit) {
-      this.run(["set-option", "-t", `=${session.tmuxName}`, "remain-on-exit", "on"], { allowFailure: true });
+      // remain-on-exit is a *window* option: without -w tmux silently ignores it
+      // and the session is destroyed the moment the agent exits.
+      this.run(["set-option", "-w", "-t", paneTarget(session.tmuxName), "remain-on-exit", "on"], {
+        allowFailure: true,
+      });
     }
     if (session.log) {
       this.pipeLog(session.tmuxName, session.log);

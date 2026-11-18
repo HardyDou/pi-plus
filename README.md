@@ -61,7 +61,7 @@ pi-farm attach backend       # 进入某个 session（没启动会先启动）
 pi-farm up --dry-run -v      # 只打印将要执行的 tmux 命令
 ```
 
-按名字操作，省略即全部（`enabled: false` 的会话会被跳过）：
+按名字操作，省略即全部（`restart: no` 的会话不参与，见下文策略）：
 
 ```bash
 pi-farm up backend docs
@@ -70,8 +70,8 @@ pi-farm down backend            # 只停一个
 pi-farm down                    # 全部停掉
 ```
 
-> 如果装了 `install --watch`，被单独 `down` 掉的会话会在下个巡检周期被拉回来；
-> 不想这样就用不带 `--watch` 的 `install`，或临时 `systemctl --user stop pi-farm.timer`。
+> 被单独 `down` 掉的会话会不会被拉回来，取决于它的 `restart` 策略——
+> `unless-stopped` / `on-failure` 会记住这次手动停止，`always` 会在下个巡检周期回来。
 
 ## 配置参考
 
@@ -104,7 +104,7 @@ sessions:
     args: ["--approve"]           # 追加参数
     env:                          # 覆盖/追加环境变量
       TZ: Asia/Shanghai
-    enabled: true                 # false = 默认不启动（仍可 up <name> 单独拉起）
+    restart: unless-stopped        # no | always | on-failure | unless-stopped
     log: ~/.pi/farm/backend.log   # 可选：pipe-pane 落盘
     remain_on_exit: false         # 可选：进程退出后保留 pane 便于看报错
 ```
@@ -124,9 +124,42 @@ sessions:
 | `agent` | `pi` | 启动命令，支持带参数；非 `pi` 时不追加 pi 专用flag |
 | `args` | `[]` | 追加到命令末尾 |
 | `env` | `{}` | 注入环境变量 |
-| `enabled` | `true` | `false` 时不参与裸 `up`/`restart`，但可 `up <name>` 单独启动 |
+| `restart` | `always` | 拉起策略，取值见下节（对齐 docker compose） |
 | `log` | 无 | `pipe-pane` 输出文件 |
-| `remain_on_exit` | `false` | 保留 dead pane |
+| `remain_on_exit` | `false` | 保留 dead pane；`restart: no` 会自动开启 |
+
+### restart 策略（和 docker compose 一致）
+
+| 值 | 裸 `up` / 开机自启 | `--watch` 巡检 / 崩溃后 | 手动 `down <name>` 之后 |
+| --- | --- | --- | --- |
+| `always`（默认） | 启动 | 补起 | 下次 `up` / 巡检仍会启动 |
+| `no` | 跳过 | 跳过 | —（只能 `up <name>` 手动启动） |
+| `unless-stopped` | 启动 | 补起 | 记住这次停止，自启/巡检都不碰；`up <name>` 解除 |
+| `on-failure` | 启动 | 只在 pane 进程异常退出（dead pane）时补起 | 同 `unless-stopped` |
+
+判定规则：
+
+- 不带名字的命令只处理 `restart != no` 的会话；`up <name>` / `restart <name>` 永远生效，
+  并会清除"手动停止"记录。
+- 会话存在但 pane 已经死了（agent 进程退出）时，`up` 对 `restart != no` 的会话会重建；
+  `restart: no` 会保留 dead pane（自动打开 `remain-on-exit`），`status` 显示 `dead`，
+  `pi-farm logs <name>` 还能看到它最后吐出来的报错，`up <name>` 才会重建。
+- 这和 compose 里 `docker compose ps` 还能看到 `Exited (1)` 的容器是一个意思。
+- 手动停止记录存在 `$XDG_STATE_HOME/pi-farm/state.json`（默认 `~/.local/state/pi-farm/state.json`），
+  按配置文件路径 + 会话名区分。
+- 开机自启用的就是"巡检语义"：`pi-farm up --config <cfg> --reconcile --quiet`，
+  所以 `unless-stopped` / `on-failure` 在你手动停掉后不会在重启时自己回来。
+
+```yaml
+sessions:
+  - name: backend
+    cwd: ~/code/backend
+    restart: always            # 常驻，挂了就补
+
+  - name: experiment
+    cwd: ~/code/exp
+    restart: no                # 不参与自动拉起，只按需 pi-farm up experiment
+```
 
 ### 名字映射：一个名字，三处生效
 
@@ -155,7 +188,7 @@ sessions:
 ```
 pi-farm up [names...]        后台创建/启动（--force 重建已在跑的）
 pi-farm down [names...]      停止
-pi-farm restart [names...]   重启
+pi-farm restart [names...]   重启（遵守 restart 策略）
 pi-farm status               状态表（--json 机器可读）
 pi-farm attach <name>        进入；不存在则先启动
 pi-farm logs <name> [-n 200] 打印滚动输出
@@ -169,6 +202,9 @@ pi-farm uninstall            卸载自启
 
 全局选项：`-c/--config`、`--socket`、`--json`、`--dry-run`、`--force`、`-q`、`-v`、`-h`、`-V`。
 
+`--reconcile` 是给自启/巡检用的：跳过被手动停止的 `unless-stopped` / `on-failure` 会话。
+日常手动 `up` 不需要它。
+
 配置文件查找顺序：
 
 1. `-c/--config <path>`
@@ -180,7 +216,7 @@ pi-farm uninstall            卸载自启
 ## 开机自启
 
 ```bash
-pi-farm install                 # 开机/登录时 up 一次
+pi-farm install                 # 开机/登录时按 restart 策略 up 一次
 pi-farm install --watch 300     # 另外每 5 分钟巡检，挂了自动补
 pi-farm install --print         # 只打印 unit/plist，不落盘
 pi-farm uninstall

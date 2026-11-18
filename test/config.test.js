@@ -98,13 +98,24 @@ test("remote-pi names are sanitized", () => {
   assert.equal(sanitizeRemotePiName(""), null);
 });
 
-test("enabled: false keeps a session out of the default set", () => {
+test("restart policy defaults to always and accepts compose-style values", () => {
   const cfg = base([
     { name: "a", cwd: "/tmp" },
-    { name: "b", cwd: "/tmp", enabled: false },
+    { name: "b", cwd: "/tmp", restart: "no" },
+    { name: "c", cwd: "/tmp", restart: "unless-stopped" },
+    { name: "d", cwd: "/tmp", restart: "on-failure" },
+    { name: "e", cwd: "/tmp", restart: false },
+    { name: "f", cwd: "/tmp", restart: true },
   ]);
-  assert.equal(cfg.sessions[0].enabled, true);
-  assert.equal(cfg.sessions[1].enabled, false);
+  assert.deepEqual(
+    cfg.sessions.map((s) => s.restart),
+    ["always", "no", "unless-stopped", "on-failure", "no", "always"],
+  );
+  assert.throws(() => base([{ name: "x", cwd: "/tmp", restart: "sometimes" }]), /restart must be one of/);
+
+  // restart: no keeps the crashed pane around so it can be inspected.
+  assert.equal(cfg.sessions[1].remainOnExit, true);
+  assert.equal(cfg.sessions[0].remainOnExit, false);
 });
 
 test("rejects unsafe or duplicate tmux names", () => {

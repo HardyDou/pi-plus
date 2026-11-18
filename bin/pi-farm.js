@@ -37,6 +37,7 @@ Options:
       --json           Machine-readable output (up/down/status/check/doctor)
       --dry-run        Print what would happen; do not touch tmux or files
       --force          up: recreate already running sessions; init: overwrite
+      --reconcile      up: autostart/watch mode; skip sessions stopped by hand
   -q, --quiet          Only errors
   -v, --verbose        Echo tmux commands
   -n, --lines <n>      logs: how many scrollback lines (default 200)
@@ -100,6 +101,7 @@ function parseArgs(argv) {
         case "--json": options.json = true; break;
         case "--dry-run": options.dryRun = true; break;
         case "--force": options.force = true; break;
+        case "--reconcile": options.reconcile = true; break;
         case "--quiet": options.quiet = true; break;
         case "--verbose": options.verbose = true; break;
         case "--lines": options.lines = Number(takeValue(flag, inline)) || 200; break;

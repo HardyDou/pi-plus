@@ -22,8 +22,11 @@ const SESSION_KEYS = new Set([
   "args",
   "log",
   "remain_on_exit",
-  "enabled",
+  "restart",
 ]);
+
+/** Compose-style restart policies: when is this session brought back up? */
+export const RESTART_POLICIES = ["no", "always", "on-failure", "unless-stopped"];
 
 const DEFAULT_KEYS = new Set([...SESSION_KEYS].filter((k) => k !== "name" && k !== "cwd"));
 
@@ -238,6 +241,17 @@ function normalizeSession(raw, defaults, index, configPath) {
     throw new ConfigError(`${where}: remote_pi_mode must be "config", "env" or "off"`);
   }
 
+  const restartRaw = session.restart ?? "always";
+  let restart;
+  if (restartRaw === true) restart = "always";
+  else if (restartRaw === false) restart = "no";
+  else restart = String(restartRaw).trim().toLowerCase();
+  if (!RESTART_POLICIES.includes(restart)) {
+    throw new ConfigError(
+      `${where}: restart must be one of ${RESTART_POLICIES.join(", ")} (got "${restartRaw}")`,
+    );
+  }
+
   return {
     name,
     tmuxName: String(session.tmux_name ?? name).trim() || name,
@@ -252,8 +266,10 @@ function normalizeSession(raw, defaults, index, configPath) {
     env: asStringMap(session.env, `${where}.env`),
     args: asTokens(session.args, `${where}.args`),
     log: session.log === true ? join(cwd, ".pi-farm.log") : session.log ? resolve(expandPath(String(session.log))) : null,
-    remainOnExit: Boolean(session.remain_on_exit ?? false),
-    enabled: session.enabled === undefined ? true : Boolean(session.enabled),
+    // Compose keeps an exited container around for `logs`/`ps`; do the same for
+    // restart: no so a crashed session can be inspected instead of vanishing.
+    remainOnExit: Boolean(session.remain_on_exit ?? false) || restart === "no",
+    restart,
   };
 }
 

@@ -12,6 +12,7 @@ import {
 import { readRemotePiConfig, remotePiConfigPath, writeRemotePiName } from "./remote-pi.js";
 import { resolveExecutable, Tmux } from "./tmux.js";
 import { installAutostart, uninstallAutostart, autostartKind, launchAgentPath, systemdUserDir } from "./autostart.js";
+import { clearStopped, isStopped, markStopped } from "./state.js";
 import { EXAMPLE_CONFIG } from "./example.js";
 
 const COLORS = {
@@ -65,9 +66,14 @@ function requireConfig(options, ui) {
   return config;
 }
 
-function selectSessions(config, names, ui, { all = false } = {}) {
+function selectSessions(config, names, ui, { all = false, options = null } = {}) {
   if (!names || names.length === 0) {
-    return all ? config.sessions : config.sessions.filter((s) => s.enabled !== false);
+    if (all) return config.sessions;
+    // Compose-style: `restart: no` is never part of a bare `up`/`restart`, and
+    // a reconcile pass also honours sessions stopped by hand.
+    return config.sessions.filter(
+      (s) => s.restart !== "no" && !(options?.reconcile && isStopped(config.path, s.name)),
+    );
   }
   const byKey = new Map();
   for (const s of config.sessions) {
@@ -80,9 +86,6 @@ function selectSessions(config, names, ui, { all = false } = {}) {
     if (!session) {
       ui.error(`unknown session "${name}" in ${config.path}`);
       process.exit(2);
-    }
-    if (session.enabled === false) {
-      ui.warn(`"${session.name}" has enabled: false; starting it anyway because you asked explicitly`);
     }
     if (!picked.includes(session)) picked.push(session);
   }
@@ -144,21 +147,35 @@ async function verifyStartup(tmux, session, ui) {
 }
 
 async function cmdUp(config, options, ui) {
-  const sessions = selectSessions(config, options.names, ui);
+  const sessions = selectSessions(config, options.names, ui, { options });
   const tmux = makeTmux(config, options);
+  const live = tmux.listSessions();
+  // A session named on the command line is an explicit request: restart it even
+  // when its policy is "no" and its pane is dead.
+  const explicit = new Set(options.names ?? []);
   let started = 0;
   let skipped = 0;
   const failures = [];
 
   for (const session of sessions) {
     try {
-      if (tmux.sessionExists(session.tmuxName)) {
-        if (!options.force) {
+      const entry = live.get(session.tmuxName);
+      if (entry) {
+        const dead = entry.panes.every((p) => p.dead);
+        if (!dead && !options.force) {
           skipped++;
           ui.info(`${ui.paint("dim", "skip")}    ${session.tmuxName} ${ui.paint("dim", "(already running)")}`);
           continue;
         }
-        ui.info(`${ui.paint("yellow", "recreate")} ${session.tmuxName}`);
+        const asked = explicit.has(session.name) || explicit.has(session.tmuxName);
+        if (dead && session.restart === "no" && !asked) {
+          skipped++;
+          ui.info(
+            `${ui.paint("dim", "skip")}    ${session.tmuxName} ${ui.paint("dim", "(dead; restart: no)")}`,
+          );
+          continue;
+        }
+        ui.info(`${ui.paint("yellow", dead ? "restart" : "recreate")} ${session.tmuxName}`);
         tmux.kill(session.tmuxName);
       }
 
@@ -177,6 +194,7 @@ async function cmdUp(config, options, ui) {
       }
       tmux.create(session, spec);
       await verifyStartup(tmux, session, options.quiet ? null : ui);
+      clearStopped(config.path, session.name);
       started++;
       ui.info(`${ui.paint("green", "started")} ${session.name} ${ui.paint("dim", `→ tmux:${session.tmuxName}  cwd:${session.cwd}`)}`);
       if (session.pi) {
@@ -221,6 +239,10 @@ function cmdDown(config, options, ui) {
       continue;
     }
     tmux.kill(session.tmuxName);
+    // Compose semantics: "unless-stopped"/"on-failure" remember a manual stop.
+    if (!options.reconcile && ["unless-stopped", "on-failure"].includes(session.restart)) {
+      markStopped(config.path, session.name);
+    }
     killed++;
     ui.info(`${ui.paint("red", "stopped")} ${session.tmuxName}`);
   }
@@ -229,17 +251,17 @@ function cmdDown(config, options, ui) {
 }
 
 async function cmdRestart(config, options, ui) {
-  const sessions = selectSessions(config, options.names, ui);
+  const sessions = selectSessions(config, options.names, ui, { options });
   const tmux = makeTmux(config, options);
   for (const session of sessions) {
     if (tmux.sessionExists(session.tmuxName)) tmux.kill(session.tmuxName);
   }
   options.force = true;
-  await cmdUp({ ...config, sessions }, options, ui);
+  await cmdUp(config, { ...options, names: sessions.map((s) => s.name) }, ui);
 }
 
 function cmdStatus(config, options, ui) {
-  // status lists every configured session, including enabled: false ones.
+  // status lists every configured session, whatever its restart policy.
   const sessions = selectSessions(config, options.names, ui, { all: true });
   const tmux = makeTmux(config, options);
   const live = tmux.listSessions();
@@ -260,8 +282,8 @@ function cmdStatus(config, options, ui) {
     return {
       name: session.name,
       tmux: session.tmuxName,
-      state,
-      enabled: session.enabled !== false,
+      state: state === "stopped" && (session.restart === "no" || isStopped(config.path, session.name)) ? "off" : state,
+      restart: session.restart,
       pid,
       command,
       cwd: session.cwd,
@@ -277,10 +299,11 @@ function cmdStatus(config, options, ui) {
     return;
   }
 
-  const headers = ["NAME", "STATE", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"];
+  const headers = ["NAME", "STATE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"];
   const table = rows.map((r) => [
     r.name,
     r.state,
+    r.restart,
     r.pid,
     r.command,
     r.cwd,
@@ -298,9 +321,7 @@ function cmdStatus(config, options, ui) {
   ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
   rows.forEach((row, i) => {
     const colored = [...table[i]];
-    if (row.enabled === false && row.state === "stopped") {
-      colored[1] = ui.paint("dim", "off");
-    }
+    if (row.state === "off") colored[1] = ui.paint("dim", "off");
     const color = row.state === "running" ? "green" : row.state === "attached" ? "cyan" : row.state === "dead" ? "red" : "dim";
     colored[1] = ui.paint(color, colored[1]);
     ui.out(colored.map((cell, idx) => pad(cell, widths[idx])).join("  ").trimEnd());
@@ -391,8 +412,10 @@ function cmdCheck(config, options, ui) {
         if (prev) notes.push(`"${session.name}" and "${prev.name}" share cwd ${key}`);
         else seenCwd.set(key, session);
       }
-      if (session.enabled === false) {
-        notes.push(`"${session.name}": enabled: false (skipped by bare "up"; start with up ${session.name})`);
+      if (session.restart === "no") {
+        notes.push(`"${session.name}": restart: no (not started by bare "up"; start with up ${session.name})`);
+      } else if (isStopped(config.path, session.name)) {
+        notes.push(`"${session.name}": stopped by hand (restart: ${session.restart}); autostart will skip it`);
       }
       if (session.remotePiMode === "config") {
         notes.push(`"${session.name}": writes ${remotePiConfigPath(session.cwd)}`);
