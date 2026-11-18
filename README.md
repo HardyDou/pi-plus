@@ -45,6 +45,9 @@ cd pi-plus && ./install.sh
 
 依赖：Node.js ≥ 18、tmux、pi（非 pi 的 agent 也可以，见 `agent` 字段）。
 
+> 若你的 `npm config get registry` 指向内网镜像（例如 Nexus），装不到这个包时显式指定公共源：
+> `npm i -g pi-farm --registry https://registry.npmjs.org/`
+
 Shell 补全（可选）：
 
 ```bash
