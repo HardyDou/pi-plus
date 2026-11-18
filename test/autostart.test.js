@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import {
   buildServicePath,
+  describeAutostart,
   isWsl,
   renderLaunchAgent,
   renderSystemdService,
@@ -39,6 +40,8 @@ test("systemd unit runs up with --reconcile and the config path", () => {
   const unit = renderSystemdService({ scriptPath: GLOBAL, configPath: "/home/user/.pi/plus.yml" });
   assert.match(unit, /Type=oneshot/);
   assert.match(unit, /RemainAfterExit=yes/);
+  // without KillMode=none systemd kills the tmux sessions when the unit exits
+  assert.match(unit, /KillMode=none/);
   assert.match(unit, /"--config" "\/home\/user\/\.pi\/plus\.yml"/);
   assert.match(unit, /"--reconcile"/);
   assert.match(unit, /WantedBy=default\.target/);
@@ -67,4 +70,17 @@ test("isWsl detects WSL from the environment", () => {
   assert.equal(isWsl({ WSL_DISTRO_NAME: "Ubuntu" }), true);
   assert.equal(isWsl({ WSL_INTEROP: "/run/WSL/1_interop" }), true);
   assert.equal(typeof isWsl(), "boolean");
+});
+
+test("describeAutostart summarises install/enable/last-run state", () => {
+  assert.equal(describeAutostart({ kind: "systemd", installed: false, enabled: false, active: null, result: null }), "systemd (not installed)");
+  assert.equal(
+    describeAutostart({ kind: "systemd", installed: true, enabled: true, active: "active", result: "success" }),
+    "systemd, enabled, last run ok",
+  );
+  assert.match(
+    describeAutostart({ kind: "systemd", installed: true, enabled: false, active: "failed", result: "exit-code" }),
+    /systemd, disabled, last run exit-code/,
+  );
+  assert.equal(describeAutostart({ kind: null }), "unsupported platform");
 });

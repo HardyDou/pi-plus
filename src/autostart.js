@@ -83,6 +83,9 @@ After=default.target
 [Service]
 Type=oneshot
 RemainAfterExit=${watch ? "no" : "yes"}
+# tmux must outlive this unit: systemd would otherwise kill the sessions
+# in this unit's cgroup as soon as the oneshot run finishes.
+KillMode=none
 WorkingDirectory=%h
 Environment=PATH=${path}
 ExecStart=/usr/bin/env node ${args}
@@ -155,6 +158,52 @@ function run(command, args, { allowFailure = false } = {}) {
     throw new Error(`${command} ${args.join(" ")} failed${detail ? `: ${detail}` : ""}`);
   }
   return out;
+}
+
+export function autostartState(kind = autostartKind()) {
+  if (kind === "systemd") {
+    const servicePath = join(systemdUserDir(), `${SERVICE_NAME}.service`);
+    const unit = `${SERVICE_NAME}.service`;
+    if (!existsSync(servicePath)) {
+      return { kind, installed: false, enabled: false, active: null, result: null, path: servicePath };
+    }
+    const enabled = run("systemctl", ["--user", "is-enabled", unit], { allowFailure: true });
+    const show = run("systemctl", ["--user", "show", unit, "-p", "ActiveState", "-p", "Result"], {
+      allowFailure: true,
+    });
+    const props = {};
+    for (const line of show.stdout.split("\n")) {
+      const at = line.indexOf("=");
+      if (at > 0) props[line.slice(0, at)] = line.slice(at + 1).trim();
+    }
+    return {
+      kind,
+      installed: true,
+      enabled: enabled.stdout.trim() === "enabled",
+      active: props.ActiveState ?? null,
+      result: props.Result ?? null,
+      path: servicePath,
+    };
+  }
+  if (kind === "launchd") {
+    const plistPath = launchAgentPath();
+    const installed = existsSync(plistPath);
+    return { kind, installed, enabled: installed, active: null, result: null, path: plistPath };
+  }
+  return { kind: null, installed: false, enabled: false, active: null, result: null, path: null };
+}
+
+/** One-line summary for `pp doctor`. */
+export function describeAutostart(state) {
+  if (!state.kind) return "unsupported platform";
+  const rel = state.path ? state.path.replace(homedir(), "~") : null;
+  if (!state.installed) return `${state.kind} (not installed${rel ? `: ${rel}` : ""})`;
+  const bits = [state.kind, state.enabled ? "enabled" : "disabled"];
+  if (state.active) {
+    const failed = state.result && state.result !== "success";
+    bits.push(`last run ${failed ? state.result : "ok"}`);
+  }
+  return bits.join(", ");
 }
 
 export function installAutostart({ scriptPath, configPath, watch = false, print = false, dryRun = false } = {}) {

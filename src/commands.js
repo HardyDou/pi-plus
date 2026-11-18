@@ -7,6 +7,7 @@ import {
   isSessionPath,
   loadConfig,
   resolve,
+  resolveSessionRef,
   shellQuote,
 } from "./config.js";
 import { readRemotePiConfig, remotePiConfigPath, writeRemotePiName } from "./remote-pi.js";
@@ -15,6 +16,8 @@ import {
   installAutostart,
   uninstallAutostart,
   autostartKind,
+  autostartState,
+  describeAutostart,
   isWsl,
   launchAgentPath,
   systemdUserDir,
@@ -83,16 +86,12 @@ function selectSessions(config, names, ui, { all = false, options = null } = {})
       (s) => s.restart !== "no" && !(options?.reconcile && isStopped(config.path, s.name)),
     );
   }
-  const byKey = new Map();
-  for (const s of config.sessions) {
-    byKey.set(s.name, s);
-    byKey.set(s.tmuxName, s);
-  }
   const picked = [];
   for (const name of names) {
-    const session = byKey.get(name);
+    const session = resolveSessionRef(config, name);
     if (!session) {
-      ui.error(`unknown session "${name}" in ${config.path}`);
+      const hint = `${config.sessions.length} session(s) configured; see pp ls`;
+      ui.error(`unknown session "${name}" (${hint})`);
       process.exit(2);
     }
     if (!picked.includes(session)) picked.push(session);
@@ -293,6 +292,7 @@ function cmdStatus(config, options, ui) {
       command = pane.command ?? "";
     }
     return {
+      index: config.sessions.indexOf(session) + 1,
       name: session.name,
       tmux: session.tmuxName,
       state: state === "stopped" && (session.restart === "no" || isStopped(config.path, session.name)) ? "off" : state,
@@ -312,8 +312,9 @@ function cmdStatus(config, options, ui) {
     return;
   }
 
-  const headers = ["NAME", "STATE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"];
+  const headers = ["#", "NAME", "STATE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"];
   const table = rows.map((r) => [
+    String(r.index),
     r.name,
     r.state,
     r.restart,
@@ -334,9 +335,10 @@ function cmdStatus(config, options, ui) {
   ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
   rows.forEach((row, i) => {
     const colored = [...table[i]];
-    if (row.state === "off") colored[1] = ui.paint("dim", "off");
+    colored[0] = ui.paint("dim", colored[0]);
+    if (row.state === "off") colored[2] = ui.paint("dim", "off");
     const color = row.state === "running" ? "green" : row.state === "attached" ? "cyan" : row.state === "dead" ? "red" : "dim";
-    colored[1] = ui.paint(color, colored[1]);
+    colored[2] = ui.paint(color, colored[2]);
     ui.out(colored.map((cell, idx) => pad(cell, widths[idx])).join("  ").trimEnd());
   });
   if (!options.quiet) {
@@ -500,8 +502,8 @@ function cmdDoctor(config, options, ui) {
   add("tmux server", true, hasServer ? "running" : "not running (starts on demand)");
   add("pi", commandExists("pi"), resolveExecutable("pi"));
   add("config", Boolean(config), config?.path ?? "not found");
-  const kind = autostartKind();
-  add("autostart", Boolean(kind), kind ?? "unsupported platform");
+  const autostart = autostartState();
+  add("autostart", Boolean(autostart.kind) && autostart.installed && autostart.enabled, describeAutostart(autostart));
   if (isWsl()) {
     // On WSL the distro only runs after Windows starts it; systemd alone cannot help.
     add("wsl", true, "Windows 侧需触发（任务计划/启动项），见 pp install 提示");
@@ -516,10 +518,10 @@ function cmdDoctor(config, options, ui) {
     ui.out(`${mark} ${check.label.padEnd(14)} ${ui.paint("dim", check.detail ?? "")}`);
   }
   if (!config) ui.out(`\n${ui.paint("dim", "hint:")} no config found; run pp init`);
-  if (kind === "systemd") {
+  if (autostart.kind === "systemd") {
     ui.out(`\n${ui.paint("dim", "systemd unit dir:")} ${systemdUserDir()}`);
     ui.out(`${ui.paint("dim", "hint:")} systemctl --user status pi-plus`);
-  } else if (kind === "darwin") {
+  } else if (autostart.kind === "darwin") {
     ui.out(`\n${ui.paint("dim", "launch agent:")} ${launchAgentPath()}`);
   }
   if (config?.warnings?.length) {

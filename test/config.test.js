@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   buildSessionArgv,
   normalizeConfig,
+  resolveSessionRef,
   sanitizeRemotePiName,
   splitCommand,
 } from "../src/config.js";
@@ -143,6 +144,23 @@ test("env mode silences the shared-cwd remote-pi warning", () => {
     { name: "b", cwd: "/tmp", remote_pi_name: "two", remote_pi_mode: "env" },
   ]);
   assert.deepEqual(cfg.warnings, []);
+});
+
+test("resolveSessionRef accepts names, tmux names and 1-based indices", () => {
+  const cfg = base([
+    { name: "one", cwd: "/tmp" },
+    { name: "two", cwd: "/tmp", tmux_name: "tmux-two" },
+    { name: "3", cwd: "/tmp" },
+  ]);
+  assert.equal(resolveSessionRef(cfg, "one").name, "one");
+  assert.equal(resolveSessionRef(cfg, "tmux-two").name, "two");
+  assert.equal(resolveSessionRef(cfg, "1").name, "one");
+  assert.equal(resolveSessionRef(cfg, 2).name, "two");
+  // an exact name wins over the index
+  assert.equal(resolveSessionRef(cfg, "3").name, "3");
+  assert.equal(resolveSessionRef(cfg, "4"), null);
+  assert.equal(resolveSessionRef(cfg, "0"), null);
+  assert.equal(resolveSessionRef(cfg, "nope"), null);
 });
 
 test("unknown keys are warnings, not errors", () => {

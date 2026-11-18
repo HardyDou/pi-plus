@@ -60,8 +60,9 @@ $EDITOR ~/.pi/plus.yml
 pp check                # 只校验配置，不碰 tmux
 pp doctor               # 环境体检：node / tmux / pi / 自启
 pp up                   # 后台拉起所有 session
-pp status               # 看状态：tmux 名、pid、pi session、remote-pi 名
+pp status               # 看状态：序号、tmux 名、pid、pi session、remote-pi 名
 pp attach backend       # 进入某个 session（没启动会先启动）
+pp attach 3             # 也可以直接给序号（pp ls 第一列的 #）
 pp up --dry-run -v      # 只打印将要执行的 tmux 命令
 ```
 
@@ -213,21 +214,24 @@ pp help instal          # 拼错会给建议：did you mean 'pp help install'?
 
 ## 命令参考
 
+凡是接 `<name>` 的地方都可以写成 `pp ls` 的 `#` 序号（1 起，按配置顺序；
+若真有会话叫这个名字，名字优先）：`pp attach 3`、`pp logs 3`、`pp down 2 5`。
+
 ```
-pp up [names...]        后台创建/启动（--force 重建已在跑的；别名 start）
-pp down [names...]      停止
-pp restart [names...]   重启（遵守 restart 策略）
-pp status               状态表（--json 机器可读；别名 ls/list）
-pp attach <name>        进入；不存在则先启动
-pp logs <name> [-n 200] 打印滚动输出
-pp send <name> "文本"   往 pane 里打字并回车（--no-enter 不回车）
-pp check                校验配置
-pp doctor               环境诊断
-pp init                 写示例配置
-pp install [--watch N]  安装开机自启（别名 autostart）
-pp uninstall            卸载自启
-pp help [命令]          帮助（不带参数为总览）
-pp version              打印版本
+pp up [name|#...]          后台创建/启动（--force 重建已在跑的；别名 start）
+pp down [name|#...]        停止
+pp restart [name|#...]     重启（遵守 restart 策略）
+pp status [name|#...]      状态表，第一列是 # 序号（--json 机器可读；别名 ls/list）
+pp attach <name|#>         进入；不存在则先启动
+pp logs <name|#> [-n 200]  打印滚动输出
+pp send <name|#> "文本"     往 pane 里打字并回车（--no-enter 不回车）
+pp check                   校验配置
+pp doctor                  环境诊断（含自启状态、WSL 提示）
+pp init                    写示例配置
+pp install [--watch N]     安装开机自启（别名 autostart）
+pp uninstall               卸载自启
+pp help [命令]             帮助（不带参数为总览）
+pp version                 打印版本
 ```
 
 全局选项：`-c/--config`、`--socket`、`--json`、`--dry-run`、`--force`、`-q`、`-v`、`-h`、`-V`。

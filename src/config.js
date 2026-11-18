@@ -382,6 +382,19 @@ export function buildSessionArgv(session) {
   return argv;
 }
 
+/**
+ * Resolve a session reference from the CLI: exact name/tmux name first, then a
+ * 1-based index in config order (the `#` column from `pp ls`).
+ */
+export function resolveSessionRef(config, ref) {
+  const value = String(ref);
+  const exact = config.sessions.find((s) => s.name === value || s.tmuxName === value);
+  if (exact) return exact;
+  if (!/^\d+$/.test(value)) return null;
+  const index = Number(value);
+  return index >= 1 && index <= config.sessions.length ? config.sessions[index - 1] : null;
+}
+
 export function shellQuote(value) {
   const v = String(value);
   if (/^[A-Za-z0-9_@%+=:,./-]+$/.test(v)) return v;
