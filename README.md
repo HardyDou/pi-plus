@@ -27,6 +27,7 @@ pi-plus.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --n
 - **零依赖**：单文件 Node CLI，自带 YAML 子集解析器，不装 `js-yaml`、不需要 Python。
 - **可脚本化**：`--json`、`--dry-run`、`--quiet`，退出码可用（`up` 有失败即 1）。
 - **安全默认**：不经过 shell 拼接命令；tmux 名做白名单校验；重建前先 `check`。
+- **直接跟别的 agent 说话**：`pp mesh ls/send` 直连 remote-pi 的本地 broker，按会话名或跨机地址发消息、拿 ACK、等回复。
 
 ## 安装
 
@@ -96,6 +97,28 @@ pp n api --save               # 同时写进配置文件，重启后自动拉起
 - 默认 agent 是 `pi`，自动带 `--name <会话名>`；remote-pi 名称同样取会话名，通过**环境变量**注入（`remote_pi_mode: env`），不会改写项目里的 `.pi/remote-pi/config.json`
 - 常用选项：`-C/--dir`、`--agent`、`--log`、`--save`、`-a/--attach`、`--no-remote-pi`、`--force`、`--dry-run`
 - `pp new` 不依赖任何配置文件；`--save` 会在**没有配置时新建** `~/.pi/plus.yml`（或 `-c` / `$PI_PLUS_CONFIG` 指向的路径）并追加这一条
+
+## 跟别的会话说话（mesh）
+
+`pp` 直连 remote-pi 的本地 broker（`~/.pi/remote/sessions/local/broker.sock`），
+不需要 pi 进程、不需要配对，本机和其它电脑上的 agent 都能发：
+
+```bash
+pp mesh ls                                  # 谁在线（只读探测，不会让别人看到上下线）
+pp mesh resolve backend                     # 配置里的会话 → mesh 地址 + 在线状态
+pp mesh send backend "构建绿了，可以发版"      # 会话名/序号都行
+pp mesh send 1 macbook:/Users/me/code/api@api "ping"   # 跨机直接写地址
+pp mesh send all "5 分钟后重启机器"           # 广播
+pp mesh send backend "跑一下测试" --reply 60000        # 等它回话，收到就返回
+```
+
+- 单个目标 = 单播并等 broker 的 ACK：`delivered to …`（收到）、`busy`（对方正在跑，
+  消息被丢弃，稍后重试）、`denied`、超时；多个目标或 `all` = 组播，不等 ACK
+- 加 `--reply <ms>` 会在 ACK 之后继续监听，把对方的回复打印出来（单播收到第一条就返回）
+- 跨机地址形如 `macbook:/Users/me/code/api@api`；本机注册名默认 `pp-mesh`，用 `--as` 改
+- 与 `pp send` 的区别：`pp send` 是往 tmux pane 里打字（对方当成"用户输入"），
+  `pp mesh send` 是走 agent 之间的消息通道（对方收到 `[agent-network] message from …` 信封）
+- broker 没起来时会明确报 `no mesh broker at …`；`pp mesh ls/resolve` 可离线用来看地址
 
 ## 文档
 
@@ -255,6 +278,7 @@ pp status [name|#...]      状态表，第一列是 # 序号（--json 机器可�
 pp attach <name|#>         进入；不存在则先启动
 pp logs <name|#> [-n 200]  打印滚动输出
 pp send <name|#> "文本"     往 pane 里打字并回车（--no-enter 不回车）
+pp mesh ls|resolve|send    直连 remote-pi broker：看谁在线 / 查地址 / 发消息（--reply 等回复）
 pp check                   校验配置
 pp doctor                  环境诊断（含自启状态、WSL 提示）
 pp init                    写示例配置

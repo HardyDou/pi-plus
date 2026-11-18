@@ -25,6 +25,7 @@ import {
   systemdUserDir,
 } from "./autostart.js";
 import { clearStopped, isStopped, markStopped } from "./state.js";
+import { BROADCAST_TARGET, connectPeer, livePeersFor, MeshError, peerPc, probePeers, sessionMeshAddress } from "./mesh.js";
 import { findCommand, suggestCommand } from "./help.js";
 import { EXAMPLE_CONFIG } from "./example.js";
 
@@ -544,6 +545,293 @@ function cmdSend(config, options, ui) {
   ui.info(`sent to ${session.name}`);
 }
 
+function sessionForAddress(config, address) {
+  if (!config) return null;
+  for (const session of config.sessions) {
+    const base = sessionMeshAddress(session);
+    if (base && (address === base || address.startsWith(`${base}#`))) return session;
+  }
+  return null;
+}
+
+function meshUsage(ui) {
+  ui.error('usage: pp mesh <ls|send|resolve> ...  (see "pp help mesh")');
+  process.exit(2);
+}
+
+async function cmdMesh(config, options, ui) {
+  const [sub, ...rest] = options.names;
+  switch (sub) {
+    case undefined:
+    case "ls":
+    case "list":
+    case "peers":
+      return cmdMeshLs(config, options, ui);
+    case "send":
+    case "msg":
+      return cmdMeshSend(config, { ...options, names: rest }, ui);
+    case "resolve":
+    case "addr":
+      return cmdMeshResolve(config, { ...options, names: rest }, ui);
+    default:
+      ui.error(`unknown mesh subcommand: ${sub}`);
+      return meshUsage(ui);
+  }
+}
+
+async function cmdMeshLs(config, options, ui) {
+  let peers;
+  try {
+    peers = await probePeers({ timeoutMs: options.wait ?? 3000 });
+  } catch (err) {
+    ui.error(err.message);
+    process.exit(1);
+  }
+  const rows = peers.map((address, index) => {
+    const session = sessionForAddress(config, address);
+    return {
+      index: index + 1,
+      address,
+      pc: peerPc(address),
+      session: session ? session.name : null,
+    };
+  });
+  if (ui.json) {
+    ui.out(JSON.stringify(rows, null, 2));
+    return;
+  }
+  if (rows.length === 0) {
+    ui.info("no peers in the mesh");
+    return;
+  }
+  const headers = ["#", "ADDRESS", "PC", "SESSION"];
+  const table = rows.map((r) => [String(r.index), r.address, r.pc ?? "-", r.session ?? "-"]);
+  const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
+  const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
+  ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
+  table.forEach((row, i) => {
+    const cells = [...row];
+    cells[0] = ui.paint("dim", cells[0]);
+    if (rows[i].session) cells[3] = ui.paint("green", cells[3]);
+    ui.out(cells.map((cell, idx) => pad(cell, widths[idx])).join("  ").trimEnd());
+  });
+  if (!options.quiet) {
+    const local = rows.filter((r) => !r.pc).length;
+    ui.out(`\n${rows.length} peer(s): ${local} local, ${rows.length - local} cross-PC`);
+  }
+}
+
+async function cmdMeshResolve(config, options, ui) {
+  if (!config) {
+    ui.error("no config found; cannot resolve session names (use a raw mesh address instead)");
+    process.exit(2);
+  }
+  const sessions = selectSessions(config, options.names, ui, { all: true });
+  let peers = [];
+  try {
+    peers = await probePeers({ timeoutMs: options.wait ?? 3000 });
+  } catch {
+    peers = []; // resolving is useful offline; just report the offline state
+  }
+  const rows = sessions.map((session) => {
+    const base = sessionMeshAddress(session);
+    const live = livePeersFor(peers, base);
+    return {
+      name: session.name,
+      address: base,
+      online: live.length > 0,
+      matches: live,
+    };
+  });
+  if (ui.json) {
+    ui.out(JSON.stringify(rows, null, 2));
+    return;
+  }
+  for (const row of rows) {
+    if (!row.address) {
+      ui.out(`${row.name}: no remote-pi name (remote_pi_mode: off?)`);
+      continue;
+    }
+    const state = row.online ? ui.paint("green", `online x${row.matches.length}`) : ui.paint("dim", "offline");
+    ui.out(`${row.name} → ${row.address}  ${state}`);
+    if (row.matches.length > 1) {
+      for (const match of row.matches) ui.out(`  ${ui.paint("dim", match)}`);
+    }
+  }
+}
+
+async function cmdMeshSend(config, options, ui) {
+  const hasBodyJson = options.bodyJson !== undefined;
+  if (options.names.length < (hasBodyJson ? 1 : 2)) {
+    ui.error('usage: pp mesh send <target...> "text" [--wait <ms>] [--reply <ms>] [--no-wait] [--body-json <json>]');
+    process.exit(2);
+  }
+  const text = hasBodyJson ? null : options.names[options.names.length - 1];
+  const rawTargets = hasBodyJson ? options.names : options.names.slice(0, -1);
+  let body = text;
+  if (hasBodyJson) {
+    try {
+      body = JSON.parse(options.bodyJson);
+    } catch (err) {
+      ui.error(`--body-json is not valid JSON: ${err.message}`);
+      process.exit(2);
+    }
+  }
+
+  // Resolve names/config first: then "unknown session" and a missing config are
+  // reported before we bother the broker.
+  const wanted = [];
+  let broadcast = false;
+  for (const raw of rawTargets) {
+    if (raw === "all" || raw === "broadcast" || raw === "*") {
+      broadcast = true;
+      continue;
+    }
+    if (raw.includes("@") || /^[A-Za-z0-9._-]+:\//.test(raw)) {
+      wanted.push({ kind: "address", value: raw });
+      continue;
+    }
+    if (!config) {
+      ui.error(`no config found; cannot resolve session "${raw}" (pass a full mesh address instead)`);
+      process.exit(2);
+    }
+    const [session] = selectSessions(config, [raw], ui);
+    const base = sessionMeshAddress(session);
+    if (!base) {
+      ui.error(`"${session.name}" has no remote-pi name (remote_pi_mode: off?)`);
+      process.exit(2);
+    }
+    wanted.push({ kind: "session", value: base, session });
+  }
+
+  let peers = [];
+  if (!options.dryRun || wanted.length > 0 || broadcast) {
+    try {
+      peers = await probePeers({ timeoutMs: options.wait ?? 3000 });
+    } catch (err) {
+      if (!(err instanceof MeshError) || err.code !== "no_broker") throw err;
+      ui.error(err.message);
+      process.exit(1);
+    }
+  }
+
+  const targets = [];
+  for (const item of wanted) {
+    const live = livePeersFor(peers, item.value);
+    if (live.length === 0) {
+      if (item.kind === "address") ui.error(`no peer online at ${item.value}`);
+      else ui.error(`"${item.session.name}" is not in the mesh yet (${item.value} is offline; is the session running?)`);
+      process.exit(1);
+    }
+    targets.push(...live);
+  }
+
+  const unique = [...new Set(targets)];
+  const multicast = broadcast || unique.length > 1;
+  if (!broadcast && unique.length === 0) {
+    ui.error("no targets");
+    process.exit(2);
+  }
+  if (options.dryRun) {
+    const envelope = { from: options.as ?? "pp-mesh", to: broadcast ? BROADCAST_TARGET : multicast ? unique : unique[0], body };
+    ui.info(`[dry-run] ${JSON.stringify(envelope)}`);
+    return;
+  }
+
+  let peer;
+  try {
+    peer = await connectPeer({ name: options.as ?? "pp-mesh", cwd: process.cwd() });
+  } catch (err) {
+    ui.error(err.message);
+    process.exit(1);
+  }
+  let sendId = null;
+  let waitingForFirstReply = null;
+  const replies = [];
+  const collecting = options.reply !== undefined && options.reply > 0;
+  if (collecting) {
+    peer.onMessage((envelope) => {
+      if (!envelope || envelope.re !== sendId) return;
+      replies.push(envelope);
+      if (!ui.json) {
+        ui.out(`${ui.paint("green", `reply from ${envelope.from}`)}: ${formatMeshBody(envelope.body)}`);
+      }
+      waitingForFirstReply?.();
+      waitingForFirstReply = null;
+    });
+  }
+  const collect = async (single = true) => {
+    if (!collecting) return;
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, options.reply);
+      if (!single) return;
+      waitingForFirstReply = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+    });
+    waitingForFirstReply = null;
+    if (ui.json) {
+      ui.out(JSON.stringify(replies, null, 2));
+      return replies.length;
+    }
+    if (replies.length === 0) ui.info(`no reply within ${options.reply}ms (the peer may still be working)`);
+    return replies.length;
+  };
+  try {
+    if (broadcast) {
+      sendId = peer.send(BROADCAST_TARGET, body);
+      ui.info(`broadcast to ${peers.length} peer(s) as ${peer.address} (${sendId})`);
+      await collect(false);
+      return;
+    }
+    if (multicast) {
+      sendId = peer.send(unique, body);
+      ui.info(`sent to ${unique.length} peer(s) as ${peer.address} (${sendId})`);
+      for (const target of unique) ui.out(`  ${ui.paint("dim", target)}`);
+      await collect(false);
+      return;
+    }
+    const target = unique[0];
+    if (options.noWait) {
+      sendId = peer.send(target, body);
+      ui.info(`sent to ${target} (${sendId})`);
+      await collect();
+      return;
+    }
+    const ack = await peer.sendWithAck(target, body, options.wait ?? 5000);
+    sendId = ack.id;
+    if (ack.status === "received") {
+      ui.info(`delivered to ${target} (${ack.id})`);
+      await collect();
+      return;
+    }
+    if (ack.status === "busy") {
+      ui.error(`${target} is mid-turn: broker dropped the message (busy). Retry later or use --no-wait.`);
+      process.exitCode = 1;
+      return;
+    }
+    if (ack.status === "denied") {
+      ui.error(`delivery to ${target} was denied by the broker`);
+      process.exitCode = 1;
+      return;
+    }
+    ui.error(`no ACK from ${target} within ${options.wait ?? 5000}ms (the message may still arrive)`);
+    process.exitCode = 1;
+  } finally {
+    peer.close();
+  }
+}
+
+function formatMeshBody(body) {
+  if (typeof body === "string") return body;
+  try {
+    return JSON.stringify(body);
+  } catch {
+    return String(body);
+  }
+}
+
 function cmdCheck(config, options, ui) {
   const tmux = makeTmux(config, options);
   const problems = [];
@@ -788,6 +1076,15 @@ export async function runCommand(command, options) {
     case "send": {
       const config = requireConfig(options, ui);
       return cmdSend(config, options, ui);
+    }
+    case "mesh": {
+      let config = null;
+      try {
+        config = loadConfig({ configPath: options.config, cwd: options.cwd });
+      } catch {
+        config = null; // raw addresses and `pp mesh ls` work without a config
+      }
+      return cmdMesh(config, options, ui);
     }
     case "check":
     case "validate": {

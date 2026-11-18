@@ -16,6 +16,7 @@ _pp() {
     'attach:attach to a session (starts it if needed)'
     'logs:print pane output'
     'send:type text into a pane'
+    'mesh:remote-pi mesh (ls/send/resolve)'
     'check:validate the config'
     'doctor:environment diagnostics'
     'init:write an example config'
@@ -45,6 +46,11 @@ _pp() {
     '--no-remote-pi[do not set a remote-pi name for pp new]' \
     '(-n --lines)'{-n,--lines}'[scrollback lines]:lines:' \
     '--no-enter[do not press Enter after send]' \
+    '--as[mesh name to register as]:name:' \
+    '--wait[mesh ACK timeout]:ms:' \
+    '--reply[wait for a reply after the ACK]:ms:' \
+    '--no-wait[do not wait for the mesh ACK]' \
+    '--body-json[mesh body as JSON]:json:' \
     '--watch[reconcile interval for install]:seconds:' \
     '--print[print autostart unit and exit]' \
     '1:command:->command' \

@@ -64,6 +64,11 @@ function parseArgs(argv) {
         case "--save": options.save = true; break;
         case "--attach": options.attach = true; break;
         case "--no-remote-pi": options.noRemotePi = true; break;
+        case "--as": options.as = takeValue(flag, inline); break;
+        case "--wait": options.wait = Number(takeValue(flag, inline)) || 5000; break;
+        case "--no-wait": options.noWait = true; break;
+        case "--body-json": options.bodyJson = takeValue(flag, inline); break;
+        case "--reply": options.reply = Number(takeValue(flag, inline)) || 0; break;
         case "--local": options.local = true; break;
         case "--path": options.path = takeValue(flag, inline); break;
         case "--help": process.exit(showHelp(command));

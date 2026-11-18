@@ -18,13 +18,34 @@ src/yaml.js        零依赖 YAML 子集解析器（parseYaml / YamlError）
 src/tmux.js        tmux CLI 的薄封装（Tmux 类）+ paneTarget + resolveExecutable
 src/remote-pi.js   读写 <cwd>/.pi/remote-pi/config.json，构造 REMOTE_PI_DIRECT_CONFIG
 src/state.js       手动停止记录（XDG state），给 restart 策略用
+src/mesh.js        remote-pi broker 的零依赖客户端（探测 / 注册 / 发送 / ACK）
 src/autostart.js   systemd / launchd 单元渲染与安装/卸载/状态查询
-src/commands.js    各子命令实现（up/down/restart/status/attach/logs/send/check/doctor/init/install/new）
+src/commands.js    各子命令实现（up/down/restart/status/attach/logs/send/mesh/check/doctor/init/install/new）
 src/help.js        COMMANDS 单一数据源 + 总览/单命令页/拼写建议
 src/example.js     `pp init` 写入的示例配置
 ```
 
 `src/help.js` 的 `COMMANDS` 是命令表的唯一来源：总览、单命令帮助、别名解析和拼写建议都由它生成，测试会断言「每个规范命令都有完整帮助页」，所以加命令时不会出现文档漂移。
+
+## mesh 客户端（`pp mesh`）
+
+`src/mesh.js` 直接说 broker 的换行分隔 JSON 协议（UNIX socket），不依赖 remote-pi 的代码，也不启动 pi：
+
+```
+pp mesh ls       → {"type":"list_peers"}             → body.peers 里的地址数组（只读，不注册）
+pp mesh send     → {"type":"register",name,cwd}      → register_ack.address_assigned
+                 → {from,to,id,re:null,body}         → {re:<id>, body:{type:"ack",status:"received|busy|denied"}}
+                 ← 对方回信 {re:<id>, from, body}     ← --reply 期间打印并提前返回
+```
+
+几个要点：
+
+- **为什么 `ls` 要"只读探测"**：broker 收到注册就会广播 `peer_joined`，别人的 UI 会闪一条通知；纯查询用 `list_peers` 不会改变任何人的 peer 列表。
+- **会话名 → 地址**：`sessionMeshAddress()` 按 `<cwd>@<remote_pi_name>` 拼，`remote_pi_mode: off` 或没有名字时返回 `null`；broker 对同 `(cwd,name)` 的第二次注册会加 `#2` 后缀，`livePeersFor()` 把 `base` 和 `base#N` 都算作同一会话。
+- **ACK 语义**：单播等 ACK，`busy` 意味着对方正在跑一轮、消息被丢弃（不是排队），所以 `pp` 直接报错让你重试；组播/广播没有逐条 ACK。
+- **临时身份**：注册名默认 `pp-mesh`，`--as` 可改；进程退出即注销，别人看到的只是一条上下线。
+- **回复**：`--reply <ms>` 在同一连接上继续等 `re === 本次 id` 的信封；单播拿到第一条就提前返回，组播/广播会一直收到窗口结束。
+- **跨机**：地址前缀 `<pc>:` 由 broker leader 的 relay 桥完成，发送端无需配对；`pp mesh ls` 会显示 `PC` 列。
 
 ## 启动链路（`pp up`）
 

@@ -26,6 +26,11 @@ pp <command> [names...] [options]
 | `--save` | `new` 时把会话追加进配置文件 |
 | `-a, --attach` | `new` 建完直接进入 |
 | `--no-remote-pi` | `new` 时不给 remote-pi 名字 |
+| `--as <name>` | `mesh send` 注册用的名字，默认 `pp-mesh` |
+| `--wait <ms>` | `mesh send` 等 ACK 的超时，默认 5000 |
+| `--reply <ms>` | `mesh send` 收到 ACK 后继续监听回复的时长（单播收到第一条即返回） |
+| `--no-wait` | `mesh send` 只发不等 ACK |
+| `--body-json <json>` | `mesh send` 发结构化 JSON（默认发纯文本） |
 | `--print` | `install` 只打印单元文件 |
 | `--watch [secs]` | `install` 额外装一个定时器，每 N 秒（默认 300）巡检一次 |
 | `-h, --help` | 帮助（`pp help`、`pp <cmd> --help` 等价） |
@@ -98,6 +103,35 @@ pp send backend "跑一下 npm test，失败就把报错贴出来"
 pp send 3 --no-enter "git status"      # 先不执行
 ```
 
+### `pp mesh <ls|resolve|send>`
+
+直连 remote-pi 的本地 broker（`~/.pi/remote/sessions/local/broker.sock`，可用 `$REMOTE_PI_HOME` 改根目录）：
+不启动 pi、不注册常驻 peer，一条命令说完就走。
+
+| 子命令 | 作用 |
+|---|---|
+| `ls` | 列出在线 peer。**只读探测**（`{"type":"list_peers"}`），不会让别人的 peer 列表出现上下线抖动 |
+| `resolve [name\|#...]` | 配置里的会话 → mesh 地址（`<cwd>@<remote_pi_name>`）+ 在线状态；broker 不在也能用 |
+| `send <target...> "文本"` | 以临时身份（默认 `pp-mesh`）注册、投递、等 ACK |
+
+```bash
+pp mesh ls                                   # # ADDRESS PC SESSION
+pp mesh resolve backend risk-01              # backend → /srv/api@backend  online x1
+pp mesh send backend "跑一下 npm test"        # delivered / busy / denied / timeout
+pp mesh send 1 3 "10 分钟后重启"              # 多个目标 = 组播，不等 ACK
+pp mesh send all "standup in 5"              # 广播
+pp mesh send macbook:/Users/me/code/api@api "ping" --wait 2000
+pp mesh send backend "报一下进度" --reply 60000   # 收到回复立刻打印并返回
+pp mesh send api --body-json '{"task":"test","id":42}'   # 结构化消息
+```
+
+- 目标可以是会话名、`#` 序号、完整 mesh 地址（`<cwd>@<name>` 或 `macbook:/path@name`）、`all`/`broadcast`
+- 单播会等 broker 的 ACK：`received` 成功；`busy` 表示对方正在跑一轮，**消息被丢弃**（用 `--no-wait` 或稍后重试）；`denied`；超时（消息可能仍会送达）
+- `--reply <ms>`：ACK 之后继续监听 `re=<本次 id>` 的回信；单播拿到第一条就提前返回，组播/广播会一直收到窗口结束
+- 发送内容默认是字符串（对方看到的就是这句话）；`--body-json` 发送任意 JSON，对方收到的是序列化后的 JSON 文本
+- 地址后缀 `#N` 是 broker 对同 `(cwd, name)` 重复身份的自动去重，`livePeersFor` 会把它一并算作同一个会话
+- 跨机投递走 broker leader 的 relay 桥，发送端不需要做任何配对
+
 ### `pp check [name|#...]`
 
 只校验配置，不碰 tmux。失败项进 stderr 并退出 1；`notes` 是提示（`restart: no`、手动停过、共享目录写同名等）。JSON：`{ "ok": true, "problems": [], "notes": [], "config": "..." }`。
@@ -148,6 +182,7 @@ pp new scratch --agent bash --log --save # 顺便写进配置
 | `XDG_STATE_HOME` | 手动停止记录的位置（默认 `~/.local/state`） |
 | `XDG_CONFIG_HOME` | 配置搜索路径之一（默认 `~/.config`） |
 | `REMOTE_PI_DIRECT_CONFIG` | 由 `pp` 在 `remote_pi_mode: env` 时注入，不用手动设 |
+| `REMOTE_PI_HOME` | remote-pi 的状态根目录（默认 `~/.pi`），`pp mesh` 用它定位 broker socket |
 
 ## 常见组合
 
@@ -163,4 +198,10 @@ pp send risk "把这周的日志异常整理成表格"
 
 # 临时开一个实验目录，跑完删
 d=$(mktemp -d) && pp new trial -C "$d" -a && pp down trial
+
+# 让 risk-01 汇报，并把回复收进文件（最多等 2 分钟）
+pp mesh send risk-01 "把今天的异常日志总结成 5 条" --reply 120000 > risk-report.txt
+
+# 全体通知
+pp mesh send all "我要重启这台机器，5 分钟后回来"
 ```
