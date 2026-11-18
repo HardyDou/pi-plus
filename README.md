@@ -1,6 +1,7 @@
 # pp · 用一个 YAML 管住一农场 pi agent
 
 [![ci](https://github.com/HardyDou/pi-plus/actions/workflows/ci.yml/badge.svg)](https://github.com/HardyDou/pi-plus/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/pi-farm.svg)](https://www.npmjs.com/package/pi-farm)
 
 > Declarative tmux farm for [pi](https://github.com/badlogic/pi-mono) agents.
 > One YAML file drives the **tmux session**, the **pi session id/name** and the
@@ -30,8 +31,8 @@ pi-plus.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --n
 ## 安装
 
 ```bash
-# 从 npm 安装（装完命令就是 pp）
-npm i -g @hardydou/pi-plus
+# 从 npm 安装（包名 pi-farm，装完命令就是 pp）
+npm i -g pi-farm
 
 # 或直接从 GitHub 安装
 npm i -g github:HardyDou/pi-plus

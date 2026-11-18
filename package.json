@@ -1,7 +1,7 @@
 {
-  "name": "@hardydou/pi-plus",
+  "name": "pi-farm",
   "version": "0.2.0",
-  "description": "pp — declarative tmux sessions for pi coding agents: one YAML drives the tmux session, pi session id/name and remote-pi mesh name, and survives reboots.",
+  "description": "Declarative tmux sessions for pi coding agents (CLI: pp). One YAML drives the tmux session, pi session id/name and remote-pi mesh name, and survives reboots.",
   "type": "module",
   "bin": {
     "pp": "bin/pp.js"
