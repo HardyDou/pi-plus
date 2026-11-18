@@ -187,6 +187,12 @@ export default function ppTmux(pi) {
           await handler(args, ctx);
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
+          if (!ctx.hasUI && ctx.mode === "print") {
+            // no TUI to notify: surface the failure to the shell instead of exiting 0
+            process.stderr.write(`pp: ${message}\n`);
+            process.exitCode = 1;
+            return;
+          }
           ctx.ui.notify(message, "error");
         }
       },
