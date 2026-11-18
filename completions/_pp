@@ -3,6 +3,9 @@
 _pp() {
   local -a commands
   commands=(
+    'new:start a one-off session in a directory (alias n)'
+    'n:alias for new'
+    'create:alias for new'
     'up:start sessions in the background'
     'start:alias for up'
     'down:stop sessions'
@@ -34,6 +37,12 @@ _pp() {
     '--path[init destination]:file:_files' \
     '(-q --quiet)'{-q,--quiet}'[only errors]' \
     '(-v --verbose)'{-v,--verbose}'[echo tmux commands]' \
+    '(-C --dir)'{-C,--dir}'[directory for pp new]:dir:_files -/' \
+    '--agent[agent command for pp new]:command:' \
+    '--log[keep output in ~/.pi/plus/logs]' \
+    '--save[append the session to the config file]' \
+    '(-a --attach)'{-a,--attach}'[attach after pp new]' \
+    '--no-remote-pi[do not set a remote-pi name for pp new]' \
     '(-n --lines)'{-n,--lines}'[scrollback lines]:lines:' \
     '--no-enter[do not press Enter after send]' \
     '--watch[reconcile interval for install]:seconds:' \

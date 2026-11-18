@@ -1,12 +1,14 @@
-import { existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import {
   buildSessionArgv,
   describeSession,
   isSessionPath,
+  expandPath,
   loadConfig,
   resolve,
+  splitCommand,
   resolveSessionRef,
   shellQuote,
 } from "./config.js";
@@ -23,7 +25,7 @@ import {
   systemdUserDir,
 } from "./autostart.js";
 import { clearStopped, isStopped, markStopped } from "./state.js";
-import { suggestCommand } from "./help.js";
+import { findCommand, suggestCommand } from "./help.js";
 import { EXAMPLE_CONFIG } from "./example.js";
 
 const COLORS = {
@@ -156,6 +158,136 @@ async function verifyStartup(tmux, session, ui) {
     );
   }
   if (ui) ui.info(`  ${ui.paint("dim", "pid")} ${live.panes[0]?.pid ?? "?"}`);
+}
+
+export const SAFE_TMUX_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+
+export function tmuxSafeName(raw) {
+  const cleaned = String(raw)
+    .replace(/[^A-Za-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return cleaned || "session";
+}
+
+/** Build an ad-hoc (config-less) session for `pp new`. */
+function adHocSession({ name, cwd, agent, log, remotePiName, remotePiMode }) {
+  const argv = splitCommand(agent);
+  const pi = basename(argv[0] ?? "") === "pi";
+  return {
+    name,
+    tmuxName: name,
+    cwd,
+    agent: argv,
+    pi,
+    piSession: null,
+    piSessionDir: null,
+    piSessionName: pi ? name : null,
+    remotePiName,
+    remotePiMode,
+    env: {},
+    args: [],
+    log,
+    remainOnExit: false,
+    restart: "always",
+  };
+}
+
+async function cmdNew(baseConfig, options, ui) {
+  const cwd = resolve(expandPath(options.dir ?? process.cwd()));
+  if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
+    ui.error(`directory does not exist: ${cwd}`);
+    process.exit(2);
+  }
+
+  const explicitName = options.names[0];
+  let name = tmuxSafeName(explicitName ?? basename(cwd));
+  if (!SAFE_TMUX_NAME.test(name)) {
+    ui.error(`invalid session name "${name}": use letters, digits, "-" and "_"`);
+    process.exit(2);
+  }
+
+  const tmux = makeTmux(baseConfig ?? { tmuxSocket: null }, options);
+  const live = tmux.listSessions();
+  if (live.has(name)) {
+    if (explicitName && !options.force) {
+      ui.error(`tmux session "${name}" already exists (--force to recreate, or pick another name)`);
+      process.exit(2);
+    }
+    if (!options.force) {
+      let suffix = 2;
+      while (live.has(`${name}-${suffix}`)) suffix += 1;
+      ui.info(ui.paint("dim", `${name} is taken, using ${name}-${suffix}`));
+      name = `${name}-${suffix}`;
+    }
+  }
+
+  const agent = options.agent ?? "pi";
+  const log = options.log ? join(homedir(), ".pi", "plus", "logs", `${name}.log`) : null;
+  const remotePiName = options.noRemotePi ? null : name;
+  const session = adHocSession({
+    name,
+    cwd,
+    agent,
+    log,
+    remotePiName,
+    // ad-hoc sessions never touch the project's remote-pi config file
+    remotePiMode: "env",
+  });
+
+  // Where --save writes: the loaded config, else the file the user pointed at
+  // explicitly (-c / PI_PLUS_CONFIG), else the default ~/.pi/plus.yml.
+  const pointedAt = options.config ?? process.env.PI_PLUS_CONFIG;
+  const savePath = baseConfig?.path ?? (pointedAt ? resolve(expandPath(pointedAt)) : join(homedir(), ".pi", "plus.yml"));
+  const config = {
+    path: savePath,
+    tmuxSocket: baseConfig?.tmuxSocket ?? null,
+    sessions: [session],
+    warnings: [],
+  };
+  await cmdUp(config, { ...options, names: [], force: Boolean(options.force) }, ui);
+
+  if (options.save) saveNewSession(config.path, session, ui);
+  if (options.dryRun) return;
+
+  if (options.attach && !process.stdout.isTTY) {
+    ui.info(ui.paint("dim", "not a terminal: skipping attach"));
+  } else if (options.attach) {
+    if (!tmux.sessionExists(session.tmuxName)) {
+      ui.error(`could not start "${session.name}"`);
+      process.exit(1);
+    }
+    process.exit(tmux.attach(session.tmuxName));
+  }
+  if (!options.quiet) {
+    ui.info(ui.paint("dim", `log or attach: pp logs ${session.name}  |  pp attach ${session.name}`));
+  }
+}
+
+/** Append a `pp new` session to the config file (creating it when missing). */
+export function saveNewSession(configPath, session, ui) {
+  const entry = [
+    `  - name: ${session.name}`,
+    `    cwd: ${session.cwd}`,
+    session.log ? `    log: ${session.log}` : null,
+    session.remotePiName ? `    remote_pi_name: ${session.remotePiName}` : "    remote_pi_name: false",
+    session.remotePiName ? "    remote_pi_mode: env" : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  let body;
+  if (existsSync(configPath)) {
+    const text = readFileSync(configPath, "utf8");
+    if (!/^sessions:\s*$/m.test(text)) {
+      ui.error(`${configPath} has no "sessions:" section; add the session manually`);
+      return;
+    }
+    body = `${text.replace(/\s*$/, "")}\n${entry}\n`;
+  } else {
+    mkdirSync(dirname(configPath), { recursive: true });
+    body = `version: 1\nsessions:\n${entry}\n`;
+  }
+  writeFileSync(configPath, body, "utf8");
+  ui.info(`saved to ${configPath}`);
 }
 
 async function cmdUp(config, options, ui) {
@@ -434,7 +566,9 @@ function cmdCheck(config, options, ui) {
           problems.push(`"${session.name}": agent "${session.agent[0]}" not found on PATH`);
         }
       }
-      if (session.remotePiName) {
+      // Only worth a note when the name is persisted per directory: in env mode
+      // two sessions in one directory are perfectly fine.
+      if (session.remotePiName && session.remotePiMode === "config") {
         const key = `${session.cwd}`;
         const prev = seenCwd.get(key);
         if (prev) notes.push(`"${session.name}" and "${prev.name}" share cwd ${key}`);
@@ -445,7 +579,7 @@ function cmdCheck(config, options, ui) {
       } else if (isStopped(config.path, session.name)) {
         notes.push(`"${session.name}": stopped by hand (restart: ${session.restart}); autostart will skip it`);
       }
-      if (session.remotePiMode === "config") {
+      if (session.remotePiName && session.remotePiMode === "config") {
         notes.push(`"${session.name}": writes ${remotePiConfigPath(session.cwd)}`);
       }
       if (session.piSession && !isSessionPath(session.piSession)) {
@@ -610,6 +744,17 @@ export async function runCommand(command, options) {
   const warnCommands = new Set(["up", "start", "restart", "check", "validate", "doctor"]);
   if (!warnCommands.has(command)) options.showWarnings = false;
   switch (command) {
+    case "new":
+    case "create":
+    case "n": {
+      let config = null;
+      try {
+        config = loadConfig({ configPath: options.config, cwd: options.cwd });
+      } catch {
+        config = null; // `pp new` works without any config file
+      }
+      return cmdNew(config, options, ui);
+    }
     case "up":
     case "start": {
       const config = requireConfig(options, ui);
@@ -672,8 +817,9 @@ export async function runCommand(command, options) {
     }
     default: {
       const suggestion = suggestCommand(command);
+      const canonical = suggestion ? (findCommand(suggestion)?.name ?? suggestion) : null;
       ui.error(`unknown command: ${command}`);
-      if (suggestion) ui.error(`did you mean 'pp ${suggestion}'?`);
+      if (canonical && canonical !== command) ui.error(`did you mean 'pp ${canonical}'?`);
       else ui.error("run 'pp help' to see the command list");
       process.exit(2);
     }

@@ -10,6 +10,40 @@ export const RESTART_POLICIES_HELP = [
 
 export const COMMANDS = [
   {
+    name: "new",
+    aliases: ["n", "create"],
+    summary: "Start a one-off session in a directory, no config needed",
+    usage: "pp new [name] [options]",
+    details: [
+      "Creates a detached session for the current directory (or --dir/-C <path>)",
+      "without touching any config file. The name defaults to the directory name,",
+      "sanitised to tmux-safe characters and suffixed -2/-3 if it is already taken.",
+      "",
+      "The agent defaults to `pi`; it gets `--name <session>` and a remote-pi name",
+      "equal to the session name, injected through the environment so the project's",
+      ".pi/remote-pi/config.json is never rewritten.",
+      "",
+      "Add --save to append the session to the config file (created if missing) so",
+      "it survives a reboot, and --attach/-a to jump straight into it.",
+    ].join("\n"),
+    options: [
+      "-C, --dir <path>  directory to run in (default: current directory)",
+      "--agent <cmd>     agent command (default: pi)",
+      "--log             keep full output in ~/.pi/plus/logs/<name>.log",
+      "--save            append the session to the config file",
+      "-a, --attach      attach after starting",
+      "--no-remote-pi    do not set a remote-pi name",
+      "--force           recreate the tmux session if the name is taken",
+      "--dry-run         print the tmux command instead of running it",
+    ],
+    examples: [
+      "pp new",
+      "pp new api -C ~/code/api --attach",
+      "pp new scratch --agent bash --log --save",
+    ],
+    see: ["up", "attach", "init"],
+  },
+  {
     name: "up",
     aliases: ["start"],
     summary: "Create/start configured sessions, detached (default: all)",

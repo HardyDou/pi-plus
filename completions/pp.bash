@@ -4,17 +4,17 @@ _pp() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local commands="up start down stop restart status ls list attach a logs log send check validate doctor init install autostart uninstall version help"
+  local commands="new n create up start down stop restart status ls list attach a logs log send check validate doctor init install autostart uninstall version help"
 
   case "$prev" in
     -c|--config)
       COMPREPLY=( $(compgen -f -- "$cur") )
       return 0
       ;;
-    --socket|--lines|-n)
+    --socket|--lines|-n|--agent|-C|--dir)
       return 0
       ;;
-    attach|a|logs|log|send|down|stop|restart)
+    attach|a|logs|log|send|down|stop|restart|up|start)
       local cfg="" i
       for ((i = 1; i < COMP_CWORD; i++)); do
         if [[ "${COMP_WORDS[i]}" == "-c" || "${COMP_WORDS[i]}" == "--config" ]]; then
@@ -29,7 +29,7 @@ _pp() {
   esac
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "--config --socket --json --dry-run --force --reconcile --quiet --verbose --lines --watch --print --path --no-enter --help --version" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--config --socket --json --dry-run --force --reconcile --quiet --verbose --lines --watch --print --path --no-enter --attach --log --save --no-remote-pi --dir --agent --help --version" -- "$cur") )
     return 0
   fi
   if [[ $COMP_CWORD -eq 2 && "${COMP_WORDS[1]}" == "help" ]]; then

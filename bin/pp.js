@@ -58,6 +58,12 @@ function parseArgs(argv) {
           else options.watch = 300;
           break;
         }
+        case "--dir": options.dir = takeValue(flag, inline); break;
+        case "--agent": options.agent = takeValue(flag, inline); break;
+        case "--log": options.log = true; break;
+        case "--save": options.save = true; break;
+        case "--attach": options.attach = true; break;
+        case "--no-remote-pi": options.noRemotePi = true; break;
         case "--local": options.local = true; break;
         case "--path": options.path = takeValue(flag, inline); break;
         case "--help": process.exit(showHelp(command));
@@ -66,6 +72,8 @@ function parseArgs(argv) {
       }
       continue;
     }
+    if (arg === "-C") { options.dir = takeValue(arg); continue; }
+    if (arg === "-a") { options.attach = true; continue; }
     if (arg === "-c" || arg === "-q" || arg === "-v" || arg === "-n" || arg === "-h" || arg === "-V") {
       switch (arg) {
         case "-c": options.config = takeValue(arg); break;

@@ -78,6 +78,22 @@ pp down                    # 全部停掉
 > 被单独 `down` 掉的会话会不会被拉回来，取决于它的 `restart` 策略——
 > `unless-stopped` / `on-failure` 会记住这次手动停止，`always` 会在下个巡检周期回来。
 
+## 临时开一个（不写配置）
+
+不想动配置文件时，直接在当前目录（或 `-C` 指定的目录）开一个：
+
+```bash
+pp new                        # 名字 = 目录名（tmux 安全字符，重名自动加 -2）
+pp new api -C ~/code/api      # 指定目录 + 名字
+pp new scratch --agent bash --log -a   # 别的 agent、留日志、进去（简写 n）
+pp n api --save               # 同时写进配置文件，重启后自动拉起
+```
+
+- 名字默认取**目标目录名**，会被规整成 tmux 安全字符（空格/中文/`.` → `-`）；目录名已被占用时自动 `-2`、`-3`
+- 默认 agent 是 `pi`，自动带 `--name <会话名>`；remote-pi 名称同样取会话名，通过**环境变量**注入（`remote_pi_mode: env`），不会改写项目里的 `.pi/remote-pi/config.json`
+- 常用选项：`-C/--dir`、`--agent`、`--log`、`--save`、`-a/--attach`、`--no-remote-pi`、`--force`、`--dry-run`
+- `pp new` 不依赖任何配置文件；`--save` 会在**没有配置时新建** `~/.pi/plus.yml`（或 `-c` / `$PI_PLUS_CONFIG` 指向的路径）并追加这一条
+
 ## 配置参考
 
 ```yaml
@@ -218,6 +234,7 @@ pp help instal          # 拼错会给建议：did you mean 'pp help install'?
 若真有会话叫这个名字，名字优先）：`pp attach 3`、`pp logs 3`、`pp down 2 5`。
 
 ```
+pp new [name] [opts]       在当前目录/指定目录临时开一个（别名 n、create）
 pp up [name|#...]          后台创建/启动（--force 重建已在跑的；别名 start）
 pp down [name|#...]        停止
 pp restart [name|#...]     重启（遵守 restart 策略）
