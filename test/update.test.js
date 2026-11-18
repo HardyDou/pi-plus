@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -43,7 +43,8 @@ test("installKind finds npm, git and unknown copies", () => {
   const git = fakeInstall("git");
   const info = installKind(git.script);
   assert.equal(info.kind, "git");
-  assert.equal(info.root, git.dir);
+  // macOS: tmpdir() is /var/folders/... which is really /private/var/folders/...
+  assert.equal(realpathSync(info.root), realpathSync(git.dir));
 
   const loose = mkdtempSync(join(tmpdir(), "pp-loose-"));
   writeFileSync(join(loose, "pp.js"), "");
