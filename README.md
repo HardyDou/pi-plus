@@ -141,6 +141,9 @@ sessions:
 > `remote_pi_name` 会互相覆盖，`pi-farm` 会给出 warning；想让同目录多个 agent
 > 各自有名字，用 `remote_pi_mode: env`（每个进程独立环境变量）。
 
+> 小提示：`remote_pi_mode: config` 会在项目里生成 `.pi/remote-pi/config.json`，
+> 建议加到全局 gitignore：`echo '.pi/remote-pi/' >> ~/.config/git/ignore`。
+
 ## 命令参考
 
 ```
