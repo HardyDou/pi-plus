@@ -61,13 +61,17 @@ pi-farm attach backend       # 进入某个 session（没启动会先启动）
 pi-farm up --dry-run -v      # 只打印将要执行的 tmux 命令
 ```
 
-按名字操作，省略即全部：
+按名字操作，省略即全部（`enabled: false` 的会话会被跳过）：
 
 ```bash
 pi-farm up backend docs
 pi-farm restart backend
+pi-farm down backend            # 只停一个
 pi-farm down                    # 全部停掉
 ```
+
+> 如果装了 `install --watch`，被单独 `down` 掉的会话会在下个巡检周期被拉回来；
+> 不想这样就用不带 `--watch` 的 `install`，或临时 `systemctl --user stop pi-farm.timer`。
 
 ## 配置参考
 
@@ -100,6 +104,7 @@ sessions:
     args: ["--approve"]           # 追加参数
     env:                          # 覆盖/追加环境变量
       TZ: Asia/Shanghai
+    enabled: true                 # false = 默认不启动（仍可 up <name> 单独拉起）
     log: ~/.pi/farm/backend.log   # 可选：pipe-pane 落盘
     remain_on_exit: false         # 可选：进程退出后保留 pane 便于看报错
 ```
@@ -119,6 +124,7 @@ sessions:
 | `agent` | `pi` | 启动命令，支持带参数；非 `pi` 时不追加 pi 专用flag |
 | `args` | `[]` | 追加到命令末尾 |
 | `env` | `{}` | 注入环境变量 |
+| `enabled` | `true` | `false` 时不参与裸 `up`/`restart`，但可 `up <name>` 单独启动 |
 | `log` | 无 | `pipe-pane` 输出文件 |
 | `remain_on_exit` | `false` | 保留 dead pane |
 

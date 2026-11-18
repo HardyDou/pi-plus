@@ -25,3 +25,7 @@ sessions:
   - name: ops
     cwd: ~/code/ops
     agent: bash                     # non-pi agent: no pi flags added
+
+  #  - name: spare
+  #    cwd: ~/code/spare
+  #    enabled: false               # not started by a bare "up"; start with: pi-farm up spare

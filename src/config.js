@@ -22,6 +22,7 @@ const SESSION_KEYS = new Set([
   "args",
   "log",
   "remain_on_exit",
+  "enabled",
 ]);
 
 const DEFAULT_KEYS = new Set([...SESSION_KEYS].filter((k) => k !== "name" && k !== "cwd"));
@@ -252,6 +253,7 @@ function normalizeSession(raw, defaults, index, configPath) {
     args: asTokens(session.args, `${where}.args`),
     log: session.log === true ? join(cwd, ".pi-farm.log") : session.log ? resolve(expandPath(String(session.log))) : null,
     remainOnExit: Boolean(session.remain_on_exit ?? false),
+    enabled: session.enabled === undefined ? true : Boolean(session.enabled),
   };
 }
 

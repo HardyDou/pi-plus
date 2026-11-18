@@ -98,6 +98,15 @@ test("remote-pi names are sanitized", () => {
   assert.equal(sanitizeRemotePiName(""), null);
 });
 
+test("enabled: false keeps a session out of the default set", () => {
+  const cfg = base([
+    { name: "a", cwd: "/tmp" },
+    { name: "b", cwd: "/tmp", enabled: false },
+  ]);
+  assert.equal(cfg.sessions[0].enabled, true);
+  assert.equal(cfg.sessions[1].enabled, false);
+});
+
 test("rejects unsafe or duplicate tmux names", () => {
   assert.throws(() => base([{ name: "a.b", cwd: "/tmp" }]), /tmux-safe/);
   assert.throws(() => base([{ name: "x", cwd: "/tmp" }, { name: "y", cwd: "/tmp", tmux_name: "x" }]), /duplicate/);

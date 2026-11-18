@@ -59,12 +59,14 @@ function requireConfig(options, ui) {
     );
     process.exit(2);
   }
-  if (!ui.quiet) for (const warning of config.warnings ?? []) ui.warn(warning);
+  if (!ui.quiet && options.showWarnings !== false) {
+    for (const warning of config.warnings ?? []) ui.warn(warning);
+  }
   return config;
 }
 
 function selectSessions(config, names, ui) {
-  if (!names || names.length === 0) return config.sessions;
+  if (!names || names.length === 0) return config.sessions.filter((s) => s.enabled !== false);
   const byKey = new Map();
   for (const s of config.sessions) {
     byKey.set(s.name, s);
@@ -76,6 +78,9 @@ function selectSessions(config, names, ui) {
     if (!session) {
       ui.error(`unknown session "${name}" in ${config.path}`);
       process.exit(2);
+    }
+    if (session.enabled === false) {
+      ui.warn(`"${session.name}" has enabled: false; starting it anyway because you asked explicitly`);
     }
     if (!picked.includes(session)) picked.push(session);
   }
@@ -231,7 +236,8 @@ async function cmdRestart(config, options, ui) {
 }
 
 function cmdStatus(config, options, ui) {
-  const sessions = selectSessions(config, options.names, ui);
+  // status lists every configured session, including enabled: false ones.
+  const sessions = options.names?.length ? selectSessions(config, options.names, ui) : config.sessions;
   const tmux = makeTmux(config, options);
   const live = tmux.listSessions();
 
@@ -252,6 +258,7 @@ function cmdStatus(config, options, ui) {
       name: session.name,
       tmux: session.tmuxName,
       state,
+      enabled: session.enabled !== false,
       pid,
       command,
       cwd: session.cwd,
@@ -288,6 +295,9 @@ function cmdStatus(config, options, ui) {
   ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
   rows.forEach((row, i) => {
     const colored = [...table[i]];
+    if (row.enabled === false && row.state === "stopped") {
+      colored[1] = ui.paint("dim", "off");
+    }
     const color = row.state === "running" ? "green" : row.state === "attached" ? "cyan" : row.state === "dead" ? "red" : "dim";
     colored[1] = ui.paint(color, colored[1]);
     ui.out(colored.map((cell, idx) => pad(cell, widths[idx])).join("  ").trimEnd());
@@ -377,6 +387,9 @@ function cmdCheck(config, options, ui) {
         const prev = seenCwd.get(key);
         if (prev) notes.push(`"${session.name}" and "${prev.name}" share cwd ${key}`);
         else seenCwd.set(key, session);
+      }
+      if (session.enabled === false) {
+        notes.push(`"${session.name}": enabled: false (skipped by bare "up"; start with up ${session.name})`);
       }
       if (session.remotePiMode === "config") {
         notes.push(`"${session.name}": writes ${remotePiConfigPath(session.cwd)}`);
@@ -526,6 +539,9 @@ function cmdUninstall(options, ui) {
 export async function runCommand(command, options) {
   const ui = makeUi(options);
   if (options.json) ui.quiet = true;
+  // Config warnings are only actionable for commands that act on the whole file.
+  const warnCommands = new Set(["up", "start", "restart", "check", "validate", "doctor"]);
+  if (!warnCommands.has(command)) options.showWarnings = false;
   switch (command) {
     case "up":
     case "start": {
