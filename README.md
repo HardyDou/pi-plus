@@ -97,8 +97,18 @@ pp n api --save               # 同时写进配置文件，重启后自动拉起
 - 常用选项：`-C/--dir`、`--agent`、`--log`、`--save`、`-a/--attach`、`--no-remote-pi`、`--force`、`--dry-run`
 - `pp new` 不依赖任何配置文件；`--save` 会在**没有配置时新建** `~/.pi/plus.yml`（或 `-c` / `$PI_PLUS_CONFIG` 指向的路径）并追加这一条
 
-## 配置参考
+## 文档
 
+| 文档 | 内容 |
+| --- | --- |
+| [docs/configuration.md](docs/configuration.md) | 配置参考：**全部字段**、restart 策略矩阵、remote-pi 三种模式、完整示例、校验规则 |
+| [docs/cli.md](docs/cli.md) | 命令行参考：全局选项、退出码、每个命令的用法/JSON/env |
+| [docs/autostart.md](docs/autostart.md) | 开机自启：systemd 单元为什么必须有 `KillMode=none`、linger、timer、launchd、WSL 两侧配置、冷启动验证 |
+| [docs/architecture.md](docs/architecture.md) | 内部实现：模块职责、`up` 数据流、名字解析、restart 状态机、tmux 目标规则 |
+| [docs/troubleshooting.md](docs/troubleshooting.md) | 排障手册：按报错原文查（起不来、`can't find pane`、名字不对、自启没生效、attach 乱码…） |
+| [docs/development.md](docs/development.md) | 开发指南：跑测试、改代码的规矩、测试分层、发布流程（含 npm staged publishing 的坑） |
+
+## 配置参考
 ```yaml
 version: 1
 
@@ -269,6 +279,8 @@ pp version                 打印版本
 
 ## 开机自启
 
+完整说明（`KillMode=none` 的原因、linger、timer、launchd、WSL 两侧、冷启动验证）见 [docs/autostart.md](docs/autostart.md)。
+
 ```bash
 pp install                 # 开机/登录时按 restart 策略 up 一次
 pp install --watch 300     # 另外每 5 分钟巡检，挂了自动补
@@ -333,6 +345,8 @@ sessions:
 
 ## 排障
 
+完整版见 [docs/troubleshooting.md](docs/troubleshooting.md)，这里是最常见的几行：
+
 | 现象 | 处理 |
 | --- | --- |
 | `session "x" exited immediately` | `-v` 看实际命令；先用 `check` 确认 cwd/agent；临时加 `remain_on_exit: true` 看报错 |
@@ -342,6 +356,8 @@ sessions:
 | pi 找不到 | systemd 的 PATH 由 `install` 自动写入 node 所在目录；自定义路径用 `agent: /abs/path/pi` |
 
 ## 开发
+
+详见 [docs/development.md](docs/development.md)。
 
 ```bash
 npm test            # node --test，纯单元测试，不需要 tmux
