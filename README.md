@@ -263,8 +263,31 @@ sudo loginctl enable-linger $USER
 `RunAtLoad` 登录即启动；`--watch` 用 `StartInterval` 定时巡检；日志在
 `~/Library/Logs/pi-plus.log`。
 
-**WSL2**：systemd 需要 `wsl.conf` 里 `[boot] systemd=true`（较新 WSL 默认开启）。
-WSL 的 systemd user instance 在发行版启动时拉起，效果等同开机自启。
+**WSL2**：分两半，缺一不可。
+
+1) WSL 内部（`pp install` 能做的部分）：
+   - `/etc/wsl.conf` 里 `[boot] systemd=true`（较新 WSL 默认开启，可用 `cat /etc/wsl.conf` 确认）
+   - `sudo loginctl enable-linger $USER`：不登录也能启动 user 服务
+   - `pp install`：写 `~/.config/systemd/user/pi-plus.service` 并 enable
+
+2) Windows 侧（**WSL 内部再怎么配也做不到**）：Windows 重启后 WSL 发行版本身不会自己
+   启动，没有任何进程能替你触发它。必须由 Windows 上的一次动作把发行版拉起来，例如
+   登录时执行（PowerShell，无需管理员）：
+
+   ```powershell
+   $p = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Startup\pi-plus.vbs"
+   Set-Content -Encoding ASCII $p 'Set s = CreateObject("WScript.Shell") : s.Run "wsl.exe -d <发行版名> -u <用户名> -e /bin/true", 0, False'
+   ```
+
+   把 `<发行版名>` 换成 `wsl -l -v` 里的名字（例如 `Ubuntu-24.04`）。也可以用任务计划
+   程序建一个“登录时”任务，动作同样是 `wsl.exe -d <发行版名> -u <用户名> -e /bin/true`。
+
+   原理：这条命令把发行版启动起来（systemd 成为 PID 1 并常驻），`--reconcile` 的
+   `pi-plus.service` 随即按各会话的 `restart` 策略拉起 agent；命令本身会立刻退出，
+   VBScript 用隐藏窗口跑，不闪黑框。
+
+> 只配 WSL 内部、不配 Windows 侧：`wsl --shutdown` 或重启后不会有任何会话，直到你手动
+> 打开一次终端。`pp doctor` 在 WSL 下会多打一行 `wsl` 提示这件事。
 
 ## 续接已有 pi 会话
 

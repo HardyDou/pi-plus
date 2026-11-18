@@ -3,7 +3,13 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { buildServicePath, renderLaunchAgent, renderSystemdService, renderSystemdTimer } from "../src/autostart.js";
+import {
+  buildServicePath,
+  isWsl,
+  renderLaunchAgent,
+  renderSystemdService,
+  renderSystemdTimer,
+} from "../src/autostart.js";
 
 const GLOBAL = "/home/user/.nvm/versions/node/v26.13.1/lib/node_modules/pi-farm/bin/pp.js";
 
@@ -55,4 +61,10 @@ test("launchd plist runs at load with the config path", () => {
 test("launchd plist adds StartInterval in watch mode", () => {
   const plist = renderLaunchAgent({ scriptPath: GLOBAL, configPath: "/tmp/x.yml", watch: 90 });
   assert.match(plist, /<key>StartInterval<\/key><integer>90<\/integer>/);
+});
+
+test("isWsl detects WSL from the environment", () => {
+  assert.equal(isWsl({ WSL_DISTRO_NAME: "Ubuntu" }), true);
+  assert.equal(isWsl({ WSL_INTEROP: "/run/WSL/1_interop" }), true);
+  assert.equal(typeof isWsl(), "boolean");
 });

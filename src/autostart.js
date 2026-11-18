@@ -1,9 +1,18 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, sep } from "node:path";
 
 const SERVICE_NAME = "pi-plus";
+
+export function isWsl(env = process.env) {
+  if (env.WSL_DISTRO_NAME || env.WSL_INTEROP) return true;
+  try {
+    return readFileSync("/proc/sys/kernel/osrelease", "utf8").toLowerCase().includes("microsoft");
+  } catch {
+    return false;
+  }
+}
 
 export function autostartKind() {
   if (process.platform === "linux") return "systemd";

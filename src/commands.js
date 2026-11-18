@@ -11,7 +11,14 @@ import {
 } from "./config.js";
 import { readRemotePiConfig, remotePiConfigPath, writeRemotePiName } from "./remote-pi.js";
 import { resolveExecutable, Tmux } from "./tmux.js";
-import { installAutostart, uninstallAutostart, autostartKind, launchAgentPath, systemdUserDir } from "./autostart.js";
+import {
+  installAutostart,
+  uninstallAutostart,
+  autostartKind,
+  isWsl,
+  launchAgentPath,
+  systemdUserDir,
+} from "./autostart.js";
 import { clearStopped, isStopped, markStopped } from "./state.js";
 import { suggestCommand } from "./help.js";
 import { EXAMPLE_CONFIG } from "./example.js";
@@ -120,6 +127,11 @@ function prepareSession(session, { dryRun = false } = {}) {
   }
   if (session.remotePiName && session.remotePiMode === "config" && !dryRun) {
     writeRemotePiName(session.cwd, session.remotePiName);
+  }
+  // pipe-pane writes with `cat >> '<path>'`; a missing parent dir would silently swallow
+  // the log, so create it up front (matters on boot, where ~/.pi/plus/logs may not exist).
+  if (session.log && !dryRun) {
+    mkdirSync(dirname(session.log), { recursive: true });
   }
 }
 
@@ -490,6 +502,10 @@ function cmdDoctor(config, options, ui) {
   add("config", Boolean(config), config?.path ?? "not found");
   const kind = autostartKind();
   add("autostart", Boolean(kind), kind ?? "unsupported platform");
+  if (isWsl()) {
+    // On WSL the distro only runs after Windows starts it; systemd alone cannot help.
+    add("wsl", true, "Windows 侧需触发（任务计划/启动项），见 pp install 提示");
+  }
 
   if (ui.json) {
     ui.out(JSON.stringify({ checks, warnings: config?.warnings ?? [] }, null, 2));
@@ -558,6 +574,14 @@ function cmdInstall(config, options, ui) {
     if (result.timerPath) ui.info(`installed ${result.timerPath}`);
     ui.info("enabled as a systemd user unit; sessions start at boot/login.");
     ui.info(ui.paint("dim", "If sessions should start before login: sudo loginctl enable-linger $USER"));
+    if (isWsl()) {
+      ui.info("");
+      ui.info(ui.paint("yellow", "WSL: Windows 侧还需要一次触发，否则重启后 WSL 发行版根本不会启动。"));
+      ui.info("  在 PowerShell（无需管理员）里执行，把 <发行版> 换成 wsl -l -v 里的名字:");
+      ui.info('    $p = "$env:APPDATA\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\pi-plus.vbs"');
+      ui.info('    Set-Content -Encoding ASCII $p \'Set s = CreateObject("WScript.Shell") : s.Run "wsl.exe -d <发行版> -u user -e /bin/true", 0, False\'');
+      ui.info(ui.paint("dim", "  之后开机登录 Windows 即触发；WSL 启动后 systemd 会按 restart 策略把会话拉起来。"));
+    }
   } else {
     ui.info(`installed ${result.plistPath}`);
     ui.info("loaded as a launchd agent; sessions start at login.");
