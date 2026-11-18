@@ -4,7 +4,7 @@ _pi_farm() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local commands="up down restart status attach logs send check doctor init install uninstall version help"
+  local commands="up start down stop restart status ls list attach a logs log send check validate doctor init install autostart uninstall version help"
 
   case "$prev" in
     -c|--config)
@@ -14,7 +14,7 @@ _pi_farm() {
     --socket|--lines|-n)
       return 0
       ;;
-    attach|logs|send|down|restart)
+    attach|a|logs|log|send|down|stop|restart)
       local cfg="" i
       for ((i = 1; i < COMP_CWORD; i++)); do
         if [[ "${COMP_WORDS[i]}" == "-c" || "${COMP_WORDS[i]}" == "--config" ]]; then
@@ -29,7 +29,11 @@ _pi_farm() {
   esac
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "--config --socket --json --dry-run --force --quiet --verbose --lines --watch --print --help --version" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--config --socket --json --dry-run --force --reconcile --quiet --verbose --lines --watch --print --path --no-enter --help --version" -- "$cur") )
+    return 0
+  fi
+  if [[ $COMP_CWORD -eq 2 && "${COMP_WORDS[1]}" == "help" ]]; then
+    COMPREPLY=( $(compgen -W "$commands" -- "$cur") )
     return 0
   fi
   if [[ $COMP_CWORD -eq 1 ]]; then

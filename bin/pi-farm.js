@@ -2,6 +2,7 @@
 import { readFileSync, realpathSync } from "node:fs";
 import { resolve } from "node:path";
 import { runCommand } from "../src/commands.js";
+import { renderCommandHelp, renderOverview, suggestCommand } from "../src/help.js";
 
 const VERSION = (() => {
   try {
@@ -11,62 +12,6 @@ const VERSION = (() => {
   }
 })();
 
-const HELP = `pi-farm ${VERSION} — keep your pi agents alive in tmux
-
-Usage:
-  pi-farm <command> [names...] [options]
-
-Commands:
-  up [names...]        Create/start configured sessions, detached (default: all)
-  down [names...]      Stop sessions
-  restart [names...]   Restart sessions (kill + up)
-  status               Show config, tmux state, pi session and remote-pi name
-  attach <name>        Attach to a session (starts it if missing)
-  logs <name>          Print recent pane output (--lines N, default 200)
-  send <name> "text"   Type text into the pane and press Enter (--no-enter)
-  check                Validate the config without touching tmux
-  doctor               Environment + config diagnostics
-  init                 Write an example config to ~/.pi/farm.yml
-  install              Install reboot autostart (systemd / launchd)
-  uninstall            Remove the autostart unit
-  version              Print the version
-
-Options:
-  -c, --config <path>  Config file (default: ./pi-farm.yml, then ~/.pi/farm.yml)
-      --socket <name>  tmux socket name (overrides tmux.socket in the config)
-      --json           Machine-readable output (up/down/status/check/doctor)
-      --dry-run        Print what would happen; do not touch tmux or files
-      --force          up: recreate already running sessions; init: overwrite
-      --reconcile      up: autostart/watch mode; skip sessions stopped by hand
-  -q, --quiet          Only errors
-  -v, --verbose        Echo tmux commands
-  -n, --lines <n>      logs: how many scrollback lines (default 200)
-      --no-enter       send: do not press Enter
-      --watch [secs]   install: also reconcile every N seconds (default 300)
-      --print          install: print the unit file and exit
-  -h, --help           Show this help
-  -V, --version        Print the version
-
-Config example:
-  version: 1
-  defaults:
-    agent: pi
-  sessions:
-    - name: backend          # tmux session, pi name and remote-pi name
-      cwd: ~/code/backend
-      pi_session: 1a2b3c4d   # optional: resume this pi session id/path
-    - name: docs
-      cwd: ~/code/docs
-      agent: pi
-      remote_pi_name: docs
-      env:
-        TZ: Asia/Shanghai
-
-Name mapping (all default to the session name):
-  tmux session   tmux_name | name
-  pi --name      pi_session_name | name
-  remote-pi      remote_pi_name | name
-`;
 
 function fail(message) {
   process.stderr.write(`error: ${message}\n`);
@@ -115,7 +60,7 @@ function parseArgs(argv) {
         }
         case "--local": options.local = true; break;
         case "--path": options.path = takeValue(flag, inline); break;
-        case "--help": process.stdout.write(HELP); process.exit(0); break;
+        case "--help": process.exit(showHelp(command));
         case "--version": process.stdout.write(`${VERSION}\n`); process.exit(0); break;
         default: fail(`unknown option: ${arg}`);
       }
@@ -127,7 +72,7 @@ function parseArgs(argv) {
         case "-q": options.quiet = true; break;
         case "-v": options.verbose = true; break;
         case "-n": options.lines = Number(takeValue(arg)) || 200; break;
-        case "-h": process.stdout.write(HELP); process.exit(0); break;
+        case "-h": process.exit(showHelp(command));
         case "-V": process.stdout.write(`${VERSION}\n`); process.exit(0); break;
       }
       continue;
@@ -149,21 +94,32 @@ function scriptPath() {
   }
 }
 
+function showHelp(name) {
+  if (!name) {
+    process.stdout.write(renderOverview(VERSION));
+    return 0;
+  }
+  const text = renderCommandHelp(VERSION, name);
+  if (text) {
+    process.stdout.write(text);
+    return 0;
+  }
+  process.stderr.write(`error: unknown command: ${name}\n`);
+  const suggestion = suggestCommand(name);
+  if (suggestion) process.stderr.write(`did you mean 'pi-farm help ${suggestion}'?\n`);
+  else process.stderr.write("run 'pi-farm help' to see the command list\n");
+  return 2;
+}
+
 const { command, options } = parseArgs(process.argv.slice(2));
 options.scriptPath = scriptPath();
 
-if (!command) {
-  process.stdout.write(HELP);
-  process.exit(0);
-}
+if (!command) process.exit(showHelp(null));
 if (command === "version") {
   process.stdout.write(`${VERSION}\n`);
   process.exit(0);
 }
-if (command === "help") {
-  process.stdout.write(HELP);
-  process.exit(0);
-}
+if (command === "help") process.exit(showHelp(options.names[0]));
 
 try {
   await runCommand(command, options);

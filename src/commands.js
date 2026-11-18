@@ -13,6 +13,7 @@ import { readRemotePiConfig, remotePiConfigPath, writeRemotePiName } from "./rem
 import { resolveExecutable, Tmux } from "./tmux.js";
 import { installAutostart, uninstallAutostart, autostartKind, launchAgentPath, systemdUserDir } from "./autostart.js";
 import { clearStopped, isStopped, markStopped } from "./state.js";
+import { suggestCommand } from "./help.js";
 import { EXAMPLE_CONFIG } from "./example.js";
 
 const COLORS = {
@@ -629,9 +630,13 @@ export async function runCommand(command, options) {
     case "uninstall": {
       return cmdUninstall(options, ui);
     }
-    default:
+    default: {
+      const suggestion = suggestCommand(command);
       ui.error(`unknown command: ${command}`);
+      if (suggestion) ui.error(`did you mean 'pi-farm ${suggestion}'?`);
+      else ui.error("run 'pi-farm help' to see the command list");
       process.exit(2);
+    }
   }
 }
 

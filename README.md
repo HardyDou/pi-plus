@@ -183,21 +183,46 @@ sessions:
 > 小提示：`remote_pi_mode: config` 会在项目里生成 `.pi/remote-pi/config.json`，
 > 建议加到全局 gitignore：`echo '.pi/remote-pi/' >> ~/.config/git/ignore`。
 
+## 帮助
+
+```bash
+pi-farm help                 # 总览：命令表、全局选项、restart 策略、配置示例
+pi-farm help up              # 单命令：用法、说明、选项、示例、相关命令
+pi-farm up --help            # 等价写法（-h 也可以）
+pi-farm help ls              # 别名也能查，自动解析到 status
+pi-farm help instal          # 拼错会给建议：did you mean 'pi-farm help install'?
+```
+
+- `pi-farm` 不带参数 = `pi-farm help`
+- `-h` / `--help` 出现在任何位置都生效，已经写了命令就给该命令的帮助
+- 帮助内容由 `src/help.js` 的 `COMMANDS` 表生成，总览、单命令、补全词表共用一份数据，
+  加新命令时不会出现"文档忘了更新"
+
+退出码：
+
+| 码 | 含义 |
+| --- | --- |
+| `0` | 成功 |
+| `1` | 运行时失败（会话启动失败、doctor 有检查项不通过） |
+| `2` | 用法/配置错误（未知命令、未知选项、配置校验失败、找不到配置） |
+
 ## 命令参考
 
 ```
-pi-farm up [names...]        后台创建/启动（--force 重建已在跑的）
+pi-farm up [names...]        后台创建/启动（--force 重建已在跑的；别名 start）
 pi-farm down [names...]      停止
 pi-farm restart [names...]   重启（遵守 restart 策略）
-pi-farm status               状态表（--json 机器可读）
+pi-farm status               状态表（--json 机器可读；别名 ls/list）
 pi-farm attach <name>        进入；不存在则先启动
 pi-farm logs <name> [-n 200] 打印滚动输出
 pi-farm send <name> "文本"   往 pane 里打字并回车（--no-enter 不回车）
 pi-farm check                校验配置
 pi-farm doctor               环境诊断
 pi-farm init                 写示例配置
-pi-farm install [--watch N]  安装开机自启
+pi-farm install [--watch N]  安装开机自启（别名 autostart）
 pi-farm uninstall            卸载自启
+pi-farm help [命令]          帮助（不带参数为总览）
+pi-farm version              打印版本
 ```
 
 全局选项：`-c/--config`、`--socket`、`--json`、`--dry-run`、`--force`、`-q`、`-v`、`-h`、`-V`。

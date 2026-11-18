@@ -4,9 +4,12 @@ _pi-farm() {
   local -a commands
   commands=(
     'up:start sessions in the background'
+    'start:alias for up'
     'down:stop sessions'
+    'stop:alias for down'
     'restart:restart sessions'
     'status:show tmux/pi/remote-pi state'
+    'ls:alias for status'
     'attach:attach to a session (starts it if needed)'
     'logs:print pane output'
     'send:type text into a pane'
@@ -16,6 +19,7 @@ _pi-farm() {
     'install:install reboot autostart'
     'uninstall:remove autostart'
     'version:print version'
+    'help:show help (help <command> for one command)'
   )
 
   _arguments -C \
@@ -26,6 +30,8 @@ _pi-farm() {
     '--json[machine-readable output]' \
     '--dry-run[print actions without touching tmux]' \
     '--force[recreate running sessions]' \
+    '--reconcile[autostart mode: skip sessions stopped by hand]' \
+    '--path[init destination]:file:_files' \
     '(-q --quiet)'{-q,--quiet}'[only errors]' \
     '(-v --verbose)'{-v,--verbose}'[echo tmux commands]' \
     '(-n --lines)'{-n,--lines}'[scrollback lines]:lines:' \
