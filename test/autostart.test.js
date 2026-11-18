@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import {
   buildServicePath,
@@ -19,7 +19,7 @@ test("service PATH has no bogus node_modules/.bin for a global install", () => {
   assert.ok(!path.includes("node_modules/.bin"), path);
   const dirs = path.split(":");
   assert.ok(dirs.includes("/home/user/.local/bin"));
-  assert.ok(dirs.includes("/home/user/.nvm/versions/node/v26.13.1/bin"));
+  assert.ok(dirs.includes(dirname(process.execPath)), "PATH must contain the running node dir");
   assert.equal(new Set(dirs).size, dirs.length, "PATH entries must be unique");
 });
 
