@@ -1,5 +1,7 @@
 # pi-farm · 用一个 YAML 管住一农场 pi agent
 
+[![ci](https://github.com/HardyDou/pi-farm/actions/workflows/ci.yml/badge.svg)](https://github.com/HardyDou/pi-farm/actions/workflows/ci.yml)
+
 > Declarative tmux farm for [pi](https://github.com/badlogic/pi-mono) agents.
 > One YAML file drives the **tmux session**, the **pi session id/name** and the
 > **remote-pi mesh name** — and everything comes back after a reboot.
