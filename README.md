@@ -30,7 +30,10 @@ pi-plus.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --n
 ## 安装
 
 ```bash
-# 从 GitHub 安装（装完命令就是 pp）
+# 从 npm 安装（装完命令就是 pp）
+npm i -g @hardydou/pi-plus
+
+# 或直接从 GitHub 安装
 npm i -g github:HardyDou/pi-plus
 
 # 或克隆后本地软链到 ~/.local/bin/pp

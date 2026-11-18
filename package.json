@@ -1,5 +1,5 @@
 {
-  "name": "pi-plus",
+  "name": "@hardydou/pi-plus",
   "version": "0.2.0",
   "description": "pp — declarative tmux sessions for pi coding agents: one YAML drives the tmux session, pi session id/name and remote-pi mesh name, and survives reboots.",
   "type": "module",
@@ -27,8 +27,7 @@
     "pi",
     "pi-coding-agent",
     "tmux",
-    "agent-farm",
-    "session-manager",
+    "tmux-session-manager",
     "remote-pi",
     "cli",
     "autostart",
