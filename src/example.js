@@ -1,13 +1,13 @@
-export const EXAMPLE_CONFIG = `# pi-farm — declarative tmux farm for pi agents
-# Docs: https://github.com/HardyDou/pi-farm
+export const EXAMPLE_CONFIG = `# pp — declarative tmux farm for pi agents
+# Docs: https://github.com/HardyDou/pi-plus
 version: 1
 
 # Optional: run every session on a dedicated tmux socket (default: tmux's own).
 # tmux:
-#   socket: pi-farm
+#   socket: pi-plus
 
 defaults:
-  # Agent command. When this resolves to "pi", pi-farm adds the pi session
+  # Agent command. When this resolves to "pi", pp adds the pi session
   # flags below; any other command runs untouched.
   agent: pi
   # Extra argv appended to the agent command, e.g. ["--approve"].

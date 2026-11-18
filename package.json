@@ -1,10 +1,10 @@
 {
-  "name": "pi-farm",
-  "version": "0.1.0",
+  "name": "pi-plus",
+  "version": "0.2.0",
   "description": "Declarative tmux farm for pi coding agents: one YAML file drives the tmux session, pi session id/name and remote-pi mesh name, and survives reboots.",
   "type": "module",
   "bin": {
-    "pi-farm": "bin/pi-farm.js"
+    "pp": "bin/pp.js"
   },
   "files": [
     "bin",
@@ -20,8 +20,8 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "start": "node bin/pi-farm.js",
-    "syntax": "node --check bin/pi-farm.js && for f in src/*.js; do node --check \"$f\"; done"
+    "start": "node bin/pp.js",
+    "syntax": "node --check bin/pp.js && for f in src/*.js; do node --check \"$f\"; done"
   },
   "keywords": [
     "pi",
@@ -39,10 +39,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/HardyDou/pi-farm.git"
+    "url": "git+https://github.com/HardyDou/pi-plus.git"
   },
   "bugs": {
-    "url": "https://github.com/HardyDou/pi-farm/issues"
+    "url": "https://github.com/HardyDou/pi-plus/issues"
   },
-  "homepage": "https://github.com/HardyDou/pi-farm#readme"
+  "homepage": "https://github.com/HardyDou/pi-plus#readme"
 }

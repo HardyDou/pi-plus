@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 /**
  * remote-pi keeps its per-directory agent name in `<cwd>/.pi/remote-pi/config.json`
  * (field `agent_name`); `/remote-pi rename <name>` persists exactly that field.
- * pi-farm writes the same file before launching pi so a fresh session already
+ * pp writes the same file before launching pi so a fresh session already
  * joins the mesh with the requested name. `remote_pi_mode: env` is the
  * non-invasive alternative: it injects the merged config through
  * REMOTE_PI_DIRECT_CONFIG (which remote-pi gives precedence over the file).

@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
  */
 export function statePath(env = process.env) {
   const base = env.XDG_STATE_HOME || join(env.HOME || homedir(), ".local", "state");
-  return join(base, "pi-farm", "state.json");
+  return join(base, "pi-plus", "state.json");
 }
 
 function readAll(env) {

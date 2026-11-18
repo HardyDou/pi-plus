@@ -1,10 +1,10 @@
-# pi-farm — declarative tmux farm for pi agents
-# Docs: https://github.com/HardyDou/pi-farm
+# pp — declarative tmux farm for pi agents
+# Docs: https://github.com/HardyDou/pi-plus
 version: 1
 
 # Optional: run every session on a dedicated tmux socket.
 # tmux:
-#   socket: pi-farm
+#   socket: pi-plus
 
 defaults:
   agent: pi
@@ -29,4 +29,4 @@ sessions:
 
   #  - name: spare
   #    cwd: ~/code/spare
-  #    restart: no                  # never auto-started; bring it up with: pi-farm up spare
+  #    restart: no                  # never auto-started; bring it up with: pp up spare

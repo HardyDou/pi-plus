@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { parseYaml, YamlError } from "./yaml.js";
 
-const CONFIG_BASENAMES = ["pi-farm.yml", "pi-farm.yaml", "farm.yml", "farm.yaml"];
+const CONFIG_BASENAMES = ["pi-plus.yml", "pi-plus.yaml", "plus.yml", "plus.yaml"];
 
 const TOP_LEVEL_KEYS = new Set(["version", "tmux", "defaults", "sessions"]);
 const SESSION_KEYS = new Set([
@@ -55,8 +55,8 @@ export function findConfigPath({ configPath, cwd = process.cwd(), env = process.
     const p = isAbsolute(configPath) ? configPath : resolve(cwd, configPath);
     return p;
   }
-  if (env.PI_FARM_CONFIG) {
-    const p = expandPath(env.PI_FARM_CONFIG, env);
+  if (env.PI_PLUS_CONFIG) {
+    const p = expandPath(env.PI_PLUS_CONFIG, env);
     return isAbsolute(p) ? p : resolve(cwd, p);
   }
   for (const name of CONFIG_BASENAMES) {
@@ -65,10 +65,10 @@ export function findConfigPath({ configPath, cwd = process.cwd(), env = process.
   }
   const home = env.HOME || homedir();
   const candidates = [
-    join(home, ".pi", "farm.yml"),
-    join(home, ".pi", "farm.yaml"),
-    join(env.XDG_CONFIG_HOME || join(home, ".config"), "pi-farm", "config.yml"),
-    join(env.XDG_CONFIG_HOME || join(home, ".config"), "pi-farm", "config.yaml"),
+    join(home, ".pi", "plus.yml"),
+    join(home, ".pi", "plus.yaml"),
+    join(env.XDG_CONFIG_HOME || join(home, ".config"), "pi-plus", "config.yml"),
+    join(env.XDG_CONFIG_HOME || join(home, ".config"), "pi-plus", "config.yaml"),
   ];
   return candidates.find((p) => existsSync(p)) ?? null;
 }
@@ -265,7 +265,7 @@ function normalizeSession(raw, defaults, index, configPath) {
     remotePiMode: mode,
     env: asStringMap(session.env, `${where}.env`),
     args: asTokens(session.args, `${where}.args`),
-    log: session.log === true ? join(cwd, ".pi-farm.log") : session.log ? resolve(expandPath(String(session.log))) : null,
+    log: session.log === true ? join(cwd, ".pi-plus.log") : session.log ? resolve(expandPath(String(session.log))) : null,
     // Compose keeps an exited container around for `logs`/`ps`; do the same for
     // restart: no so a crashed session can be inspected instead of vanishing.
     remainOnExit: Boolean(session.remain_on_exit ?? false) || restart === "no",
@@ -366,7 +366,7 @@ export function loadConfig(options = {}) {
   return loadConfigFile(configPath);
 }
 
-/** The argv pi-farm hands to tmux (after `env KEY=VALUE ...` when env is set). */
+/** The argv pp hands to tmux (after `env KEY=VALUE ...` when env is set). */
 export function buildSessionArgv(session) {
   const argv = [...session.agent];
   if (session.pi) {

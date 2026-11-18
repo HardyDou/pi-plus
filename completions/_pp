@@ -1,6 +1,6 @@
-#compdef pi-farm
-# zsh completion for pi-farm
-_pi-farm() {
+#compdef pp pi-plus
+# zsh completion for pp (pi-plus)
+_pp() {
   local -a commands
   commands=(
     'up:start sessions in the background'
@@ -45,7 +45,7 @@ _pi-farm() {
     command) _describe 'command' commands ;;
     session)
       local cfg=${(v)opt_args[(i)-c|--config]}
-      [[ -z $cfg ]] && cfg=$HOME/.pi/farm.yml
+      [[ -z $cfg ]] && cfg=$HOME/.pi/plus.yml
       if [[ -r $cfg ]]; then
         local -a names
         names=(${(f)"$(sed -n 's/^[[:space:]-]*name:[[:space:]]*\([^[:space:]#]*\).*/\1/p' $cfg)"})
@@ -54,4 +54,4 @@ _pi-farm() {
       ;;
   esac
 }
-_pi-farm "$@"
+_pp "$@"

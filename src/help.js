@@ -1,4 +1,4 @@
-// Single source of truth for `pi-farm help` — the overview, per-command pages and
+// Single source of truth for `pp help` — the overview, per-command pages and
 // the shell completion word list are all generated from COMMANDS.
 
 export const RESTART_POLICIES_HELP = [
@@ -13,7 +13,7 @@ export const COMMANDS = [
     name: "up",
     aliases: ["start"],
     summary: "Create/start configured sessions, detached (default: all)",
-    usage: "pi-farm up [names...] [options]",
+    usage: "pp up [names...] [options]",
     details: [
       "Starts each session in a detached tmux session whose name is `tmux_name`",
       "(defaults to `name`) with the working directory `cwd`.",
@@ -28,14 +28,14 @@ export const COMMANDS = [
       "--dry-run        print the tmux command instead of running it",
       "--json           JSON output",
     ],
-    examples: ["pi-farm up", "pi-farm up backend", "pi-farm up backend --force", "pi-farm up --dry-run -v"],
+    examples: ["pp up", "pp up backend", "pp up backend --force", "pp up --dry-run -v"],
     see: ["status", "restart", "attach"],
   },
   {
     name: "down",
     aliases: ["stop"],
     summary: "Stop sessions",
-    usage: "pi-farm down [names...] [options]",
+    usage: "pp down [names...] [options]",
     details: [
       "Stops tmux sessions (and everything running inside them).",
       "With no names every configured session is stopped, whatever its policy.",
@@ -45,27 +45,27 @@ export const COMMANDS = [
       "clears that record again.",
     ].join("\n"),
     options: ["--dry-run        print what would be stopped", "--json           JSON output"],
-    examples: ["pi-farm down backend", "pi-farm down", "pi-farm down backend docs"],
+    examples: ["pp down backend", "pp down", "pp down backend docs"],
     see: ["up", "restart", "status"],
   },
   {
     name: "restart",
     summary: "Restart sessions (kill + up)",
-    usage: "pi-farm restart [names...] [options]",
+    usage: "pp restart [names...] [options]",
     details: [
       "Equivalent to `down <names>` followed by `up <names>`, including the",
       "`--force` behaviour. Sessions with `restart: no` are skipped when no name",
       "is given, and are restarted when named explicitly.",
     ].join("\n"),
     options: ["--dry-run        print the tmux commands instead of running them", "--json           JSON output"],
-    examples: ["pi-farm restart backend", "pi-farm restart"],
+    examples: ["pp restart backend", "pp restart"],
     see: ["up", "down"],
   },
   {
     name: "status",
     aliases: ["ls", "list"],
     summary: "Show config, tmux state, pi session and remote-pi name",
-    usage: "pi-farm status [names...] [options]",
+    usage: "pp status [names...] [options]",
     details: [
       "Prints one row per configured session: tmux name, state, restart policy,",
       "pid, agent, cwd, pi session and remote-pi name.",
@@ -74,95 +74,95 @@ export const COMMANDS = [
       "stopped, off (never auto-started or stopped by hand).",
     ].join("\n"),
     options: ["--json           machine-readable JSON", "-q, --quiet      only the table, no summary line"],
-    examples: ["pi-farm status", "pi-farm status backend", "pi-farm status --json"],
+    examples: ["pp status", "pp status backend", "pp status --json"],
     see: ["logs", "doctor"],
   },
   {
     name: "attach",
     aliases: ["a"],
     summary: "Attach to a session (starts it if missing)",
-    usage: "pi-farm attach <name> [options]",
+    usage: "pp attach <name> [options]",
     details: [
       "Attaches the current terminal to the tmux session. If the session does not",
       "exist it is started first. Detach with `Ctrl-b d` — the agent keeps running.",
     ].join("\n"),
     options: ["--dry-run        print the tmux command instead of attaching"],
-    examples: ["pi-farm attach backend", "pi-farm a backend"],
+    examples: ["pp attach backend", "pp a backend"],
     see: ["up", "status"],
   },
   {
     name: "logs",
     aliases: ["log"],
     summary: "Print recent pane output (--lines N, default 200)",
-    usage: "pi-farm logs <name> [options]",
+    usage: "pp logs <name> [options]",
     details: [
       "Dumps the tail of the tmux pane, so you can see what the agent printed",
       "without attaching. Use `log:` in the config to keep the full output in a",
       "file via `pipe-pane`.",
     ].join("\n"),
     options: ["-n, --lines <n>  how many scrollback lines (default 200)"],
-    examples: ["pi-farm logs backend", "pi-farm logs backend -n 1000"],
+    examples: ["pp logs backend", "pp logs backend -n 1000"],
     see: ["send", "status"],
   },
   {
     name: "send",
     summary: 'Type text into the pane and press Enter (--no-enter)',
-    usage: 'pi-farm send <name> "text" [options]',
+    usage: 'pp send <name> "text" [options]',
     details: [
       "Sends keystrokes to the session's pane and presses Enter, which is handy",
       "for pushing a prompt into a running agent from another shell or a script.",
     ].join("\n"),
     options: ["--no-enter       do not press Enter after the text"],
-    examples: ['pi-farm send backend "run the tests"', 'pi-farm send backend "yes" --no-enter'],
+    examples: ['pp send backend "run the tests"', 'pp send backend "yes" --no-enter'],
     see: ["logs", "attach"],
   },
   {
     name: "check",
     aliases: ["validate"],
     summary: "Validate the config without touching tmux",
-    usage: "pi-farm check [options]",
+    usage: "pp check [options]",
     details: [
       "Parses the config, expands paths and prints a per-session summary of what",
       "would be started, plus warnings (shared cwd, disabled sessions, ...).",
       "Safe to run in CI.",
     ].join("\n"),
     options: ["--json           JSON output"],
-    examples: ["pi-farm check", "pi-farm check -c ./pi-farm.yml --json"],
+    examples: ["pp check", "pp check -c ./pi-plus.yml --json"],
     see: ["doctor", "init"],
   },
   {
     name: "doctor",
     summary: "Environment + config diagnostics",
-    usage: "pi-farm doctor [options]",
+    usage: "pp doctor [options]",
     details: [
       "Checks node, tmux, pi, the config file, the remote-pi plugin and the",
       "autostart unit, and tells you what is missing. Exits 1 when a check fails.",
     ].join("\n"),
     options: ["--json           JSON output"],
-    examples: ["pi-farm doctor"],
+    examples: ["pp doctor"],
     see: ["check", "install"],
   },
   {
     name: "init",
-    summary: "Write an example config to ~/.pi/farm.yml",
-    usage: "pi-farm init [options]",
+    summary: "Write an example config to ~/.pi/plus.yml",
+    usage: "pp init [options]",
     details: [
-      "Creates a commented example config so `pi-farm up` works out of the box.",
+      "Creates a commented example config so `pp up` works out of the box.",
       "Pass `--path <file>` to choose another destination.",
     ].join("\n"),
-    options: ["--force          overwrite an existing file", "--path <file>    destination (default ~/.pi/farm.yml)"],
-    examples: ["pi-farm init", "pi-farm init --force"],
+    options: ["--force          overwrite an existing file", "--path <file>    destination (default ~/.pi/plus.yml)"],
+    examples: ["pp init", "pp init --force"],
     see: ["check", "up"],
   },
   {
     name: "install",
     aliases: ["autostart"],
     summary: "Install reboot autostart (systemd / launchd)",
-    usage: "pi-farm install [options]",
+    usage: "pp install [options]",
     details: [
-      "Linux: writes ~/.config/systemd/user/pi-farm.service and enables it",
+      "Linux: writes ~/.config/systemd/user/pi-plus.service and enables it",
       "(add `--watch N` for a timer that reconciles every N seconds).",
-      "macOS: writes ~/Library/LaunchAgents/com.pi-farm.plist.",
+      "macOS: writes ~/Library/LaunchAgents/com.pi-plus.plist.",
       "",
       "The unit runs `up --reconcile`, so sessions stopped by hand are respected.",
       "For boot without login on Linux: sudo loginctl enable-linger $USER",
@@ -172,38 +172,38 @@ export const COMMANDS = [
       "--print          print the unit file and exit; do not install",
       "--dry-run        same as --print",
     ],
-    examples: ["pi-farm install", "pi-farm install --watch 300", "pi-farm install --print"],
+    examples: ["pp install", "pp install --watch 300", "pp install --print"],
     see: ["uninstall", "status"],
   },
   {
     name: "uninstall",
     summary: "Remove the autostart unit",
-    usage: "pi-farm uninstall [options]",
+    usage: "pp uninstall [options]",
     details: ["Disables and deletes the systemd unit / launchd plist. Running sessions are left alone."].join("\n"),
     options: ["--dry-run        print what would be removed"],
-    examples: ["pi-farm uninstall"],
+    examples: ["pp uninstall"],
     see: ["install"],
   },
   {
     name: "version",
     summary: "Print the version",
-    usage: "pi-farm version",
-    details: ["Same as `pi-farm -V`."].join("\n"),
+    usage: "pp version",
+    details: ["Same as `pp -V`."].join("\n"),
     options: [],
-    examples: ["pi-farm version"],
+    examples: ["pp version"],
     see: [],
   },
   {
     name: "help",
-    summary: "Show this help, or `pi-farm help <command>`",
-    usage: "pi-farm help [command]",
+    summary: "Show this help, or `pp help <command>`",
+    usage: "pp help [command]",
     details: [
       "Without an argument prints the overview. With a command name prints that",
-      "command's usage, options and examples. `pi-farm <command> --help` is",
+      "command's usage, options and examples. `pp <command> --help` is",
       "equivalent.",
     ].join("\n"),
     options: [],
-    examples: ["pi-farm help", "pi-farm help install", "pi-farm up --help"],
+    examples: ["pp help", "pp help install", "pp up --help"],
     see: [],
   },
 ];
@@ -234,11 +234,11 @@ export function renderOverview(version) {
   );
   const nameWidth = Math.max(...labels.map((l) => l.length));
   const lines = [];
-  lines.push(`pi-farm ${version} — keep your pi agents alive in tmux`);
+  lines.push(`pp ${version} — keep your pi agents alive in tmux`);
   lines.push("");
   lines.push("Usage:");
-  lines.push("  pi-farm <command> [names...] [options]");
-  lines.push("  pi-farm help <command>        # detailed help for one command");
+  lines.push("  pp <command> [names...] [options]");
+  lines.push("  pp help <command>        # detailed help for one command");
   lines.push("");
   lines.push("Commands:");
   COMMANDS.forEach((command, index) => {
@@ -246,7 +246,7 @@ export function renderOverview(version) {
   });
   lines.push("");
   lines.push("Global options:");
-  lines.push("  -c, --config <path>  Config file (default: ./pi-farm.yml, then ~/.pi/farm.yml)");
+  lines.push("  -c, --config <path>  Config file (default: ./pi-plus.yml, then ~/.pi/plus.yml)");
   lines.push("      --socket <name>  tmux socket name (overrides tmux.socket in the config)");
   lines.push("      --json           Machine-readable output (up/down/status/check/doctor)");
   lines.push("      --dry-run        Print what would happen; do not touch tmux or files");
@@ -279,7 +279,7 @@ export function renderOverview(version) {
   lines.push("  pi --name      pi_session_name | name");
   lines.push("  remote-pi      remote_pi_name | name");
   lines.push("");
-  lines.push(`Run 'pi-farm help <command>' for details, e.g. 'pi-farm help install'.`);
+  lines.push(`Run 'pp help <command>' for details, e.g. 'pp help install'.`);
   return `${lines.join("\n")}\n`;
 }
 
@@ -288,7 +288,7 @@ export function renderCommandHelp(version, name) {
   if (!command) return null;
   const lines = [];
   const alias = command.aliases?.length ? ` (alias: ${command.aliases.join(", ")})` : "";
-  lines.push(`pi-farm ${version} — ${command.name}${alias}`);
+  lines.push(`pp ${version} — ${command.name}${alias}`);
   lines.push("");
   lines.push("Usage:");
   lines.push(`  ${command.usage}`);
@@ -309,7 +309,7 @@ export function renderCommandHelp(version, name) {
   }
   if (command.see?.length) {
     lines.push("");
-    lines.push(`See also: ${command.see.map((c) => `'pi-farm help ${c}'`).join(", ")}`);
+    lines.push(`See also: ${command.see.map((c) => `'pp help ${c}'`).join(", ")}`);
   }
   return `${lines.join("\n")}\n`;
 }

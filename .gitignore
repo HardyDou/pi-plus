@@ -1,6 +1,6 @@
 node_modules/
 .DS_Store
 *.log
-pi-farm.local.yml
-farm.local.yml
+pi-plus.local.yml
+plus.local.yml
 coverage/

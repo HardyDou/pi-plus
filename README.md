@@ -1,13 +1,13 @@
-# pi-farm · 用一个 YAML 管住一农场 pi agent
+# pp · 用一个 YAML 管住一农场 pi agent
 
-[![ci](https://github.com/HardyDou/pi-farm/actions/workflows/ci.yml/badge.svg)](https://github.com/HardyDou/pi-farm/actions/workflows/ci.yml)
+[![ci](https://github.com/HardyDou/pi-plus/actions/workflows/ci.yml/badge.svg)](https://github.com/HardyDou/pi-plus/actions/workflows/ci.yml)
 
 > Declarative tmux farm for [pi](https://github.com/badlogic/pi-mono) agents.
 > One YAML file drives the **tmux session**, the **pi session id/name** and the
 > **remote-pi mesh name** — and everything comes back after a reboot.
 
 ```
-pi-farm.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --name backend --session-id 1a2b3c4d
+pi-plus.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --name backend --session-id 1a2b3c4d
                                    │                    │              │                      │
                                    │                    │              │                      └─ 续接/新建 pi session
                                    │                    │              └─ pi 会话显示名 + remote-pi 名称
@@ -21,7 +21,7 @@ pi-farm.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --n
 
 - **一份 YAML，三层名字**：`tmux session` / `pi --name` / `remote-pi` 默认全部等于 `name`，也可分别覆盖。
 - **续接或新建 pi session**：`pi_session` 填 session id 就续接（不存在则以该 id 新建），填 `.jsonl` 路径就 `--session`。
-- **真正在后台跑**：`tmux new-session -d`，关掉终端不掉线；`pi-farm attach` 随时接管。
+- **真正在后台跑**：`tmux new-session -d`，关掉终端不掉线；`pp attach` 随时接管。
 - **开机自启**：Linux systemd user unit / macOS launchd，`--watch` 还能定时巡检自动补活。
 - **零依赖**：单文件 Node CLI，自带 YAML 子集解析器，不装 `js-yaml`、不需要 Python。
 - **可脚本化**：`--json`、`--dry-run`、`--quiet`，退出码可用（`up` 有失败即 1）。
@@ -30,13 +30,13 @@ pi-farm.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --n
 ## 安装
 
 ```bash
-# 从 GitHub 安装（可执行命令直接就叫 pi-farm）
-npm i -g github:HardyDou/pi-farm
+# 从 GitHub 安装（装完命令就是 pp）
+npm i -g github:HardyDou/pi-plus
 
-# 或克隆后本地软链到 ~/.local/bin/pi-farm
-git clone https://github.com/HardyDou/pi-farm.git
-cd pi-farm && ./install.sh
-# 直接运行也可以：node bin/pi-farm.js <command>
+# 或克隆后本地软链到 ~/.local/bin/pp
+git clone https://github.com/HardyDou/pi-plus.git
+cd pi-plus && ./install.sh
+# 直接运行也可以：node bin/pp.js <command>
 ```
 
 依赖：Node.js ≥ 18、tmux、pi（非 pi 的 agent 也可以，见 `agent` 字段）。
@@ -44,30 +44,30 @@ cd pi-farm && ./install.sh
 Shell 补全（可选）：
 
 ```bash
-source completions/pi-farm.bash                     # bash
-fpath+=(~/path/to/pi-farm/completions); compinit    # zsh
+source completions/pp.bash                     # bash
+fpath+=(~/path/to/pi-plus/completions); compinit    # zsh
 ```
 
 ## 快速开始
 
 ```bash
-pi-farm init                 # 生成 ~/.pi/farm.yml（或 --local 生成 ./pi-farm.yml）
-$EDITOR ~/.pi/farm.yml
-pi-farm check                # 只校验配置，不碰 tmux
-pi-farm doctor               # 环境体检：node / tmux / pi / 自启
-pi-farm up                   # 后台拉起所有 session
-pi-farm status               # 看状态：tmux 名、pid、pi session、remote-pi 名
-pi-farm attach backend       # 进入某个 session（没启动会先启动）
-pi-farm up --dry-run -v      # 只打印将要执行的 tmux 命令
+pp init                 # 生成 ~/.pi/plus.yml（或 --local 生成 ./pi-plus.yml）
+$EDITOR ~/.pi/plus.yml
+pp check                # 只校验配置，不碰 tmux
+pp doctor               # 环境体检：node / tmux / pi / 自启
+pp up                   # 后台拉起所有 session
+pp status               # 看状态：tmux 名、pid、pi session、remote-pi 名
+pp attach backend       # 进入某个 session（没启动会先启动）
+pp up --dry-run -v      # 只打印将要执行的 tmux 命令
 ```
 
 按名字操作，省略即全部（`restart: no` 的会话不参与，见下文策略）：
 
 ```bash
-pi-farm up backend docs
-pi-farm restart backend
-pi-farm down backend            # 只停一个
-pi-farm down                    # 全部停掉
+pp up backend docs
+pp restart backend
+pp down backend            # 只停一个
+pp down                    # 全部停掉
 ```
 
 > 被单独 `down` 掉的会话会不会被拉回来，取决于它的 `restart` 策略——
@@ -78,9 +78,9 @@ pi-farm down                    # 全部停掉
 ```yaml
 version: 1
 
-# 可选：所有 session 跑在独立 tmux socket 上（等价于每条命令都加 --socket pi-farm）
+# 可选：所有 session 跑在独立 tmux socket 上（等价于每条命令都加 --socket pi-plus）
 # tmux:
-#   socket: pi-farm
+#   socket: pi-plus
 
 defaults:                 # 所有 session 的默认值
   agent: pi               # 可写成 "pi --verbose"，按空格分词、不经 shell
@@ -105,7 +105,7 @@ sessions:
     env:                          # 覆盖/追加环境变量
       TZ: Asia/Shanghai
     restart: unless-stopped        # no | always | on-failure | unless-stopped
-    log: ~/.pi/farm/backend.log   # 可选：pipe-pane 落盘
+    log: ~/.pi/plus/backend.log   # 可选：pipe-pane 落盘
     remain_on_exit: false         # 可选：进程退出后保留 pane 便于看报错
 ```
 
@@ -143,11 +143,11 @@ sessions:
   并会清除"手动停止"记录。
 - 会话存在但 pane 已经死了（agent 进程退出）时，`up` 对 `restart != no` 的会话会重建；
   `restart: no` 会保留 dead pane（自动打开 `remain-on-exit`），`status` 显示 `dead`，
-  `pi-farm logs <name>` 还能看到它最后吐出来的报错，`up <name>` 才会重建。
+  `pp logs <name>` 还能看到它最后吐出来的报错，`up <name>` 才会重建。
 - 这和 compose 里 `docker compose ps` 还能看到 `Exited (1)` 的容器是一个意思。
-- 手动停止记录存在 `$XDG_STATE_HOME/pi-farm/state.json`（默认 `~/.local/state/pi-farm/state.json`），
+- 手动停止记录存在 `$XDG_STATE_HOME/pi-plus/state.json`（默认 `~/.local/state/pi-plus/state.json`），
   按配置文件路径 + 会话名区分。
-- 开机自启用的就是"巡检语义"：`pi-farm up --config <cfg> --reconcile --quiet`，
+- 开机自启用的就是"巡检语义"：`pp up --config <cfg> --reconcile --quiet`，
   所以 `unless-stopped` / `on-failure` 在你手动停掉后不会在重启时自己回来。
 
 ```yaml
@@ -158,7 +158,7 @@ sessions:
 
   - name: experiment
     cwd: ~/code/exp
-    restart: no                # 不参与自动拉起，只按需 pi-farm up experiment
+    restart: no                # 不参与自动拉起，只按需 pp up experiment
 ```
 
 ### 名字映射：一个名字，三处生效
@@ -177,7 +177,7 @@ sessions:
 ```
 
 > remote-pi 的 `agent_name` 是**按目录**存的。同一 `cwd` 下多个 session 配不同
-> `remote_pi_name` 会互相覆盖，`pi-farm` 会给出 warning；想让同目录多个 agent
+> `remote_pi_name` 会互相覆盖，`pi-plus` 会给出 warning；想让同目录多个 agent
 > 各自有名字，用 `remote_pi_mode: env`（每个进程独立环境变量）。
 
 > 小提示：`remote_pi_mode: config` 会在项目里生成 `.pi/remote-pi/config.json`，
@@ -186,14 +186,14 @@ sessions:
 ## 帮助
 
 ```bash
-pi-farm help                 # 总览：命令表、全局选项、restart 策略、配置示例
-pi-farm help up              # 单命令：用法、说明、选项、示例、相关命令
-pi-farm up --help            # 等价写法（-h 也可以）
-pi-farm help ls              # 别名也能查，自动解析到 status
-pi-farm help instal          # 拼错会给建议：did you mean 'pi-farm help install'?
+pp help                 # 总览：命令表、全局选项、restart 策略、配置示例
+pp help up              # 单命令：用法、说明、选项、示例、相关命令
+pp up --help            # 等价写法（-h 也可以）
+pp help ls              # 别名也能查，自动解析到 status
+pp help instal          # 拼错会给建议：did you mean 'pp help install'?
 ```
 
-- `pi-farm` 不带参数 = `pi-farm help`
+- `pi-plus` 不带参数 = `pp help`
 - `-h` / `--help` 出现在任何位置都生效，已经写了命令就给该命令的帮助
 - 帮助内容由 `src/help.js` 的 `COMMANDS` 表生成，总览、单命令、补全词表共用一份数据，
   加新命令时不会出现"文档忘了更新"
@@ -209,20 +209,20 @@ pi-farm help instal          # 拼错会给建议：did you mean 'pi-farm help i
 ## 命令参考
 
 ```
-pi-farm up [names...]        后台创建/启动（--force 重建已在跑的；别名 start）
-pi-farm down [names...]      停止
-pi-farm restart [names...]   重启（遵守 restart 策略）
-pi-farm status               状态表（--json 机器可读；别名 ls/list）
-pi-farm attach <name>        进入；不存在则先启动
-pi-farm logs <name> [-n 200] 打印滚动输出
-pi-farm send <name> "文本"   往 pane 里打字并回车（--no-enter 不回车）
-pi-farm check                校验配置
-pi-farm doctor               环境诊断
-pi-farm init                 写示例配置
-pi-farm install [--watch N]  安装开机自启（别名 autostart）
-pi-farm uninstall            卸载自启
-pi-farm help [命令]          帮助（不带参数为总览）
-pi-farm version              打印版本
+pp up [names...]        后台创建/启动（--force 重建已在跑的；别名 start）
+pp down [names...]      停止
+pp restart [names...]   重启（遵守 restart 策略）
+pp status               状态表（--json 机器可读；别名 ls/list）
+pp attach <name>        进入；不存在则先启动
+pp logs <name> [-n 200] 打印滚动输出
+pp send <name> "文本"   往 pane 里打字并回车（--no-enter 不回车）
+pp check                校验配置
+pp doctor               环境诊断
+pp init                 写示例配置
+pp install [--watch N]  安装开机自启（别名 autostart）
+pp uninstall            卸载自启
+pp help [命令]          帮助（不带参数为总览）
+pp version              打印版本
 ```
 
 全局选项：`-c/--config`、`--socket`、`--json`、`--dry-run`、`--force`、`-q`、`-v`、`-h`、`-V`。
@@ -233,30 +233,30 @@ pi-farm version              打印版本
 配置文件查找顺序：
 
 1. `-c/--config <path>`
-2. `$PI_FARM_CONFIG`
-3. `./pi-farm.yml`、`./pi-farm.yaml`、`./farm.yml`、`./farm.yaml`
-4. `~/.pi/farm.yml`、`~/.pi/farm.yaml`
-5. `$XDG_CONFIG_HOME/pi-farm/config.yml`（默认 `~/.config/pi-farm/config.yml`）
+2. `$PI_PLUS_CONFIG`
+3. `./pi-plus.yml`、`./pi-plus.yaml`、`./plus.yml`、`./plus.yaml`
+4. `~/.pi/plus.yml`、`~/.pi/plus.yaml`
+5. `$XDG_CONFIG_HOME/pi-plus/config.yml`（默认 `~/.config/pi-plus/config.yml`）
 
 ## 开机自启
 
 ```bash
-pi-farm install                 # 开机/登录时按 restart 策略 up 一次
-pi-farm install --watch 300     # 另外每 5 分钟巡检，挂了自动补
-pi-farm install --print         # 只打印 unit/plist，不落盘
-pi-farm uninstall
+pp install                 # 开机/登录时按 restart 策略 up 一次
+pp install --watch 300     # 另外每 5 分钟巡检，挂了自动补
+pp install --print         # 只打印 unit/plist，不落盘
+pp uninstall
 ```
 
-**Linux（systemd user unit）**：写入 `~/.config/systemd/user/pi-farm.service`，
+**Linux（systemd user unit）**：写入 `~/.config/systemd/user/pi-plus.service`，
 `systemctl --user enable`。要开机即启动（不用先登录）需要一次 linger：
 
 ```bash
 sudo loginctl enable-linger $USER
 ```
 
-**macOS（launchd）**：写入 `~/Library/LaunchAgents/com.pi-farm.plist`，
+**macOS（launchd）**：写入 `~/Library/LaunchAgents/com.pi-plus.plist`，
 `RunAtLoad` 登录即启动；`--watch` 用 `StartInterval` 定时巡检；日志在
-`~/Library/Logs/pi-farm.log`。
+`~/Library/Logs/pi-plus.log`。
 
 **WSL2**：systemd 需要 `wsl.conf` 里 `[boot] systemd=true`（较新 WSL 默认开启）。
 WSL 的 systemd user instance 在发行版启动时拉起，效果等同开机自启。
@@ -276,8 +276,8 @@ sessions:
     pi_session: 1a2b3c4d      # id 不存在时 pi 会以该 id 新建
 ```
 
-同理，把之前手动 `tmux new -s xxx` 起的会话迁过来：先 `pi-farm down`，
-或者直接 `tmux kill-session -t xxx` 后 `pi-farm up`。
+同理，把之前手动 `tmux new -s xxx` 起的会话迁过来：先 `pp down`，
+或者直接 `tmux kill-session -t xxx` 后 `pp up`。
 
 ## 排障
 
@@ -286,7 +286,7 @@ sessions:
 | `session "x" exited immediately` | `-v` 看实际命令；先用 `check` 确认 cwd/agent；临时加 `remain_on_exit: true` 看报错 |
 | `tmux ... can't find pane` | 老版本 bug，升级；pane 目标需要 `=name:` 形式 |
 | remote-pi 名字不对 | 看 `<cwd>/.pi/remote-pi/config.json` 的 `agent_name`；同名冲突时 broker 可能显示 `name#2` |
-| 自启没生效 | `systemctl --user status pi-farm`；WSL 确认 systemd 开启；`pi-farm doctor` |
+| 自启没生效 | `systemctl --user status pi-plus`；WSL 确认 systemd 开启；`pp doctor` |
 | pi 找不到 | systemd 的 PATH 由 `install` 自动写入 node 所在目录；自定义路径用 `agent: /abs/path/pi` |
 
 ## 开发
@@ -294,13 +294,13 @@ sessions:
 ```bash
 npm test            # node --test，纯单元测试，不需要 tmux
 ./test/e2e.sh       # 端到端冒烟测试（需 tmux/pi，约 3 分钟，会临时装一个 systemd unit 再删掉）
-node bin/pi-farm.js --help
+node bin/pp.js --help
 ```
 
 代码结构：
 
 ```
-bin/pi-farm.js     CLI 入口、参数解析
+bin/pp.js     CLI 入口、参数解析
 src/config.js      YAML → 归一化配置、argv 构建
 src/yaml.js        零依赖 YAML 子集解析器
 src/tmux.js        tmux 封装（含 dry-run 只读查询）
@@ -311,17 +311,17 @@ src/commands.js    各子命令实现
 
 ## English
 
-`pi-farm` keeps a farm of [pi](https://github.com/badlogic/pi-mono) coding
+`pi-plus` keeps a farm of [pi](https://github.com/badlogic/pi-mono) coding
 agents alive in tmux. Declare sessions in one YAML file; each session gets a
 tmux session, a pi session (resumed by id or freshly created), a pi display
 name, and a remote-pi mesh name — all defaulting to the same `name`.
 
 ```bash
-npm i -g github:HardyDou/pi-farm
-pi-farm init && $EDITOR ~/.pi/farm.yml
-pi-farm check && pi-farm up && pi-farm status
-pi-farm attach backend
-pi-farm install --watch 300      # survive reboots, reconcile every 5 min
+npm i -g github:HardyDou/pi-plus
+pp init && $EDITOR ~/.pi/plus.yml
+pp check && pp up && pp status
+pp attach backend
+pp install --watch 300      # survive reboots, reconcile every 5 min
 ```
 
 Minimal config:

@@ -38,7 +38,7 @@ test("aliases resolve to the canonical command", () => {
 
 test("overview lists every command and its aliases", () => {
   const overview = renderOverview("9.9.9");
-  assert.ok(overview.startsWith("pi-farm 9.9.9"));
+  assert.ok(overview.startsWith("pp 9.9.9"));
   for (const name of CANONICAL) assert.ok(overview.includes(`  ${findCommand(name).name}`) || overview.includes(name));
   for (const command of COMMANDS) {
     for (const alias of command.aliases ?? []) assert.ok(overview.includes(alias), alias);

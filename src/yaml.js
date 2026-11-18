@@ -1,7 +1,7 @@
 /**
  * A dependency-free YAML subset parser.
  *
- * pi-farm only needs a small, predictable slice of YAML; shipping a full
+ * pp only needs a small, predictable slice of YAML; shipping a full
  * parser (or a runtime dependency) would make the CLI harder to install than
  * the problem it solves. Supported:
  *

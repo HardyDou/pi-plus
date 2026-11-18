@@ -106,8 +106,8 @@ function showHelp(name) {
   }
   process.stderr.write(`error: unknown command: ${name}\n`);
   const suggestion = suggestCommand(name);
-  if (suggestion) process.stderr.write(`did you mean 'pi-farm help ${suggestion}'?\n`);
-  else process.stderr.write("run 'pi-farm help' to see the command list\n");
+  if (suggestion) process.stderr.write(`did you mean 'pp help ${suggestion}'?\n`);
+  else process.stderr.write("run 'pp help' to see the command list\n");
   return 2;
 }
 

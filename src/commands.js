@@ -56,8 +56,8 @@ function requireConfig(options, ui) {
   }
   if (!config) {
     ui.error(
-      "no config found. Run `pi-farm init` or pass --config <path>.\n" +
-        "Looked for: ./pi-farm.yml, ~/.pi/farm.yml, $XDG_CONFIG_HOME/pi-farm/config.yml",
+      "no config found. Run `pp init` or pass --config <path>.\n" +
+        "Looked for: ./pi-plus.yml, ~/.pi/plus.yml, $XDG_CONFIG_HOME/pi-plus/config.yml",
     );
     process.exit(2);
   }
@@ -222,7 +222,7 @@ async function cmdUp(config, options, ui) {
     ui.info(
       `\n${started} ${verb}, ${skipped} already running${failures.length ? `, ${failures.length} failed` : ""}.`,
     );
-    if (started && !options.dryRun) ui.info(`Attach with: pi-farm attach ${sessions[0]?.name ?? "<name>"}`);
+    if (started && !options.dryRun) ui.info(`Attach with: pp attach ${sessions[0]?.name ?? "<name>"}`);
   }
   if (failures.length) process.exitCode = 1;
 }
@@ -336,7 +336,7 @@ function cmdStatus(config, options, ui) {
 async function cmdAttach(config, options, ui) {
   const name = options.names[0];
   if (!name) {
-    ui.error("usage: pi-farm attach <name>");
+    ui.error("usage: pp attach <name>");
     process.exit(2);
   }
   const [session] = selectSessions(config, [name], ui);
@@ -360,7 +360,7 @@ async function cmdAttach(config, options, ui) {
 function cmdLogs(config, options, ui) {
   const name = options.names[0];
   if (!name) {
-    ui.error("usage: pi-farm logs <name> [--lines N]");
+    ui.error("usage: pp logs <name> [--lines N]");
     process.exit(2);
   }
   const [session] = selectSessions(config, [name], ui);
@@ -380,7 +380,7 @@ function cmdLogs(config, options, ui) {
 function cmdSend(config, options, ui) {
   const [name, ...rest] = options.names;
   if (!name || rest.length === 0) {
-    ui.error('usage: pi-farm send <name> "text" [--no-enter]');
+    ui.error('usage: pp send <name> "text" [--no-enter]');
     process.exit(2);
   }
   const [session] = selectSessions(config, [name], ui);
@@ -499,10 +499,10 @@ function cmdDoctor(config, options, ui) {
     const mark = check.ok ? ui.paint("green", "✓") : ui.paint("red", "✗");
     ui.out(`${mark} ${check.label.padEnd(14)} ${ui.paint("dim", check.detail ?? "")}`);
   }
-  if (!config) ui.out(`\n${ui.paint("dim", "hint:")} no config found; run pi-farm init`);
+  if (!config) ui.out(`\n${ui.paint("dim", "hint:")} no config found; run pp init`);
   if (kind === "systemd") {
     ui.out(`\n${ui.paint("dim", "systemd unit dir:")} ${systemdUserDir()}`);
-    ui.out(`${ui.paint("dim", "hint:")} systemctl --user status pi-farm`);
+    ui.out(`${ui.paint("dim", "hint:")} systemctl --user status pi-plus`);
   } else if (kind === "darwin") {
     ui.out(`\n${ui.paint("dim", "launch agent:")} ${launchAgentPath()}`);
   }
@@ -517,8 +517,8 @@ function cmdInit(options, ui) {
   const target = options.path
     ? resolve(options.path)
     : options.local
-      ? resolve("pi-farm.yml")
-      : join(homedir(), ".pi", "farm.yml");
+      ? resolve("pi-plus.yml")
+      : join(homedir(), ".pi", "plus.yml");
   if (existsSync(target) && !options.force) {
     ui.error(`${target} already exists (use --force to overwrite)`);
     process.exit(1);
@@ -526,8 +526,8 @@ function cmdInit(options, ui) {
   mkdirSync(dirname(target), { recursive: true });
   writeFileSync(target, EXAMPLE_CONFIG, "utf8");
   ui.info(`wrote ${target}`);
-  ui.info(`validate with: pi-farm check --config ${target}`);
-  ui.info(`start with:    pi-farm up --config ${target}`);
+  ui.info(`validate with: pp check --config ${target}`);
+  ui.info(`start with:    pp up --config ${target}`);
 }
 
 function cmdInstall(config, options, ui) {
@@ -647,8 +647,8 @@ export async function runCommand(command, options) {
     default: {
       const suggestion = suggestCommand(command);
       ui.error(`unknown command: ${command}`);
-      if (suggestion) ui.error(`did you mean 'pi-farm ${suggestion}'?`);
-      else ui.error("run 'pi-farm help' to see the command list");
+      if (suggestion) ui.error(`did you mean 'pp ${suggestion}'?`);
+      else ui.error("run 'pp help' to see the command list");
       process.exit(2);
     }
   }

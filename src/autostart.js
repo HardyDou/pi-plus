@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-const SERVICE_NAME = "pi-farm";
+const SERVICE_NAME = "pi-plus";
 
 export function autostartKind() {
   if (process.platform === "linux") return "systemd";
@@ -16,7 +16,7 @@ export function systemdUserDir(env = process.env) {
 }
 
 export function launchAgentPath(env = process.env) {
-  return join(env.HOME || homedir(), "Library", "LaunchAgents", "com.pi-farm.plist");
+  return join(env.HOME || homedir(), "Library", "LaunchAgents", "com.pi-plus.plist");
 }
 
 function quoteSystemd(value) {
@@ -56,8 +56,8 @@ export function renderSystemdService({ scriptPath, configPath, env = process.env
     .map(quoteSystemd)
     .join(" ");
   return `[Unit]
-Description=pi-farm: start pi agents in tmux
-Documentation=https://github.com/HardyDou/pi-farm
+Description=pi-plus: start pi agents in tmux
+Documentation=https://github.com/HardyDou/pi-plus
 After=default.target
 
 [Service]
@@ -76,7 +76,7 @@ WantedBy=default.target
 
 export function renderSystemdTimer({ intervalSeconds = 300 }) {
   return `[Unit]
-Description=pi-farm: reconcile tmux sessions
+Description=pi-plus: reconcile tmux sessions
 
 [Timer]
 OnBootSec=45s
@@ -92,12 +92,12 @@ WantedBy=timers.target
 
 export function renderLaunchAgent({ scriptPath, configPath, env = process.env, watch = 0 }) {
   const path = buildServicePath(scriptPath, env);
-  const log = join(env.HOME || homedir(), "Library", "Logs", "pi-farm.log");
+  const log = join(env.HOME || homedir(), "Library", "Logs", "pi-plus.log");
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-  <key>Label</key><string>com.pi-farm</string>
+  <key>Label</key><string>com.pi-plus</string>
   <key>ProgramArguments</key>
   <array>
     <string>/usr/bin/env</string>

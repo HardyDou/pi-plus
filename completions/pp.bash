@@ -1,5 +1,5 @@
-# bash completion for pi-farm
-_pi_farm() {
+# bash completion for pp (pi-plus)
+_pp() {
   local cur prev words cword
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
@@ -41,4 +41,4 @@ _pi_farm() {
     return 0
   fi
 }
-complete -F _pi_farm pi-farm
+complete -F _pp pp pi-plus
