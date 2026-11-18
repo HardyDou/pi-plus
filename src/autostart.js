@@ -229,7 +229,13 @@ export function installAutostart({ scriptPath, configPath, watch = false, print 
       if (timer) {
         run("systemctl", ["--user", "enable", "--now", `${SERVICE_NAME}.timer`], { allowFailure: true });
       } else {
-        run("systemctl", ["--user", "start", `${SERVICE_NAME}.service`], { allowFailure: true });
+        // `restart` (not `start`): the oneshot stays "active (exited)" after a
+        // run, so `start` would be a no-op when installing over an old unit —
+        // which is exactly the "I ran `pp down`, then `pp install`" case.
+        const restarted = run("systemctl", ["--user", "restart", `${SERVICE_NAME}.service`], { allowFailure: true });
+        if (restarted.status !== 0) {
+          run("systemctl", ["--user", "start", `${SERVICE_NAME}.service`], { allowFailure: true });
+        }
       }
       run("loginctl", ["enable-linger", process.env.USER || ""], { allowFailure: true });
     }

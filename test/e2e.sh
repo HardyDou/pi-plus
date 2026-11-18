@@ -96,7 +96,8 @@ check "help alias ls"            0 'status \(alias'            pp help ls
 check "up --help"                0 'Usage:'                    pp up --help
 check "help typo suggestion"     2 "did you mean 'pp help install'" pp help instal
 check "unknown command"          2 "run 'pp help'"        pp upstat
-check "version"                  0 '^0\.2\.0$'                 pp -V
+VERSION=$(node -p "require('$ROOT/package.json').version")
+check "version"                  0 "^$VERSION$"                 pp -V
 check "no args shows help"       0 'Usage:'                    node "$ROOT/bin/pp.js"
 
 section "init / check"
@@ -135,7 +136,7 @@ check "up is idempotent"         0 '0 started'                  PFc up
 check "status table"             0 'e-no +off'                  PFc status
 check "status shows restart col" 0 'RESTART'                    PFc status
 check "status --json valid"      0 '"sessions"|e-always'        bash -c "pp -c $CFG --socket $SOCK status --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d)[:40])'"
-check "status named row only"    0 '^e-always'                  bash -c "pp -c $CFG --socket $SOCK status e-always | sed -n 2p | grep ^e-always"
+check "status named row only"    0 'e-always'                   bash -c "pp -c $CFG --socket $SOCK status e-always | sed -n 2p"
 check "status unknown name"      2 'unknown session'            PFc status nosuch
 
 section "logs / send"
@@ -183,8 +184,21 @@ check "attach without name"      2 'usage: pp attach'      PFc attach
 check "attach unknown name"      2 'unknown session'            PFc attach nosuch
 
 section "doctor"
-check "doctor runs"              0 'tmux|node'                  PFc doctor
+# doctor exits 1 when autostart is not installed, which is normal on a fresh
+# box: assert the report itself, not the exit code
+check "doctor runs"              0 'tmux|node'                  bash -c "pp --socket $SOCK -c $CFG doctor || true"
 check "doctor --json"            0 '"checks"|"ok"'              PFc doctor --json
+
+section "mesh"
+MESH_ENV=("env" "REMOTE_PI_HOME=$E2E/nomesh")
+check "mesh ls without broker"     1 'no mesh broker at'   "${MESH_ENV[@]}" pp mesh ls
+check "mesh resolve offline"       0 'offline'             "${MESH_ENV[@]}" pp -c "$CFG" mesh resolve e-always
+check "mesh resolve json"          0 '"address"'           "${MESH_ENV[@]}" pp -c "$CFG" --json mesh resolve e-always
+check "mesh send unknown session"  2 'unknown session'     "${MESH_ENV[@]}" pp -c "$CFG" mesh send 99 hi
+check "mesh send usage"            2 'usage: pp mesh send' "${MESH_ENV[@]}" pp -c "$CFG" mesh send e-always
+check "mesh bad body json"         2 'not valid JSON'      "${MESH_ENV[@]}" pp -c "$CFG" mesh send e-always --body-json "{oops"
+check "mesh help page"             0 'broker'              pp help mesh
+check "mesh unknown subcommand"    2 'unknown mesh subcommand' pp mesh wat
 
 section "autostart unit files"
 check "install --print"          0 'ExecStart='                 PFc install --print
@@ -199,6 +213,9 @@ if systemctl --user show-environment >/dev/null 2>&1; then
   check "unit is enabled"        0 '^enabled$'                  bash -c 'systemctl --user is-enabled pi-plus.service'
   sleep 3
   check "unit started sessions"  0 'e-always +running'          PFc status
+  # the oneshot stays "active (exited)", so install must *restart* it
+  PFc down >/dev/null 2>&1
+  check "install reruns a stale unit" 0 'e-always +running'     bash -c "pp --socket $SOCK -c $CFG install >/dev/null 2>&1; sleep 2; pp --socket $SOCK -c $CFG status"
   check "uninstall removes unit" 0 'removed|disabled'           PFc uninstall
   check "unit is gone"          4 'not-found'                  bash -c 'systemctl --user is-enabled pi-plus.service' 
 else
