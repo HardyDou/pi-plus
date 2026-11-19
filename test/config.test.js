@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   buildSessionArgv,
   normalizeConfig,
+  removeSessionBlock,
   resolveSessionRef,
   sanitizeRemotePiName,
   splitCommand,
@@ -183,4 +184,46 @@ sessions:
   const cfg = normalizeConfig(raw, { configPath: "example" });
   assert.equal(cfg.sessions.length, 2);
   assert.equal(cfg.sessions[1].piSession, "1a2b3c4d");
+});
+
+test("removeSessionBlock cuts one entry and leaves the rest of the file alone", () => {
+  const raw = `version: 1
+defaults:
+  agent: pi
+sessions:
+  - name: backend
+    cwd: /tmp/backend
+  # this note belongs to nobody in particular
+  - name: docs
+    cwd: /tmp/docs
+    log: ~/.pi/plus/logs/docs.log
+  - name: ops
+    cwd: /tmp/ops
+`;
+  const { text, removed } = removeSessionBlock(raw, "docs");
+  assert.equal(removed, true);
+  assert.doesNotMatch(text, /docs/);
+  assert.match(text, /# this note belongs to nobody in particular/);
+  assert.match(text, /- name: backend/);
+  assert.match(text, /- name: ops/);
+  // what is left still parses, and keeps the entries that should survive
+  const cfg = normalizeConfig(parseYaml(text), { configPath: "trimmed" });
+  assert.deepEqual(cfg.sessions.map((s) => s.name), ["backend", "ops"]);
+
+  // cutting the first and the last entry works too
+  assert.deepEqual(
+    normalizeConfig(parseYaml(removeSessionBlock(raw, "backend").text), { configPath: "x" }).sessions.map((s) => s.name),
+    ["docs", "ops"],
+  );
+  assert.deepEqual(
+    normalizeConfig(parseYaml(removeSessionBlock(raw, "ops").text), { configPath: "x" }).sessions.map((s) => s.name),
+    ["backend", "docs"],
+  );
+});
+
+test("removeSessionBlock reports a miss instead of rewriting the file", () => {
+  const raw = "version: 1\nsessions:\n  - name: only\n    cwd: /tmp\n";
+  const { text, removed } = removeSessionBlock(raw, "ghost");
+  assert.equal(removed, false);
+  assert.equal(text, raw);
 });

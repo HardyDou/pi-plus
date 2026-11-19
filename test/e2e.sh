@@ -186,6 +186,41 @@ section "attach"
 check "attach without name"      2 'usage: pp attach'      PFc attach
 check "attach unknown name"      2 'unknown session'            PFc attach nosuch
 
+section "rm"
+RMFG=$E2E/rm.yml
+mkdir -p "$E2E/rm-a" "$E2E/rm-b" "$E2E/rm-c"
+cat > "$RMFG" <<YAML
+version: 1
+tmux:
+  socket: $SOCK
+defaults:
+  agent: bash
+sessions:
+  - name: r-a
+    cwd: $E2E/rm-a
+  - name: r-b
+    cwd: $E2E/rm-b
+  - name: r-c
+    cwd: $E2E/rm-c
+YAML
+PF() { pp --socket "$SOCK" -c "$RMFG" "$@"; }
+check "rm starts the test sessions" 0 '3 started'            PF up
+check "rm refuses without --force"  2 'refusing to delete'   PF rm r-b
+check "rm --dry-run keeps it"       0 'would remove r-b'     PF rm r-b --dry-run
+check "rm --dry-run really kept it" 0 '3/3 running'          PF status
+check "rm kills and deletes"        0 'removed r-b'          PF rm r-b --force
+ncheck "rm rewrote the config"      'name: r-b'             cat "$RMFG"
+check "rm left the others"          0 'name: r-a|name: r-c'  cat "$RMFG"
+check "rm removed the tmux session" 0 'r-a'                  bash -c "tmux -L $SOCK list-sessions -F '#{session_name}'"
+ncheck "rm left no tmux session"    '^r-b$'                 bash -c "tmux -L $SOCK list-sessions -F '#{session_name}'"
+check "rm --no-config keeps the entry" 0 'config entry kept' PF rm r-c --force --no-config
+check "rm --no-config kept the yaml"   0 'name: r-c'         cat "$RMFG"
+check "rm unknown name"             2 'unknown session'      PF rm nosuch --force
+check "rm without names"            2 'nothing to remove'    PF rm
+check "rm --json"                   0 '"removed"'            PF rm r-a --force --json
+check "rm emptied the config"       0 'name:|sessions:'      cat "$RMFG"
+PF() { pp --socket "$SOCK" "$@"; }
+
 section "doctor"
 # doctor exits 1 when autostart is not installed, which is normal on a fresh
 # box: assert the report itself, not the exit code

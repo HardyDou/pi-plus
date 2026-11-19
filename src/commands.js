@@ -10,6 +10,7 @@ import {
   resolve,
   splitCommand,
   resolveSessionRef,
+  removeSessionFromFile,
   shellQuote,
 } from "./config.js";
 import { readRemotePiConfig, remotePiConfigPath, writeRemotePiName } from "./remote-pi.js";
@@ -423,6 +424,89 @@ function cmdDown(config, options, ui) {
   }
   if (ui.json) ui.out(JSON.stringify({ killed, missing }, null, 2));
   else if (!options.quiet) ui.info(`\n${killed} stopped, ${missing} not running.`);
+}
+
+/** Ask a yes/no question on the terminal (only used when stdin is a TTY). */
+async function confirmOnTerminal(question) {
+  const { createInterface } = await import("node:readline/promises");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = (await rl.question(question)).trim().toLowerCase();
+    return answer === "y" || answer === "yes";
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * `pp rm` — kill the tmux session(s) and delete their entries from the config.
+ * `pp down` only stops them; this is the destructive one, so it asks first
+ * (or demands --force when there is no terminal to ask on).
+ */
+async function cmdRm(config, options, ui) {
+  // never sweep: a bare `pp rm` would delete the whole farm by accident
+  if (!options.names.length) {
+    ui.error("nothing to remove — name the session(s): pp rm <name|#> (pp ls lists them)");
+    process.exitCode = 2;
+    return;
+  }
+  const sessions = selectSessions(config, options.names, ui, { all: false });
+  if (!sessions.length) {
+    ui.error("nothing to remove — name the session(s): pp rm <name|#>");
+    process.exitCode = 2;
+    return;
+  }
+
+  const tmux = makeTmux(config, options);
+  const live = tmux.listSessions();
+  const target = sessions.map((session) => ({
+    session,
+    running: live.has(session.tmuxName),
+  }));
+  const names = target.map((row) => row.session.tmuxName).join(", ");
+
+  if (!options.force && !options.dryRun) {
+    if (!process.stdin.isTTY) {
+      ui.error(`refusing to delete ${names} without --force (removes the tmux session and its config entry)`);
+      process.exitCode = 2;
+      return;
+    }
+    const ok = await confirmOnTerminal(
+      `delete ${names}? the tmux session and its entry in ${config.path} both go away [y/N] `,
+    );
+    if (!ok) {
+      ui.info("cancelled");
+      return;
+    }
+  }
+
+  let killed = 0;
+  let removed = 0;
+  for (const { session, running } of target) {
+    const label = options.dryRun ? "would remove" : "removed";
+    if (running && !options.dryRun) {
+      tmux.kill(session.tmuxName);
+      killed += 1;
+    }
+    clearStopped(config.path, session.name);
+    const dropEntry = Boolean(config.path) && !options.noConfig;
+    const gone = dropEntry ? (options.dryRun ? true : removeSessionFromFile(config.path, session.name)) : false;
+    if (gone) removed += 1;
+    const bits = [
+      running ? "tmux session" : "no tmux session",
+      dropEntry ? (gone ? "config entry" : "no config entry") : "config entry kept",
+    ];
+    ui.info(`${ui.paint("red", label)} ${session.tmuxName}  ${ui.paint("dim", `(${bits.join(", ")})`)}`);
+  }
+
+  if (ui.json) {
+    ui.out(JSON.stringify({ killed, removed, sessions: target.map((row) => row.session.name) }, null, 2));
+    return;
+  }
+  if (!options.quiet) {
+    ui.info(`\n${options.dryRun ? "would remove" : "removed"} ${target.length} session(s): ${killed} killed, ${removed} config entr${removed === 1 ? "y" : "ies"} deleted.`);
+    if (removed) ui.info(ui.paint("dim", `backup first next time: cp ${config.path} ${config.path}.bak`));
+  }
 }
 
 async function cmdRestart(config, options, ui) {
@@ -1331,6 +1415,12 @@ export async function runCommand(command, options) {
     case "stop": {
       const config = requireConfig(options, ui);
       return cmdDown(config, options, ui);
+    }
+    case "rm":
+    case "remove":
+    case "delete": {
+      const config = requireConfig(options, ui);
+      return cmdRm(config, options, ui);
     }
     case "restart": {
       const config = requireConfig(options, ui);

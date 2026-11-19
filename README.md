@@ -103,6 +103,7 @@ pp up backend docs
 pp restart backend
 pp down backend            # 只停一个
 pp down                    # 全部停掉
+pp rm backend              # 删除：杀会话 + 删配置条目（会先问一次）
 ```
 
 > 被单独 `down` 掉的会话会不会被拉回来，取决于它的 `restart` 策略——
@@ -323,6 +324,7 @@ pp help instal          # 拼错会给建议：did you mean 'pp help install'?
 pp new [name] [opts]       在当前目录/指定目录临时开一个（别名 n、create）
 pp up [name|#...]          后台创建/启动（--force 重建已在跑的；别名 start）
 pp down [name|#...]        停止
+pp rm <name|#>...          删除（杀掉会话 + 从配置里删掉这一条）
 pp restart [name|#...]     重启（遵守 restart 策略）
 pp status [name|#...]      状态表，第一列是 # 序号（--json 机器可读；别名 ls/list）
 pp attach <name|#>         进入；不存在则先启动

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { parseYaml, YamlError } from "./yaml.js";
@@ -340,6 +340,59 @@ export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
     sessions,
     warnings,
   };
+}
+
+/**
+ * Cut one `sessions:` entry out of a YAML document, leaving every other byte
+ * alone (comments, ordering, quoting). Returns `{ text, removed }`; `removed`
+ * is false when the name is not there, so callers can say so.
+ */
+export function removeSessionBlock(text, name) {
+  const lines = String(text).split("\n");
+  const sectionStart = lines.findIndex((line) => /^sessions\s*:/.test(line));
+  if (sectionStart === -1 || /^sessions\s*:\s*\[\s*\]\s*$/.test(lines[sectionStart])) {
+    return { text: String(text), removed: false };
+  }
+
+  const blocks = [];
+  let indent = null;
+  let current = null;
+  for (let i = sectionStart + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (/^\S/.test(line)) break; // next top-level key ends the section
+    const item = /^(\s*)-\s/.exec(line);
+    if (item && (indent === null || item[1].length === indent)) {
+      if (indent === null) indent = item[1].length;
+      if (current) current.end = i;
+      current = { start: i, end: lines.length, name: null };
+      blocks.push(current);
+    }
+    if (!current) continue;
+    const named = /^\s*(?:-\s*)?name\s*:\s*(.+?)\s*$/.exec(line);
+    if (named && current.name === null) current.name = named[1].replace(/^['"]|['"]$/g, "");
+  }
+
+  const target = blocks.find((entry) => entry.name === name);
+  if (!target) return { text: String(text), removed: false };
+
+  const rest = lines.slice();
+  rest.splice(target.start, target.end - target.start);
+  const cleaned = [];
+  for (const line of rest) {
+    if (line.trim() === "" && cleaned.length && cleaned[cleaned.length - 1].trim() === "") continue;
+    cleaned.push(line);
+  }
+  if (cleaned.length && cleaned[cleaned.length - 1].trim() === "" && cleaned.length > 1) cleaned.pop();
+  return { text: `${cleaned.join("\n").replace(/\n*$/, "")}\n`, removed: true };
+}
+
+/** Rewrite a config file without the given session. Returns the new text or null. */
+export function removeSessionFromFile(configPath, name) {
+  const text = readFileSync(expandPath(configPath), "utf8");
+  const result = removeSessionBlock(text, name);
+  if (!result.removed) return null;
+  writeFileSync(expandPath(configPath), result.text);
+  return result.text;
 }
 
 export function loadConfigFile(configPath) {

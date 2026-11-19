@@ -4,7 +4,7 @@ _pp() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local commands="new n create up start down stop restart status ls list attach a logs log send mesh check validate doctor init install autostart uninstall alias link update upgrade version help"
+  local commands="new n create up start down stop rm remove delete restart status ls list attach a logs log send mesh check validate doctor init install autostart uninstall alias link update upgrade version help"
 
   case "$prev" in
     -c|--config)

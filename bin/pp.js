@@ -51,6 +51,7 @@ function parseArgs(argv) {
         case "--verbose": options.verbose = true; break;
         case "--lines": options.lines = Number(takeValue(flag, inline)) || 200; break;
         case "--no-enter": options.noEnter = true; break;
+        case "--no-config": options.noConfig = true; break;
         case "--print": options.print = true; break;
         case "--watch": {
           if (inline !== undefined) options.watch = Number(inline) || 300;

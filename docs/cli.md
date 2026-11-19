@@ -77,6 +77,30 @@ JSON：`{ "started": 2, "skipped": 1, "failures": [] }`
 
 JSON：`{ "killed": [...], "missing": [...] }`
 
+### `pp rm <name|#>...`
+
+```bash
+pp rm scratch            # asks first
+pp rm 3                  # by index
+pp rm backend docs -y    # no question
+pp rm scratch --no-config  # kill the session, keep the entry
+```
+
+The destructive counterpart of `down`: it kills the tmux session *and* cuts the
+entry out of the config file. `down` leaves the entry in place, so `up` can
+bring the session back; `rm` means it is gone.
+
+| option | meaning |
+|---|---|
+| `--force` | do not ask for confirmation |
+| `--no-config` | kill the session, leave the config alone |
+| `--dry-run` | print what would be removed |
+| `--json` | `{killed, removed, sessions}` |
+
+Without a terminal (a script, an autostart job) it refuses unless `--force` is
+given. Comments elsewhere in the file survive — only the deleted block is
+rewritten, so the diff stays small.
+
 ### `pp restart [name|#...]`
 
 先 `down` 再 `up`，遵守 `restart` 策略：`restart: no` 的会话不参与裸 `restart`。
