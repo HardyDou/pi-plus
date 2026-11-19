@@ -229,6 +229,7 @@ socket 上，`tmux -L other list-sessions` 才看得到。
 | `pp shot needs macOS` | 截图步骤依赖 `screencapture`；其它系统用 `pp push <file>` |
 | 图推过去了但 pane 里没变 | 远端会话可能在别的 tmux socket，加 `--socket <name>` |
 | 目标猜错了 | 加 `--no-detect` 关掉进程表探测，显式写 `--push` 或设 `PP_PUSH_TARGET` |
+| `cannot tell which host to push to` | 进程表里没有 ssh 进程（在本机终端跑的、ssh 已退出），用 `--push` 或开着的 ssh 连接 |
 
 ## 发布 / 安装类
 

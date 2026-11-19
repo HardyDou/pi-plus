@@ -161,7 +161,8 @@ pp push ./a.png --push mybox:delta --dry-run
 | `--dry-run` / `--json` | 打印命令 / 机器可读结果 |
 
 目标解析顺序：`--push` → `$PP_PUSH_TARGET` → 配置 `push:` 块 →
-本机进程表里最近一条 `ssh` 的目标 → 主机名。
+本机进程表里最近一条 `ssh` 的目标（`--no-detect` 可关）。
+五级都落空时直接失败：`cannot tell which host to push to: …`，不会退回到本机主机名。
 
 认证不归 pp 管：它用 `ssh -M -N -f -o ControlPersist=…` 起一个后台 master，
 之后所有 `scp`/`ssh` 都挂在这个 socket 上，所以**密码最多输一次**，

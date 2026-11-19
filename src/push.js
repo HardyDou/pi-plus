@@ -4,7 +4,7 @@
 // the agent and the ControlMaster socket on its own.
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, statSync } from "node:fs";
-import { homedir, hostname as osHostname } from "node:os";
+import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { expandPath, resolve, shellQuote } from "./config.js";
 
@@ -153,15 +153,11 @@ export function detectActiveSshTarget({ psOutput = null } = {}) {
 
 /**
  * Work out where a push goes. Precedence:
- *   --push/--to spec → $PP_PUSH_TARGET → config `push:` block → detected ssh → hostname
+ *   --push/--to spec → $PP_PUSH_TARGET → config `push:` block → ssh client detected
+ *   in the process table. Nothing resolved is an error: guessing the local hostname
+ *   used to "work" but only produced a confusing "Connection refused".
  */
-export function resolvePushTarget({
-  spec = null,
-  env = process.env,
-  configPush = null,
-  detected = null,
-  host = osHostname(),
-} = {}) {
+export function resolvePushTarget({ spec = null, env = process.env, configPush = null, detected = null } = {}) {
   let chosen = spec ?? env.PP_PUSH_TARGET ?? configPush?.target ?? null;
   let source = spec ? "argument" : env.PP_PUSH_TARGET ? "PP_PUSH_TARGET" : configPush?.target ? "config" : null;
   if (!chosen && detected) {
@@ -169,8 +165,12 @@ export function resolvePushTarget({
     source = "detected";
   }
   if (!chosen) {
-    chosen = host;
-    source = "hostname";
+    throw new PushError(
+      "cannot tell which host to push to: pass --push <[user@]host[#session]>, " +
+        "set PP_PUSH_TARGET, add push.target to the config, or keep the ssh session to that host open " +
+        "(pp reads it from this machine's process table)",
+      "target",
+    );
   }
   const parsed = parsePushTarget(chosen);
   const session = configPush?.session && !parsed.session ? parsePushTarget(`x@x#${configPush.session}`).session : parsed.session;

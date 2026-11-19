@@ -77,12 +77,13 @@ test("resolvePushTarget follows the documented precedence", () => {
   assert.equal(fromConfig.target, "c@3.3.3.3");
   assert.equal(fromConfig.session, "ops");
   assert.equal(fromConfig.source, "config");
-  const guessed = resolvePushTarget({ env: {}, detected, host: "laptop" });
+  const guessed = resolvePushTarget({ env: {}, detected });
   assert.equal(guessed.host, "10.0.0.2");
   assert.equal(guessed.source, "detected");
-  const fallback = resolvePushTarget({ env: {}, detected: null, host: "laptop" });
-  assert.equal(fallback.target, "laptop");
-  assert.equal(fallback.source, "hostname");
+  assert.throws(
+    () => resolvePushTarget({ env: {}, detected: null }),
+    /cannot tell which host to push to/,
+  );
 });
 
 test("remote paths and tmux args are built the way tmux expects", () => {

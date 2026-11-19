@@ -162,7 +162,8 @@ pp push ./crash.log --push mybox#risk-01  # 任意文件，任何系统
 你看得见，自己决定什么时候发送。
 
 - 目标怎么定：`--push` → `$PP_PUSH_TARGET` → 配置里的 `push:` 块 →
-  **本机进程表里最近那条 `ssh` 的目标** → 主机名兜底。目标写法
+  **本机进程表里最近那条 `ssh` 的目标**（所以只要连着远端，`pp shot` 什么都不用配；
+  一个都推不出来时直接报错，不会瞎猜）。目标写法
   `[user@]host[:port][#session]`，`--to <会话>` 可单独指定远端会话
 - 认证完全交给 ssh：`pp` 在 `~/.ssh/cm-pp-*` 下复用 ControlMaster 连接
   （默认保活 600 秒，`--persist` 改），所以密码只输一次；**不需要改
