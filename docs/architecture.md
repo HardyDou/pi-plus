@@ -24,6 +24,7 @@ src/commands.js    各子命令实现（up/down/restart/status/attach/logs/send/
 src/help.js        COMMANDS 单一数据源 + 总览/单命令页/拼写建议
 src/aliases.js     备用命令名（pifarm/pi-plus/自定义软链）+ PATH 上 pp 归属判定
 src/update.js      自升级：安装方式判定（npm/git/unknown）、registry 版本查询、命令规划
+src/push.js        跨机传送：目标解析（参数/环境/配置/进程表）、ControlMaster 复用、scp + `tmux send-keys -l` 预填
 src/example.js     `pp init` 写入的示例配置
 src/ppui.js        pi 扩展用的纯函数（$TMUX 解析、会话标签、前缀匹配、peek 参数、client 选择）
 extensions/pp-tmux.js  pi 扩展入口：/pp-ls /pp-sw /pp-quit /pp-status /pp-peek

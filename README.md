@@ -28,6 +28,7 @@ pi-plus.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --n
 - **可脚本化**：`--json`、`--dry-run`、`--quiet`，退出码可用（`up` 有失败即 1）。
 - **安全默认**：不经过 shell 拼接命令；tmux 名做白名单校验；重建前先 `check`。
 - **直接跟别的 agent 说话**：`pp mesh ls/send` 直连 remote-pi 的本地 broker，按会话名或跨机地址发消息、拿 ACK、等回复。
+- **本机截图直接进远端会话**：`pp shot --push host:session` 用 ssh 把图送到 `~/.pi/plus/drops/`，再把路径打进 pane（不打回车）。
 
 ## 安装
 
@@ -145,6 +146,31 @@ pp mesh send backend "跑一下测试" --reply 60000        # 等它回话，收
 - 与 `pp send` 的区别：`pp send` 是往 tmux pane 里打字（对方当成"用户输入"），
   `pp mesh send` 是走 agent 之间的消息通道（对方收到 `[agent-network] message from …` 信封）
 - broker 没起来时会明确报 `no mesh broker at …`；`pp mesh ls/resolve` 可离线用来看地址
+
+## 把图片/文件推进远端会话（pp shot / pp push）
+
+pi 跑在远端机器、你坐在本机，截了一张图想直接送进那个会话：
+
+```bash
+pp shot --push hardy@1.2.3.4:delta      # macOS 截图 → 推到 delta，路径已经打进输入框
+pp shot --clipboard --push mybox:ops    # 用剪贴板里已有的图（不是新截的）
+pp push ./crash.log --push mybox#risk-01  # 任意文件，任何系统
+```
+
+发生的事：截图 → `scp` 到远端 `~/.pi/plus/drops/<会话>/<时间戳>-xxx.png` →
+在远端 pane 里**只打字、不回车**（`tmux send-keys -l`）。路径就停在那儿，
+你看得见，自己决定什么时候发送。
+
+- 目标怎么定：`--push` → `$PP_PUSH_TARGET` → 配置里的 `push:` 块 →
+  **本机进程表里最近那条 `ssh` 的目标** → 主机名兜底。目标写法
+  `[user@]host[:port][#session]`，`--to <会话>` 可单独指定远端会话
+- 认证完全交给 ssh：`pp` 在 `~/.ssh/cm-pp-*` 下复用 ControlMaster 连接
+  （默认保活 600 秒，`--persist` 改），所以密码只输一次；**不需要改
+  `~/.ssh/config`**，`pp` 也不保存任何凭据
+- 没给 `--to` 时取"正附着 client 的那个会话"；一个都没附着会报错并让你指定，
+  不会瞎猜
+- `--no-prefill` 只传文件、不动输入框；`--dry-run` 把所有 ssh/scp 命令打出来
+- `pp shot` 的截图步骤要 macOS（`screencapture`）；`pp push` 在任何系统都能用
 
 ## 在 pi 里用 `/pp-*`（扩展）
 
@@ -328,6 +354,8 @@ pp status [name|#...]      状态表，第一列是 # 序号（--json 机器可�
 pp attach <name|#>         进入；不存在则先启动
 pp logs <name|#> [-n 200]  打印滚动输出
 pp send <name|#> "文本"     往 pane 里打字并回车（--no-enter 不回车）
+pp push <file> [opts]      推到远端并预填路径（--push/--to/--no-prefill）
+pp shot [opts]             截图（macOS）→ pp push
 pp mesh ls|resolve|send    直连 remote-pi broker：看谁在线 / 查地址 / 发消息（--reply 等回复）
 pp check                   校验配置
 pp doctor                  环境诊断（含自启状态、WSL 提示）

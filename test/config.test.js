@@ -184,3 +184,34 @@ sessions:
   assert.equal(cfg.sessions.length, 2);
   assert.equal(cfg.sessions[1].piSession, "1a2b3c4d");
 });
+
+test("push block is parsed and validated", () => {
+  const raw = parseYaml(`version: 1
+push:
+  target: hardy@1.2.3.4#delta
+  session: risk-01
+  dir: ~/.drops
+  port: 2222
+sessions:
+  - name: a
+    cwd: /tmp
+`);
+  const cfg = normalizeConfig(raw, { configPath: "push.yml" });
+  assert.deepEqual(cfg.push, {
+    target: "hardy@1.2.3.4#delta",
+    session: "risk-01",
+    dir: "~/.drops",
+    port: 2222,
+  });
+  assert.deepEqual(cfg.warnings, []);
+
+  const bare = normalizeConfig(parseYaml("version: 1\nsessions:\n  - name: a\n    cwd: /tmp\n"), { configPath: "none" });
+  assert.deepEqual(bare.push, { target: null, session: null, dir: null, port: null });
+
+  assert.throws(
+    () => normalizeConfig(parseYaml("version: 1\npush:\n  port: 99999\nsessions: []\n"), { configPath: "bad" }),
+    /push\.port must be a port number/,
+  );
+  const unknown = normalizeConfig(parseYaml("version: 1\npush:\n  tk: x\nsessions: []\n"), { configPath: "u" });
+  assert.match(unknown.warnings.join("\n"), /unknown push key "tk"/);
+});

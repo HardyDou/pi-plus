@@ -135,6 +135,60 @@ pp mesh send api --body-json '{"task":"test","id":42}'   # 结构化消息
 - 地址后缀 `#N` 是 broker 对同 `(cwd, name)` 重复身份的自动去重，`livePeersFor` 会把它一并算作同一个会话
 - 跨机投递走 broker leader 的 relay 桥，发送端不需要做任何配对
 
+### `pp push <file>`
+
+把一个本地文件送到另一台机器，并把远端路径打进那个 tmux 会话的输入框
+（打字不打回车，你自己决定何时发送）。
+
+```bash
+pp push ./crash.log --push hardy@1.2.3.4:delta
+pp push ./screen.png --push delta              # 别名在 ~/.ssh/config 里即可
+PP_PUSH_TARGET=mybox#risk-01 pp push ./a.png
+pp push ./a.png --push mybox --to risk-01 --no-prefill
+pp push ./a.png --push mybox:delta --dry-run
+```
+
+| 选项 | 说明 |
+|---|---|
+| `--push <target>` | `[user@]host[:port][#session]` |
+| `--to <会话>` | 远端 tmux 会话（默认：正附着 client 的那个） |
+| `--remote-dir <dir>` | 远端目录（默认 `~/.pi/plus/drops/<会话>`） |
+| `--no-prefill` | 只传文件，不动输入框 |
+| `--persist <秒>` | ControlMaster 保活时间（默认 600） |
+| `--control-path <p>` | ControlMaster socket（默认 `~/.ssh/cm-pp-%r@%h-%p`） |
+| `--no-detect` | 不从进程表猜目标 |
+| `--socket <name>` | 远端 tmux socket |
+| `--dry-run` / `--json` | 打印命令 / 机器可读结果 |
+
+目标解析顺序：`--push` → `$PP_PUSH_TARGET` → 配置 `push:` 块 →
+本机进程表里最近一条 `ssh` 的目标 → 主机名。
+
+认证不归 pp 管：它用 `ssh -M -N -f -o ControlPersist=…` 起一个后台 master，
+之后所有 `scp`/`ssh` 都挂在这个 socket 上，所以**密码最多输一次**，
+而且不需要改 `~/.ssh/config`。key/agent 照旧生效。
+
+远端路径里的 `~` 会先问一次远端 `$HOME` 再转成绝对路径（`scp` 与 `mkdir` 对
+`~` 的展开规则不一致，转绝对路径能避开这个坑）。
+
+### `pp shot`
+
+macOS 上截图并立刻 `pp push`。
+
+```bash
+pp shot --push hardy@1.2.3.4:delta
+pp shot --clipboard --push mybox:ops
+PP_PUSH_TARGET=mybox:delta pp shot
+```
+
+| 选项 | 说明 |
+|---|---|
+| `--clipboard` | 用剪贴板里已有的图（`NSPasteboard`），不再截图 |
+| `--full` | 整屏截图（默认 `-i` 选区） |
+| `--out-dir <dir>` | 本地暂存目录（默认 `~/.pi/plus/cache`） |
+
+其余选项与 `pp push` 相同。取消截图 → `screenshot cancelled`（退出码 2）；
+非 macOS 上直接报错并提示改用 `pp push <file>`。
+
 ### `pp update [--check]`
 
 升级到最新发布版。先判断这份是从哪装的，再跑对应命令：

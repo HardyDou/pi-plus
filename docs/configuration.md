@@ -57,6 +57,21 @@ sessions:                  # 必填，非空列表
 
 未知键不会让命令失败，但会作为警告出现（`unknown key "xxx" (ignored)`），方便发现拼写错误。
 
+## `push:` 块（可选）
+
+`pp push` / `pp shot` 的默认目标。没有这块也能用：命令会去进程表里找你最近
+那条 `ssh` 的目标，再不行就用主机名。
+
+```yaml
+push:
+  target: hardy@192.168.1.88#delta     # [user@]host[:port][#session]
+  session: delta                        # 可选，覆盖 target 里的 #session
+  dir: ~/.pi/plus/drops/delta           # 可选，远端落盘目录
+  port: 22                              # 可选
+```
+
+优先级：`--push` > `$PP_PUSH_TARGET` > 这里 > 进程表 > 主机名。
+
 ## `restart` 策略
 
 语义对齐 docker compose：

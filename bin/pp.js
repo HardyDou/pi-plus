@@ -72,6 +72,17 @@ function parseArgs(argv) {
         case "--check": options.check = true; break;
         case "--registry": options.registry = takeValue(flag, inline); break;
         case "--reply": options.reply = Number(takeValue(flag, inline)) || 0; break;
+        case "--push": options.push = takeValue(flag, inline); break;
+        case "--to": options.to = takeValue(flag, inline); break;
+        case "--port": options.port = Number(takeValue(flag, inline)) || null; break;
+        case "--remote-dir": options.remoteDir = takeValue(flag, inline); break;
+        case "--out-dir": options.outDir = takeValue(flag, inline); break;
+        case "--control-path": options.controlPath = takeValue(flag, inline); break;
+        case "--persist": options.persist = Number(takeValue(flag, inline)) || 600; break;
+        case "--clipboard": options.clipboard = true; break;
+        case "--full": options.full = true; break;
+        case "--no-prefill": options.prefill = false; break;
+        case "--no-detect": options.noDetect = true; break;
         case "--local": options.local = true; break;
         case "--path": options.path = takeValue(flag, inline); break;
         case "--help": process.exit(showHelp(command));
