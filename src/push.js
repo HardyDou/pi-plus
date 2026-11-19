@@ -3,7 +3,7 @@
 // strings are handed to the system `ssh` / `scp`, which read ~/.ssh/config,
 // the agent and the ControlMaster socket on its own.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { expandPath, resolve, shellQuote } from "./config.js";
@@ -201,6 +201,127 @@ export function attachedSessionArgs({ socket = null } = {}) {
 }
 
 /** Pick the newest attached session from `list-clients` output. */
+/** `tmux list-sessions` argv: name, attached flag and window count in one line. */
+export function remoteSessionsArgs({ socket = null } = {}) {
+  const args = [];
+  if (socket) args.push("-L", socket);
+  args.push("list-sessions", "-F", "#{session_name} #{session_attached} #{session_windows}");
+  return args;
+}
+
+/** Parse the output of remoteSessionsArgs. */
+export function parseRemoteSessions(output) {
+  return String(output)
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [name, attached, windows] = line.split(/\s+/, 3);
+      return { name, attached: Number(attached) > 0, windows: Number(windows) || 0 };
+    })
+    .filter((row) => row.name);
+}
+
+/** Where pp remembers the last session it pushed into, per host. */
+export function pushStatePath({ home = homedir(), env = process.env } = {}) {
+  const base = env.PP_STATE_DIR ? expandPath(env.PP_STATE_DIR, env, home) : join(home, ".pi", "plus");
+  return join(base, "push-state.json");
+}
+
+/** Last session we pushed into for this host (null when unknown). */
+export function readRememberedSession(host, { home = homedir(), env = process.env } = {}) {
+  const file = pushStatePath({ home, env });
+  try {
+    const state = JSON.parse(readFileSync(file, "utf8"));
+    const session = state?.[host]?.session;
+    return typeof session === "string" && session ? session : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Remember (or forget, when session is null) the session for a host. */
+export function rememberSession(host, session, { home = homedir(), env = process.env } = {}) {
+  const file = pushStatePath({ home, env });
+  let state = {};
+  try {
+    state = JSON.parse(readFileSync(file, "utf8")) || {};
+  } catch {
+    state = {};
+  }
+  if (session) state[host] = { session, at: new Date().toISOString() };
+  else delete state[host];
+  ensureLocalDir(dirname(file));
+  writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`);
+}
+
+/** Ask on the terminal which session to use. Returns null when the user cancels. */
+async function askSession(target, candidates) {
+  const { createInterface } = await import("node:readline/promises");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    process.stdout.write(`which session on ${target}?\n`);
+    candidates.forEach((row, index) => {
+      process.stdout.write(`  ${index + 1}) ${row.name}${row.attached ? " (attached)" : ""}  ${row.windows}w\n`);
+    });
+    const answer = (await rl.question(`number or name [1-${candidates.length}, empty to cancel]: `)).trim();
+    if (!answer) return null;
+    const byIndex = candidates[Number(answer) - 1];
+    if (Number.isInteger(Number(answer)) && byIndex) return byIndex.name;
+    const byName = candidates.find((row) => row.name === answer);
+    if (byName) return byName.name;
+    throw new PushError(`no session named "${answer}" on ${target}`, "target");
+  } finally {
+    rl.close();
+  }
+}
+
+/**
+ * Work out which remote session should receive the path. Order: the session a
+ * client is attached to, then the one remembered for this host, then the only
+ * session that exists, then (on a terminal) a prompt, else an error listing them.
+ */
+export async function resolvePushSession({
+  target,
+  session = null,
+  socket = null,
+  controlPath = controlPathPath(),
+  interactive = false,
+  env = process.env,
+  home = homedir(),
+} = {}) {
+  if (session) return session;
+
+  const attached = parseAttachedSession(
+    sshRun(target, shellQuoteArgs(["tmux", ...attachedSessionArgs({ socket })]), { controlPath, port: target.port }),
+  );
+  if (attached) return attached;
+
+  const candidates = parseRemoteSessions(
+    sshRun(target, shellQuoteArgs(["tmux", ...remoteSessionsArgs({ socket })]), { controlPath, port: target.port }),
+  );
+  if (!candidates.length) {
+    throw new PushError(`no tmux sessions on ${target.target} — start one with \`pp new\` (remote) first`, "target");
+  }
+
+  const remembered = readRememberedSession(target.target, { home, env });
+  if (remembered && candidates.some((row) => row.name === remembered)) return remembered;
+
+  if (candidates.length === 1) return candidates[0].name;
+
+  if (interactive && process.stdin.isTTY) {
+    const picked = await askSession(target.target, candidates);
+    if (picked) return picked;
+    throw new PushError("cancelled: no session picked", "target");
+  }
+
+  const listing = candidates.map((row) => `  ${row.name}${row.attached ? " (attached)" : ""}  ${row.windows}w`).join("\n");
+  throw new PushError(
+    `cannot tell which session on ${target.target}: nothing is attached and ${candidates.length} sessions are running — pass --to <name>:\n${listing}`,
+    "target",
+  );
+}
+
 export function parseAttachedSession(output) {
   const rows = String(output)
     .split("\n")
@@ -336,9 +457,16 @@ export async function pushFile({
   prefill = true,
   controlPath = controlPathPath(),
   typeIntoPane = true,
+  interactive = false,
 } = {}) {
   const abs = assertReadableFile(file);
-  const dir = await resolveRemoteDir(remoteDir ?? remoteDropsDir({ session }), target, controlPath);
+  // Resolve the session first: the drop lands in per-session directory and the
+  // error (if any) happens before we copy anything.
+  let usedSession = session;
+  if (!usedSession && prefill && typeIntoPane) {
+    usedSession = await resolvePushSession({ target, socket, controlPath, interactive });
+  }
+  const dir = await resolveRemoteDir(remoteDir ?? remoteDropsDir({ session: usedSession }), target, controlPath);
   const remotePath = `${dir}/${basename(abs)}`;
   const steps = [];
 
@@ -348,26 +476,14 @@ export async function pushFile({
   scpTo(target, abs, remotePath, { controlPath, port: target.port });
   steps.push(`scp ${abs} → ${target.target}:${remotePath}`);
 
-  let usedSession = session;
-  if (!usedSession) {
-    const attached = parseAttachedSession(
-      sshRun(target, shellQuoteArgs(["tmux", ...attachedSessionArgs({ socket })]), { controlPath, port: target.port }),
-    );
-    usedSession = attached;
-  }
-
   if (prefill && typeIntoPane) {
-    if (!usedSession) {
-      throw new PushError(
-        `copied to ${target.target}:${remotePath}, but nothing is attached there; pass --to <session>`,
-        "target",
-      );
-    }
     sshRun(target, shellQuoteArgs(["tmux", ...tmuxPrefillArgs({ session: usedSession, path: remotePath, socket })]), {
       controlPath,
       port: target.port,
     });
     steps.push(`prefilled ${usedSession}`);
+    // Remember even an explicit --to: next time it becomes the default.
+    if (usedSession) rememberSession(target.target, usedSession);
   }
 
   return { host: target.target, session: usedSession, remotePath, steps };

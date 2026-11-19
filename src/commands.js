@@ -1370,7 +1370,8 @@ async function doPush(config, options, ui, { file, sessionHint = null } = {}) {
   const { target, session, detected } = pushTargetFor(config, options);
   const wanted = sessionHint ?? session;
   const controlPath = controlPathPath(options.controlPath ?? CONTROL_PATH_TEMPLATE);
-  const remoteDir = options.remoteDir ?? config?.push?.dir ?? remoteDropsDir({ session: wanted });
+  const explicitDir = options.remoteDir ?? config?.push?.dir ?? null;
+  const remoteDir = explicitDir ?? remoteDropsDir({ session: wanted });
   const persist = options.persist ?? DEFAULT_PERSIST_SECONDS;
   const prefill = options.prefill !== false;
   const abs = assertReadableFile(file);
@@ -1404,10 +1405,12 @@ async function doPush(config, options, ui, { file, sessionHint = null } = {}) {
     file: abs,
     target,
     session: wanted,
-    remoteDir,
+    // null when the directory should follow the resolved session
+    remoteDir: explicitDir,
     socket: options.socket ?? null,
     prefill,
     controlPath,
+    interactive: Boolean(process.stdin.isTTY) && !options.json,
   });
 
   const shown = { ...plan, session: result.session, remotePath: result.remotePath };

@@ -270,6 +270,7 @@ check "push --no-prefill"           0 'nothing was typed|scp'     pp push "$E2E/
 check "push rejects a missing file" 1 'no such file'              pp push "$E2E/nope.png" --push mybox --dry-run
 check "push rejects a bad target"   1 'too many ":"'              pp push "$E2E/push-me.png" --push 'a:b:c' --dry-run
 check "push --json dry-run"         0 '"remotePath"'              pp push "$E2E/push-me.png" --push mybox#delta --dry-run --json
+check "push explains session resolution" 0 'push-state.json'       pp help push
 if [ "$(uname -s)" != "Darwin" ]; then
   check "shot refuses on non-macOS" 2 'needs macOS'               pp shot --push mybox
 fi

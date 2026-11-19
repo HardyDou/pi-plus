@@ -170,8 +170,9 @@ pp push ./crash.log --push mybox#risk-01  # 任意文件，任何系统
 - 认证完全交给 ssh：`pp` 在 `~/.ssh/cm-pp-*` 下复用 ControlMaster 连接
   （默认保活 600 秒，`--persist` 改），所以密码只输一次；**不需要改
   `~/.ssh/config`**，`pp` 也不保存任何凭据
-- 没给 `--to` 时取"正附着 client 的那个会话"；一个都没附着会报错并让你指定，
-  不会瞎猜
+- 会话怎么定（不给 `--to` 时）：正附着 client 的那个 → 上次给这台机器用过、并记住的
+  那个（`~/.pi/plus/push-state.json`）→ 远端只有一个会话就用它 → 终端里让你选 →
+  都没有就把远端会话列出来让你加 `--to`，绝不瞎猜
 - `--no-prefill` 只传文件、不动输入框；`--dry-run` 把所有 ssh/scp 命令打出来
 - `pp shot` 的截图步骤要 macOS（`screencapture`）；`pp push` 在任何系统都能用
 

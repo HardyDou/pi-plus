@@ -151,7 +151,7 @@ pp push ./a.png --push mybox:delta --dry-run
 | 选项 | 说明 |
 |---|---|
 | `--push <target>` | `[user@]host[:port][#session]` |
-| `--to <会话>` | 远端 tmux 会话（默认：正附着 client 的那个） |
+| `--to <会话>` | 远端 tmux 会话（默认：附着的 → 上次用过的 → 唯一会话 → 提示选择） |
 | `--remote-dir <dir>` | 远端目录（默认 `~/.pi/plus/drops/<会话>`） |
 | `--no-prefill` | 只传文件，不动输入框 |
 | `--persist <秒>` | ControlMaster 保活时间（默认 600） |
@@ -163,6 +163,10 @@ pp push ./a.png --push mybox:delta --dry-run
 目标解析顺序：`--push` → `$PP_PUSH_TARGET` → 配置 `push:` 块 →
 本机进程表里最近一条 `ssh` 的目标（`--no-detect` 可关）。
 五级都落空时直接失败：`cannot tell which host to push to: …`，不会退回到本机主机名。
+
+会话解析顺序（`--to` 最优先）：正附着 client 的那个 → 上次给这台主机用过的
+（记在 `~/.pi/plus/push-state.json`，`--to` 用一次就记住）→ 远端唯一会话 →
+终端里提示选择 → 都没有则列出候选并报错。
 
 认证不归 pp 管：它用 `ssh -M -N -f -o ControlPersist=…` 起一个后台 master，
 之后所有 `scp`/`ssh` 都挂在这个 socket 上，所以**密码最多输一次**，

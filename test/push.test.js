@@ -10,6 +10,11 @@ import {
   dropName,
   parseActiveSsh,
   parseAttachedSession,
+  parseRemoteSessions,
+  pushStatePath,
+  readRememberedSession,
+  rememberSession,
+  remoteSessionsArgs,
   parsePushTarget,
   PushError,
   remoteDropsDir,
@@ -132,4 +137,35 @@ test("assertReadableFile resolves paths and rejects the wrong ones", () => {
   assert.equal(assertReadableFile(file), file);
   assert.throws(() => assertReadableFile(join(dir, "missing.png")), /no such file/);
   assert.throws(() => assertReadableFile(dir), /not a regular file/);
+});
+
+test("remote session listing is parsed and remembered per host", () => {
+  assert.deepEqual(remoteSessionsArgs(), [
+    "list-sessions",
+    "-F",
+    "#{session_name} #{session_attached} #{session_windows}",
+  ]);
+  assert.deepEqual(remoteSessionsArgs({ socket: "ppv" }).slice(0, 2), ["-L", "ppv"]);
+
+  const rows = parseRemoteSessions("risk-01 1 3\nops-5 0 2\n\n");
+  assert.deepEqual(rows, [
+    { name: "risk-01", attached: true, windows: 3 },
+    { name: "ops-5", attached: false, windows: 2 },
+  ]);
+
+  const home = mkdtempSync(join(tmpdir(), "pp-state-"));
+  const env = { PP_STATE_DIR: join(home, "state") };
+  assert.equal(pushStatePath({ home, env }), join(home, "state", "push-state.json"));
+  assert.equal(readRememberedSession("box", { home, env }), null);
+
+  rememberSession("box", "risk-01", { home, env });
+  assert.equal(readRememberedSession("box", { home, env }), "risk-01");
+  assert.equal(readRememberedSession("other", { home, env }), null);
+
+  rememberSession("box", null, { home, env });
+  assert.equal(readRememberedSession("box", { home, env }), null);
+
+  const corrupt = join(home, "state", "push-state.json");
+  writeFileSync(corrupt, "{not json");
+  assert.equal(readRememberedSession("box", { home, env }), null);
 });
