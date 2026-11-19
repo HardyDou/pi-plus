@@ -6,10 +6,7 @@
 
 ### 敲 `pp ls` 却打出 `Usage: pp [-t type] [-a] [-i input] ...`
 
-那是 macOS（以及部分发行版）自带的 ASN.1 工具 `/usr/bin/pp`，不是我们。Homebrew 装的 `nss`
-也会带一个 `/opt/homebrew/bin/pp`（同为 ASN.1/证书打印工具），一样不是我们。
-PATH 里谁靠前谁生效，所以 `which -a pp` 经常能列出三条：nvm 的、homebrew 的、系统的。
-不需要动它们——用 `pifarm` 这个名字，或者 `alias add` 一个自己的短名即可。
+那是 macOS（以及部分发行版）自带的 ASN.1 工具 `/usr/bin/pp`，不是我们。PATH 里谁靠前谁生效，而 `/usr/bin` 常常压过 npm 的全局 bin。
 
 ```bash
 type -a pp                 # 看 PATH 上有几个 pp
@@ -218,21 +215,6 @@ pp attach backend                        # 或者接到已有会话上
 
 扩展只列**当前 `$TMUX` 指向的那个服务器**里的会话。`pp up --socket other` 起的会话在另一个
 socket 上，`tmux -L other list-sessions` 才看得到。
-
-## push / shot 类
-
-| 现象 | 原因 / 解决 |
-|---|---|
-| `cannot open an ssh connection to X (exit 255)` | 目标错、网络不通，或认证失败。先手动 `ssh X true` 试一下 |
-| 每次都要输密码 | 没有 key，且 master 已经过期。`--persist 3600` 拉长保活，或改用 `ssh-copy-id` |
-| `Bad local forwarding specification` | 老版本 bug（远端命令以 `-L` 开头被 ssh 当成自己的选项）。升级到 0.5.0+ |
-| `no session is attached — pick one` | 远端没有 client 附着，用 `--to <会话>` 指定 |
-| `cannot resolve $HOME on X` | 远端 shell 回不出 `$HOME`（极少见），用 `--remote-dir` 给绝对路径 |
-| `screenshot cancelled` | 你按了 Esc。`--full` 可跳过选区 |
-| `pp shot needs macOS` | 截图步骤依赖 `screencapture`；其它系统用 `pp push <file>` |
-| 图推过去了但 pane 里没变 | 远端会话可能在别的 tmux socket，加 `--socket <name>` |
-| 目标猜错了 | 加 `--no-detect` 关掉进程表探测，显式写 `--push` 或设 `PP_PUSH_TARGET` |
-| `cannot tell which host to push to` | 进程表里没有 ssh 进程（在本机终端跑的、ssh 已退出），用 `--push` 或开着的 ssh 连接 |
 
 ## 发布 / 安装类
 

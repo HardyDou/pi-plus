@@ -5,8 +5,7 @@ import { parseYaml, YamlError } from "./yaml.js";
 
 const CONFIG_BASENAMES = ["pi-plus.yml", "pi-plus.yaml", "plus.yml", "plus.yaml"];
 
-const PUSH_KEYS = new Set(["target", "session", "port", "dir"]);
-const TOP_LEVEL_KEYS = new Set(["version", "tmux", "defaults", "sessions", "push"]);
+const TOP_LEVEL_KEYS = new Set(["version", "tmux", "defaults", "sessions"]);
 const SESSION_KEYS = new Set([
   "name",
   "cwd",
@@ -334,25 +333,10 @@ export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
     }
   }
 
-  const pushRaw = raw.push && typeof raw.push === "object" && !Array.isArray(raw.push) ? raw.push : {};
-  for (const key of Object.keys(pushRaw)) {
-    if (!PUSH_KEYS.has(key)) warnings.push(`${configPath}: unknown push key "${key}" (ignored)`);
-  }
-  const push = {
-    target: pushRaw.target ? String(pushRaw.target) : null,
-    session: pushRaw.session ? String(pushRaw.session) : null,
-    port: pushRaw.port === undefined || pushRaw.port === null ? null : Number(pushRaw.port),
-    dir: pushRaw.dir ? String(pushRaw.dir) : null,
-  };
-  if (push.port !== null && (!Number.isInteger(push.port) || push.port < 1 || push.port > 65535)) {
-    throw new ConfigError(`${configPath}: push.port must be a port number (got "${pushRaw.port}")`);
-  }
-
   return {
     path: configPath,
     version: raw.version ?? 1,
     tmuxSocket: tmux.socket ? String(tmux.socket) : null,
-    push,
     sessions,
     warnings,
   };

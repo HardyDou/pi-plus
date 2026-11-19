@@ -16,8 +16,6 @@ _pp() {
     'attach:attach to a session (starts it if needed)'
     'logs:print pane output'
     'send:type text into a pane'
-    'push:copy a file to another machine and prefill it'
-    'shot:screenshot (macOS) and push it'
     'mesh:remote-pi mesh (ls/send/resolve/inbox)'
     'check:validate the config'
     'doctor:environment diagnostics'

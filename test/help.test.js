@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { COMMANDS, commandNames, findCommand, renderCommandHelp, renderOverview, suggestCommand } from "../src/help.js";
 
-const CANONICAL = ["new", "up", "down", "restart", "status", "attach", "logs", "send", "push", "shot", "mesh", "check", "doctor", "init", "install", "uninstall", "alias", "update", "version", "help"];
+const CANONICAL = ["new", "up", "down", "restart", "status", "attach", "logs", "send", "mesh", "check", "doctor", "init", "install", "uninstall", "alias", "update", "version", "help"];
 
 test("every command has a complete help page", () => {
   for (const name of CANONICAL) {

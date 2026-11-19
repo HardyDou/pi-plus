@@ -250,31 +250,6 @@ sleep 0.8
 check "inbox leaves on SIGINT"    0 'left the mesh as .*e-inbox' cat "$E2E/inbox.out"
 kill "$FAKE_PID" 2>/dev/null
 
-section "push / shot (dry-run only: no ssh in CI)"
-printf 'x\n' >"$E2E/push-me.png"
-cat >"$E2E/push.yml" <<YAML
-version: 1
-push:
-  target: nobody@example.invalid#e-always
-sessions:
-  - name: e-push
-    cwd: $E2E
-    agent: bash
-YAML
-check "push --help"                 0 'prefill'                  pp help push
-check "shot --help"                 0 'screencapture'            pp help shot
-check "push dry-run prints scp"     0 'scp .*push-me.png'        pp push "$E2E/push-me.png" --push hardy@1.2.3.4:delta --dry-run
-check "push dry-run honours --to"   0 'prefilled into delta|prefill e-delta|delta'  pp push "$E2E/push-me.png" --push mybox --to delta --dry-run
-check "push reads config push block" 0 'from config'              pp -c "$E2E/push.yml" push "$E2E/push-me.png" --dry-run
-check "push --no-prefill"           0 'nothing was typed|scp'     pp push "$E2E/push-me.png" --push mybox#delta --no-prefill --dry-run
-check "push rejects a missing file" 1 'no such file'              pp push "$E2E/nope.png" --push mybox --dry-run
-check "push rejects a bad target"   1 'too many ":"'              pp push "$E2E/push-me.png" --push 'a:b:c' --dry-run
-check "push --json dry-run"         0 '"remotePath"'              pp push "$E2E/push-me.png" --push mybox#delta --dry-run --json
-check "push explains session resolution" 0 'push-state.json'       pp help push
-if [ "$(uname -s)" != "Darwin" ]; then
-  check "shot refuses on non-macOS" 2 'needs macOS'               pp shot --push mybox
-fi
-
 section "autostart unit files"
 check "install --print"          0 'ExecStart='                 PFc install --print
 check "print includes reconcile" 0 'up.*--reconcile'            PFc install --print
