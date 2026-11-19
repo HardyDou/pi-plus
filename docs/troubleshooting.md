@@ -6,7 +6,10 @@
 
 ### 敲 `pp ls` 却打出 `Usage: pp [-t type] [-a] [-i input] ...`
 
-那是 macOS（以及部分发行版）自带的 ASN.1 工具 `/usr/bin/pp`，不是我们。PATH 里谁靠前谁生效，而 `/usr/bin` 常常压过 npm 的全局 bin。
+那是 macOS（以及部分发行版）自带的 ASN.1 工具 `/usr/bin/pp`，不是我们。Homebrew 装的 `nss`
+也会带一个 `/opt/homebrew/bin/pp`（同为 ASN.1/证书打印工具），一样不是我们。
+PATH 里谁靠前谁生效，所以 `which -a pp` 经常能列出三条：nvm 的、homebrew 的、系统的。
+不需要动它们——用 `pifarm` 这个名字，或者 `alias add` 一个自己的短名即可。
 
 ```bash
 type -a pp                 # 看 PATH 上有几个 pp

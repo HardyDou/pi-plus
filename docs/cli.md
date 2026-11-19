@@ -212,7 +212,8 @@ PP_NPM_REGISTRY=https://nexus.local/repository/npm-group pp update
 
 ### `pp alias [ls|add|rm]`
 
-管理备用命令名。macOS 自带 `/usr/bin/pp`（ASN.1 工具），所以包内自带 `pifarm`、`pi-plus` 两个名字；`alias` 再加任意短名。
+管理备用命令名。macOS 自带 `/usr/bin/pp`（ASN.1 工具），Homebrew 的 `nss` 也会带一个 `/opt/homebrew/bin/pp`，
+所以包内自带 `pifarm`、`pi-plus` 两个名字；`alias` 再加任意短名。
 
 ```bash
 pp alias ls                        # 列出指向本 CLI 的软链 + 目录是否在 PATH

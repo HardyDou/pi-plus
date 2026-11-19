@@ -59,7 +59,9 @@ pp update --dry-run  # 只打印会跑的升级命令
 
 ### 命令名被别的程序占了？（macOS 自带 `/usr/bin/pp`）
 
-macOS 上 `/usr/bin/pp` 是一个 ASN.1 转换工具，`pp ls` 会打出它的用法说明。除了 `pp`，安装时还会一起装两个名字：
+macOS 上 `/usr/bin/pp` 是一个 ASN.1 转换工具，`pp ls` 会打出它的用法说明。
+Homebrew 装的一些包（例如 `nss`）也会带一个 `pp`（`/opt/homebrew/bin/pp`），同样不是我们。
+除了 `pp`，安装时还会一起装两个名字：
 
 ```bash
 pifarm ls        # 等价于 pp ls
