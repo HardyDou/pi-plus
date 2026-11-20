@@ -521,6 +521,19 @@ check "adopt records the session" 0 'adopted 1'                 bash -c "cd $E2E
 check "adopt wrote a runnable entry" 0 'stray-x'                bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $ADOPTCFG --socket $SOCK ls | grep running | grep stray-x"
 check "adopt refuses a restart policy it does not know" 2 'must be one of' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ADOPTCFG --socket $SOCK adopt keeper --restart sometimes"
 check "adopt is idempotent" 0 'already in the config'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $ADOPTCFG --socket $SOCK adopt stray-x"
+section "logs-many"
+tmux -L "$SOCK" new-session -d -s log-a "sh -c 'echo from-a; sleep 600'" 2>/dev/null || true
+tmux -L "$SOCK" new-session -d -s log-b "sh -c 'echo from-b; sleep 600'" 2>/dev/null || true
+sleep 1
+LOGSYML="$E2E/logs.yml"
+printf 'version: 1\nsessions:\n  - name: log-a\n    cwd: /tmp\n    agent: sh\n    restart: "no"\n  - name: log-b\n    cwd: /tmp\n    agent: sh\n    restart: "no"\n  - name: log-dead\n    cwd: /tmp\n    agent: sh\n    restart: "no"\n' > "$LOGSYML"
+check "logs takes several sessions" 0 'from-b'                bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGSYML --socket $SOCK logs log-a log-b"
+check "logs labels each one"     0 '── log-a'                  bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGSYML --socket $SOCK logs log-a log-b"
+check "logs --all labels each one" 1 '── log-b'                bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGSYML --socket $SOCK logs --all"
+check "logs reports a stopped one" 1 'not running'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGSYML --socket $SOCK logs log-dead 2>&1"
+check "logs wants a name"        2 'usage: pp logs'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGSYML --socket $SOCK logs"
+check "audit --actor filters"    0 'nothing recorded'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGSYML --socket $SOCK audit --actor nobody-at-all"
+
 check "ls counts what is up but unmanaged" 0 'unmanaged'     bash -c "cd $E2E && $ROOT/bin/pp.js -c $ADOPTCFG --socket $SOCK ls"
 check "doctor points at the drift"  1 'not in config'            bash -c "cd $E2E && $ROOT/bin/pp.js -c $ADOPTCFG --socket $SOCK doctor"
 check "attach to a remote session is built for ssh" 0 'attach-session .*far-x' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach far-x --dry-run"

@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { SAFE_TMUX_NAME, saveNewSession, tmuxSafeName } from "../src/commands.js";
+import { SAFE_TMUX_NAME, diffLines, saveNewSession, tmuxSafeName } from "../src/commands.js";
 import { loadConfig } from "../src/config.js";
 
 const session = {
@@ -76,4 +76,14 @@ test("saveNewSession refuses a config without a sessions section", () => {
   saveNewSession(path, session, ui);
   assert.equal(readFileSync(path, "utf8"), "version: 1\n");
   assert.match(ui.seen.join("\n"), /has no "sessions:" section/);
+});
+
+test("diffLines prints only what a pane printed since the last read", () => {
+  const prompt = "me@box:~$";
+  assert.deepEqual(diffLines(`a\n${prompt}`, `a\n${prompt}`), [], "an unchanged pane prints nothing");
+  assert.deepEqual(diffLines(`keep\n${prompt}`, `keep\nrun\ndone\n${prompt}`), ["run", "done", prompt]);
+  // a prompt line that repeats at the bottom must not hide the line above it
+  assert.deepEqual(diffLines(`one\n${prompt}`, `one\ntwo\n${prompt}`), ["two", prompt]);
+  assert.deepEqual(diffLines(`${prompt}`, `tail\n${prompt}`), ["tail", prompt]);
+  assert.deepEqual(diffLines("git status\nWork 12%", "git status\nWork 37%"), ["Work 37%"], "a bare progress line still counts");
 });

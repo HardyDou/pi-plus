@@ -82,7 +82,7 @@ export function recordAudit({ action, target = null, node = null, detail = null,
 }
 
 /** Read the trail, newest last. Filters are exact matches on `action`/`target` plus a `since` cutoff. */
-export function readAudit({ limit = 40, action = null, target = null, since = null, file = null } = {}, env = process.env) {
+export function readAudit({ limit = 40, action = null, target = null, actor = null, since = null, file = null } = {}, env = process.env) {
   const path = file ?? auditPath(env);
   if (!existsSync(path)) return [];
   let text = "";
@@ -103,6 +103,8 @@ export function readAudit({ limit = 40, action = null, target = null, since = nu
     if (!entry || typeof entry !== "object") continue;
     if (action && entry.action !== action) continue;
     if (target && entry.target !== target && entry.node !== target) continue;
+    // `--actor bob` should match bob@host#1234 without anyone typing the rest
+    if (actor && !String(entry.actor ?? "").startsWith(actor)) continue;
     if (since && Date.parse(entry.ts ?? "") < since.getTime()) continue;
     entries.push(entry);
   }

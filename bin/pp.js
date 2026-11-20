@@ -60,6 +60,10 @@ function parseArgs(argv) {
         case "--idle-over": options.idleOver = takeValue(flag, inline); break;
         case "--sort": options.sort = takeValue(flag, inline); break;
       case "--lines": options.lines = Number(takeValue(flag, inline)) || 200; break;
+      case "-f":
+      case "--follow": options.follow = true; break;
+      case "--interval": options.interval = Number(takeValue(flag, inline)) || 2; break;
+      case "--actor": options.actor = takeValue(flag, inline); break;
         case "--no-enter": options.noEnter = true; break;
         case "--no-config": options.noConfig = true; break;
         case "--at": options.at = takeValue(flag, inline); break;
@@ -136,6 +140,7 @@ function parseArgs(argv) {
       continue;
     }
     if (arg === "-C") { options.dir = takeValue(arg); continue; }
+    if (arg === "-f") { options.follow = true; continue; }
     if (arg === "-a") { options.attach = true; continue; }
     if (arg === "-c" || arg === "-q" || arg === "-v" || arg === "-n" || arg === "-h" || arg === "-V") {
       switch (arg) {

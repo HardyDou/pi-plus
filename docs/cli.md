@@ -145,6 +145,17 @@ rewritten, so the diff stays small.
 `down` = 配置里有、现在没在跑（`pp up` 能修）；`unmanaged` = 在跑、但配置里没有（`pp adopt` 能收）。
 两数都为 0 时这行只显示 `N/N running`。`pp doctor` 里同一条信息叫 `drift`。
 
+### `pp logs <name|#...> | --all`
+
+```bash
+pp logs web                  # 一个会话的尾巴
+pp logs web db --lines 40    # 两个会话，各一段，带 `── web` 头
+pp logs --all --follow       # 全机器一条流，只打新增的行
+```
+
+`--follow` 不会把整屏重刷一遍：它记住上一次的抓取，找出"新出现的那几行"再打印
+（管道/进度条那种只有最后一行在变的，也能看到变化）。按 `Ctrl-C` 退出。
+
 ### `pp adopt [name|#...] [--all]`
 
 把机器上**已经在跑、但不在配置里**的 tmux 会话反向登记进 `plus.yml`：

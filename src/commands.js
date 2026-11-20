@@ -1734,6 +1734,41 @@ function cmdStatus(config, options, ui) {
 
 /** Rows for the sessions panel: config entries first, then live strays. */
 /** How long a session may sit quiet before pp points at it (minutes). */
+/**
+ * Lines that showed up at the bottom of a pane since the last read.
+ *
+ * A pane appends at the bottom and the capture window slides up, so the old
+ * tail reappears somewhere in the middle of the new capture. Two details make
+ * it work on a real shell: the last line is the cursor line (a prompt that
+ * repeats at the bottom), so it is set aside first; and the anchor is the
+ * longest tail of "before" found in "after" — everything past it is new.
+ */
+export function diffLines(before, after) {
+  const normalise = (text) => String(text).split("\n").map((line) => line.replace(/\s+$/, "")).filter((line) => line !== "");
+  if (String(before) === String(after)) return [];
+  const a = normalise(before);
+  const b = normalise(after);
+  const head = a.slice(0, -1); // the cursor line moves, it is not content
+  const findBlock = (haystack, needle) => {
+    outer: for (let i = 0; i + needle.length <= haystack.length; i += 1) {
+      for (let j = 0; j < needle.length; j += 1) if (haystack[i + j] !== needle[j]) continue outer;
+      return i;
+    }
+    return -1;
+  };
+  for (let len = head.length; len >= 1; len -= 1) {
+    const at = findBlock(b, head.slice(head.length - len));
+    if (at >= 0) {
+      const added = b.slice(at + len);
+      // a pane that scrolled past the whole window looks like "all new"; the
+      // tail is the part worth printing
+      return added.length > 40 ? added.slice(-40) : added;
+    }
+  }
+  if (String(before) === String(after)) return [];
+  return b.slice(-40);
+}
+
 export function staleSeconds(env = process.env) {
   const raw = Number(env?.PP_STALE_MINUTES);
   const minutes = Number.isFinite(raw) && raw > 0 ? raw : 30;
@@ -2179,23 +2214,71 @@ async function cmdAttach(config, options, ui) {
 }
 
 function cmdLogs(config, options, ui) {
-  const name = options.names[0];
-  if (!name) {
-    ui.error("usage: pp logs <name> [--lines N]");
+  const names = (options.names ?? []).filter((name) => name !== undefined);
+  if (names.length === 0 && !options.all) {
+    ui.error("usage: pp logs <name...> [--lines N] [--follow]   (or --all)");
     process.exit(2);
   }
-  const [session] = selectSessions(config, [name], ui);
-  const tmux = makeTmux(config, options, session);
-  if (options.dryRun) {
-    ui.info(`[dry-run] ${tmux.args(["capture-pane", "-p", "-t", `=${session.tmuxName}:`, "-S", `-${options.lines ?? 200}`]).join(" ")}`);
-    return;
-  }
-  if (!tmux.sessionExists(session.tmuxName)) {
-    ui.error(`session "${session.name}" is not running`);
+  // --all means all of them, including the ones whose restart policy says
+  // "do not touch" — reading a pane is not touching it
+  const sessions = options.all ? config.sessions : names.flatMap((name) => selectSessions(config, [name], ui));
+  if (sessions.length === 0) {
+    ui.error("nothing to show");
     process.exit(1);
   }
-  const output = tmux.capture(session.tmuxName, options.lines ?? 200);
-  process.stdout.write(output.endsWith("\n") ? output : `${output}\n`);
+  const lines = options.lines ?? 200;
+  const labelled = sessions.length > 1;
+  const handles = new Map();
+  const handleFor = (session) => {
+    const key = session.node ?? "local";
+    if (!handles.has(key)) handles.set(key, makeTmux(config, options, session));
+    return handles.get(key);
+  };
+
+  if (options.dryRun) {
+    for (const session of sessions) {
+      const tmux = handleFor(session);
+      ui.info(`[dry-run] ${tmux.args(["capture-pane", "-p", "-t", `=${session.tmuxName}:`, "-S", `-${lines}`]).join(" ")}`);
+    }
+    return;
+  }
+
+  let failures = 0;
+  for (const session of sessions) {
+    const tmux = handleFor(session);
+    if (!tmux.sessionExists(session.tmuxName)) {
+      ui.error(`session "${session.name}" is not running${session.node ? ` on ${session.node}` : ""}`);
+      failures += 1;
+      continue;
+    }
+    if (labelled) process.stdout.write(`\n${ui.paint("bold", `── ${session.name}${session.node ? ` @${session.node}` : ""} ` + "─".repeat(Math.max(0, 20 - session.name.length)))}\n`);
+    const output = tmux.capture(session.tmuxName, lines);
+    process.stdout.write(output.endsWith("\n") ? output : `${output}\n`);
+  }
+  if (failures) process.exitCode = 1;
+  // --follow: re-read each pane on an interval and print what is new, so one
+  // terminal can watch a whole machine park instead of one tmux window per tab.
+  if (!options.follow) return;
+  const seen = new Map(sessions.map((session) => [session.name, handleFor(session).sessionExists(session.tmuxName) ? handleFor(session).capture(session.tmuxName, lines) : ""]));
+  const interval = Number(options.interval ?? 2) * 1000;
+  process.stderr.write(ui.paint("dim", `following ${sessions.length} session(s), ctrl-c to stop\n`));
+  const timer = setInterval(() => {
+    for (const session of sessions) {
+      const tmux = handleFor(session);
+      if (!tmux.sessionExists(session.tmuxName)) continue;
+      const now = tmux.capture(session.tmuxName, lines);
+      const before = seen.get(session.name) ?? "";
+      if (now === before) continue;
+      seen.set(session.name, now);
+      const added = diffLines(before, now);
+      if (!added.length) continue;
+      process.stdout.write(`${ui.paint("dim", `[${session.name}${session.node ? ` @${session.node}` : ""}]`)} ${added.join("\n")}\n`);
+    }
+  }, interval);
+  process.on("SIGINT", () => {
+    clearInterval(timer);
+    process.exit(0);
+  });
 }
 
 function cmdSend(config, options, ui) {
@@ -3382,7 +3465,7 @@ function cmdAudit(config, options, ui) {
     since = new Date(Date.now() - seconds * 1000);
   }
   const target = options.names[0] ?? null;
-  const entries = readAudit({ limit: options.lines ?? 30, action: options.action ?? null, target, since, file });
+  const entries = readAudit({ limit: options.lines ?? 30, action: options.action ?? null, actor: options.actor ?? null, target, since, file });
 
   if (ui.json) {
     ui.out(JSON.stringify(entries, null, 2));
