@@ -34,7 +34,7 @@ _pp() {
       return 0
       ;;
     node|nodes)
-      COMPREPLY=( $(compgen -W "ls list status show info describe add set upsert rm remove delete test ping probe check exec run ssh" -- "$cur") )
+      COMPREPLY=( $(compgen -W "ls list status show info describe add set upsert rm remove delete test ping probe check exec run drain undrain resume ssh" -- "$cur") )
       return 0
       ;;
     alias|link)

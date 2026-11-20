@@ -23,6 +23,7 @@ export const NODE_KEYS = new Set([
   "note",
   "tags",
   "guarded",
+  "drained",
   "base_path",
   "defaults",
 ]);
@@ -124,6 +125,9 @@ export function normalizeNode(raw, index, configPath = "<config>", warnings = []
   // A guarded machine is one where stopping something should take a second
   // thought: `pp down`/`pp rm` refuse until you say --force.
   const guarded = raw.guarded === true || raw.guarded === "true" || raw.guarded === "yes";
+  // A drained machine is one being worked on: its sessions are left down on
+  // purpose, by people (up) and by machines (autostart, cron --heal).
+  const drained = raw.drained === true || raw.drained === "true" || raw.drained === "yes";
 
   // `base_path` makes short session paths possible: cwd "api" on a machine
   // with base_path "/srv" means /srv/api.
@@ -168,6 +172,7 @@ export function normalizeNode(raw, index, configPath = "<config>", warnings = []
     name,
     tags,
     guarded,
+    drained,
     basePath,
     defaults,
     host: target.host,
@@ -412,6 +417,7 @@ export function renderNodeBlock(node) {
   if (node.note) lines.push(`    note: ${yamlScalar(node.note)}`);
   if (node.tags?.length) lines.push(`    tags: [${node.tags.join(", ")}]`);
   if (node.guarded) lines.push(`    guarded: true`);
+  if (node.drained) lines.push(`    drained: true`);
   if (node.basePath) lines.push(`    base_path: ${yamlScalar(node.basePath)}`);
   const defaults = node.defaults ?? {};
   const defaultKeys = Object.keys(defaults).filter((key) => defaults[key] != null && defaults[key] !== "");
@@ -452,6 +458,55 @@ function findBlocks(lines, section) {
 }
 
 /** Insert or replace one node in the config file, keeping every other byte. */
+/** Toggle one field of one node without rewriting its block by hand. */
+export function setNodeField(text, name, key, value) {
+  const found = findBlocks(String(text).split("\n"), "nodes");
+  if (!found) return null;
+  const target = found.blocks.find((entry) => entry.name === name);
+  if (!target) return null;
+  const lines = String(text).split("\n");
+  const body = lines.slice(target.start, target.end);
+  const pattern = new RegExp(`^(\\s*)(-\\s*)?${key}\\s*:`);
+  let at = -1;
+  for (let i = 0; i < body.length; i += 1) {
+    if (pattern.test(body[i])) {
+      at = i;
+      break;
+    }
+  }
+  if (value === null || value === undefined) {
+    if (at === -1) return String(text);
+    body.splice(at, 1);
+  } else if (at !== -1) {
+    const lead = pattern.exec(body[at])[1];
+    const dash = /^(\s*)-\s*/.exec(body[at]);
+    body[at] = `${lead}${dash ? "- " : ""}${key}: ${value}`;
+  } else {
+    const nameAt = body.findIndex((line) => /^\s*(?:-\s*)?name\s*:/.test(line));
+    // match the indentation this block already uses, not the dash column
+    let indent = "    ";
+    for (const line of body.slice(1)) {
+      const room = /^(\s+)\S/.exec(line);
+      if (room) {
+        indent = room[1];
+        break;
+      }
+    }
+    body.splice(nameAt === -1 ? body.length : nameAt + 1, 0, `${indent}${key}: ${value}`);
+  }
+  const next = [...lines.slice(0, target.start), ...body, ...lines.slice(target.end)];
+  return `${next.join("\n").replace(/\n*$/, "")}\n`;
+}
+
+export function setNodeFieldInFile(configPath, name, key, value) {
+  const path = expandPath(configPath);
+  const text = readFileSync(path, "utf8");
+  const next = setNodeField(text, name, key, value);
+  if (next === null || next === text) return false;
+  writeFileSync(path, next);
+  return true;
+}
+
 export function upsertNodeInFile(configPath, node) {
   const path = expandPath(configPath);
   if (node.password) tightenConfigMode(path); // a secret is about to live here

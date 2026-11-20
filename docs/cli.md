@@ -396,7 +396,7 @@ pp cron ls
 pp cron install
 ```
 
-### `pp node <ls|show|add|rm|test|exec|ssh>`
+### `pp node <ls|show|add|rm|test|exec|ssh|drain>`
 
 管别的机器：一个 `node` 就是一台能用 ssh 到的机器，登记一次之后，它的会话就能像本机会话一样
 `up`/`down`/`attach`/`logs`/`send`/`tui`/`cron`（远端只需 sshd + tmux，不需要装 pp）。

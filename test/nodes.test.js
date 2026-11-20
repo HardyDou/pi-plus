@@ -10,6 +10,7 @@ import {
   authSummary,
   normalizeNode,
   normalizeNodes,
+  setNodeField,
   nodePassword,
   NodeError,
   parseProbe,
@@ -306,4 +307,38 @@ test("base_path and defaults are validated", () => {
   const warnings = [];
   normalizeNode({ name: "a", host: "h", defaults: { cwd: "/x" } }, 0, "<t>", warnings);
   assert.equal(warnings.some((w) => w.includes("defaults.cwd")), true, "cwd is not a node-level default");
+});
+
+test("setNodeField keeps the block readable and the neighbours intact", () => {
+  const yaml = [
+    "version: 1",
+    "nodes:",
+    "  - name: t114",
+    "    host: 10.0.0.114",
+    "    tags: [test]",
+    "  - name: p201",
+    "    host: 10.0.0.201",
+    "sessions:",
+    "  - name: api",
+    "    node: t114",
+    "",
+  ].join("\n");
+
+  const drained = setNodeField(yaml, "t114", "drained", "true");
+  assert.match(drained, /^ {4}drained: true$/m, "field lands inside the block, at the block's indentation");
+  assert.match(drained, /^ {4}host: 10\.0\.0\.114$/m);
+  assert.match(drained, /^ {2}- name: p201$/m, "the next node is untouched");
+  assert.match(drained, /^sessions:$/m);
+
+  // deleting the flag must give back exactly the original text
+  assert.equal(setNodeField(drained, "t114", "drained", null), yaml);
+  // an unknown machine is a no-op for the caller to report
+  assert.equal(setNodeField(yaml, "nope", "drained", "true"), null);
+});
+
+test("a drained machine is parsed and written back", () => {
+  const node = normalizeNode({ name: "t114", host: "h", drained: true }, 0, "<t>");
+  assert.equal(node.drained, true);
+  assert.match(renderNodeBlock(node), /^ {4}drained: true$/m);
+  assert.equal(normalizeNode({ name: "b", host: "h" }, 0, "<t>").drained, false);
 });

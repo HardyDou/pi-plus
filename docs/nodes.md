@@ -344,6 +344,35 @@ MACHINE    TARGET              PING   TMUX  LOAD  UP  SESSIONS  DISK  MEM
 - `pp tui` 的会话列表会混进远端会话，名字后面带 ` @节点名`；预览也是抓远端 pane。
 - `pp cron` 的 job 记的是会话名，投递时按会话归属找到对应节点（`--all` 会按节点分别广播）。
 
+## 维护一台机器：`pp node drain`
+
+`guarded` 防的是"手滑把它停了"，`drain` 防的是反过来的那件事——**手滑让它起来**。
+
+打补丁、换内核、重启机器的时候，自启单元和 `pp cron --heal` 会非常勤快地把会话拉回来，
+而它们出发点是好的，只是时机不对：
+
+```bash
+pp node drain t114
+# drained t114 — pp up, the autostart unit and --heal leave its sessions down
+```
+
+接下来 `pp up`、`pp up --drift`、开机自启、`pp cron --heal` 都会跳过这台机器的会话，
+`pp status` 把它们显示成 `off (drain)`（和"有人特意停了"的 `off (hand)` 区分开）。
+它**不会**替你停掉已经在跑的会话——要停就明说：
+
+```bash
+pp down --node t114
+```
+
+机器弄好了，放回服务：
+
+```bash
+pp node undrain t114
+pp up --node t114          # 立刻拉起来（否则下一次 up / 自启 / tick 才管）
+```
+
+`pp node ls` 会给维护中的机器加前缀 `~`；`pp node show t114` 的 `drained` 一行也是这个信息。
+
 ## 常见问题
 
 **`pp ls` 里整台机器是 `unreachable`**

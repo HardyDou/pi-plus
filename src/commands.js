@@ -46,6 +46,7 @@ import {
   renderNodeBlock,
   runOnNode,
   runOnNodeAsync,
+  setNodeFieldInFile,
   sshInvocation,
   tightenConfigMode,
   upsertNodeInFile,
@@ -189,6 +190,15 @@ function guardOf(config, session) {
   return Boolean((config.nodes ?? []).find((node) => node.name === session.node)?.guarded);
 }
 
+/**
+ * A drained machine is under maintenance: nothing should start there until
+ * somebody says otherwise, including autostart and `cron --heal`.
+ */
+function drainOf(config, session) {
+  if (!session?.node) return false;
+  return Boolean((config.nodes ?? []).find((node) => node.name === session.node)?.drained);
+}
+
 /** The nodes a `--tag` / `--node` selector picks out, or all of them. */
 function taggedNodes(config, options = {}) {
   let nodes = config.nodes ?? [];
@@ -198,7 +208,7 @@ function taggedNodes(config, options = {}) {
   return nodes;
 }
 
-function selectSessions(config, names, ui, { all = false, options = null } = {}) {
+function selectSessions(config, names, ui, { all = false, options = null, respectDrain = false } = {}) {
   // `--node <name>` narrows any batch command to one machine, so a broken host
   // can be restarted without touching the other 40 sessions.
   const onlyNode = options?.node;
@@ -217,7 +227,21 @@ function selectSessions(config, names, ui, { all = false, options = null } = {})
     onlyNode === undefined && onlyTags.length === 0
       ? null
       : new Set(taggedNodes(config, { node: onlyNode, tags: onlyTags }).map((n) => n.name));
-  const onNode = (list) => (allowed === null ? list : list.filter((s) => s.node && allowed.has(s.node)));
+  const onNode = (list) => {
+    const scoped = allowed === null ? list : list.filter((s) => s.node && allowed.has(s.node));
+    // Starting something on a machine that is being worked on is the one thing
+    // drain has to prevent — but `status`, `logs` and `rm` must still see it.
+    if (!respectDrain || options?.force) return scoped;
+    const drained = scoped.filter((s) => drainOf(config, s));
+    if (!options?.quiet) {
+      for (const session of drained) {
+        ui.info(
+          `${ui.paint("dim", "skip")}    ${session.tmuxName} ${ui.paint("dim", `(drained machine ${session.node}; pp node undrain ${session.node})`)}`,
+        );
+      }
+    }
+    return scoped.filter((s) => !drainOf(config, s));
+  };
   if (!names || names.length === 0) {
     if (all) return onNode(config.sessions);
     // Compose-style: `restart: no` is never part of a bare `up`/`restart`, and
@@ -238,7 +262,9 @@ function selectSessions(config, names, ui, { all = false, options = null } = {})
     }
     if (!picked.includes(session)) picked.push(session);
   }
-  return picked;
+  // Named sessions go through the same gates as a bare `pp up`: `--node` scoping
+  // and drain. Forgetting this made `pp up web-01` happily start a drained box.
+  return onNode(picked);
 }
 
 /** The node a session runs on (or null when it is local). */
@@ -593,7 +619,7 @@ async function cmdUp(config, options, ui) {
       return liveCache.get(key);
     };
     const missing = [];
-    for (const session of selectSessions(config, options.names, ui, { all: true, options })) {
+    for (const session of selectSessions(config, options.names, ui, { all: true, options, respectDrain: true })) {
       if (liveFor(session).has(session.tmuxName)) continue;
       if (isStopped(config.path, session.name) && !options.force) {
         ui.info(`${ui.paint("dim", "skip")}    ${session.tmuxName} ${ui.paint("dim", "(stopped by hand; --force starts it)")}`);
@@ -620,7 +646,7 @@ async function cmdUp(config, options, ui) {
   }
   const sessions = driftNames
     ? config.sessions.filter((session) => driftNames.includes(session.name))
-    : selectSessions(config, options.names, ui, { options });
+    : selectSessions(config, options.names, ui, { options, respectDrain: true });
   const liveCache = new Map();
   const liveFor = (session) => {
     const key = session.node ?? "";
@@ -1117,7 +1143,11 @@ async function cmdRm(config, options, ui) {
 }
 
 async function cmdRestart(config, options, ui) {
-  const sessions = selectSessions(config, options.names, ui, { options });
+  const sessions = selectSessions(config, options.names, ui, { options, respectDrain: true });
+  if (!sessions.length) {
+    ui.info("nothing to restart");
+    return;
+  }
   for (const session of sessions) {
     const tmux = makeTmux(config, options, session);
     if (tmux.sessionExists(session.tmuxName)) tmux.kill(session.tmuxName);
@@ -1174,6 +1204,7 @@ function printNodes(config, options, ui) {
           sessions: counts.get(node.name) ?? 0,
           tags: node.tags ?? [],
           guarded: Boolean(node.guarded),
+          drained: Boolean(node.drained),
           note: node.note,
         })),
         null,
@@ -1194,7 +1225,7 @@ function printNodes(config, options, ui) {
   }
   const headers = ["NODE", "TARGET", "PORT", "AUTH", "SESSIONS", "TAGS", "NOTE"];
   const table = nodes.map((node) => [
-    node.guarded ? `!${node.name}` : node.name,
+    `${node.guarded ? "!" : ""}${node.drained ? "~" : ""}${node.name}`,
     nodeTarget(node),
     String(node.port),
     authSummary(node),
@@ -1217,6 +1248,9 @@ function printNodes(config, options, ui) {
   if (!options.quiet) {
     if (nodes.some((node) => node.guarded)) {
       ui.out(ui.paint("dim", "\n! = guarded: pp down / pp rm skip its sessions unless you pass --force"));
+    }
+    if (nodes.some((node) => node.drained)) {
+      ui.out(ui.paint("dim", "~ = drained: pp up / pp restart skip its sessions (maintenance) — pp node undrain <name>"));
     }
     ui.out(`\n${nodes.length} node${nodes.length === 1 ? "" : "s"}  ${ui.paint("dim", `config: ${config.path}`)}`);
     const orphan = nodes.length && !counts.size ? "  (no session uses one yet: add `node: <name>` to a session)" : "";
@@ -1254,6 +1288,7 @@ function showNode(config, options, ui) {
     ["password", node.password ? ui.paint("yellow", "set (in the config file)") : node.passwordEnv ? ui.paint("dim", `from $${node.passwordEnv}`) : ui.paint("dim", "-")],
     ["tags", node.tags?.length ? node.tags.join(", ") : ui.paint("dim", "-")],
     ["guarded", node.guarded ? ui.paint("yellow", "yes — pp down / pp rm need --force") : ui.paint("dim", "no")],
+    ["drained", node.drained ? ui.paint("yellow", "yes — pp up / pp restart skip its sessions (maintenance)") : ui.paint("dim", "no")],
     ["base_path", node.basePath || ui.paint("dim", "-")],
     [
       "defaults",
@@ -1594,6 +1629,41 @@ async function cmdNodeExec(config, options, ui) {
   if (results.some((result) => !result.ok)) process.exitCode = 1;
 }
 
+/**
+ * Draining a machine is the mirror image of `guarded`: guarded stops an
+ * accidental `down`, drained stops an accidental `up`. Maintenance windows are
+ * exactly when the autostart unit and `pp cron --heal` try hardest to help.
+ */
+function cmdNodeDrain(config, options, ui, { drained = true } = {}) {
+  if (!config) throw new CliError("no config file yet — run `pp init`");
+  const name = options.names[1];
+  if (!name) throw new CliError(`which machine? pp node ${drained ? "drain" : "undrain"} <name>`);
+  const node = nodeOrDie(config, name, ui);
+  if ((node.drained ?? false) === drained) {
+    ui.info(`${name} is ${drained ? "already drained" : "not drained"} — nothing to change`);
+    return;
+  }
+  const behind = sessionsOnNode(config, name);
+  if (options.dryRun) {
+    ui.out(`[dry-run] would set ${drained ? "drained: true" : "drained: false"} on node "${name}"`);
+  } else {
+    setNodeFieldInFile(config.path, name, "drained", drained ? "true" : null);
+    note(drained ? "node.drain" : "node.undrain", name, {
+      detail: `${behind.length} session${behind.length === 1 ? "" : "s"} on it`,
+    });
+  }
+  if (drained) {
+    ui.info(`drained ${name} — pp up, the autostart unit and --heal leave its sessions down`);
+    if (behind.length) {
+      ui.out(ui.paint("dim", `  ${behind.map((s) => s.tmuxName).join(", ")} stay as they are; stop them now with: pp down --node ${name}`));
+    }
+    ui.out(ui.paint("dim", `  back to normal: pp node undrain ${name}`));
+  } else {
+    ui.info(`undrained ${name} — its sessions start again on the next pp up / tick`);
+    if (behind.length) ui.out(ui.paint("dim", `  start them now: pp up --node ${name}`));
+  }
+}
+
 async function cmdNode(config, options, ui) {
   const sub = (options.names[0] ?? "ls").toLowerCase();
   if (["ls", "list", "status"].includes(sub)) {
@@ -1609,7 +1679,9 @@ async function cmdNode(config, options, ui) {
   if (["test", "ping", "probe", "check"].includes(sub)) return cmdNodeTest(config, options, ui);
   if (["ssh", "shell", "connect"].includes(sub)) return cmdNodeSsh(config, options, ui);
   if (["exec", "run", "sh"].includes(sub)) return cmdNodeExec(config, options, ui);
-  ui.error(`unknown node command "${sub}" — try: pp node ls | show | add | rm | test | exec | ssh`);
+  if (["drain", "maintenance"].includes(sub)) return cmdNodeDrain(config, options, ui, { drained: true });
+  if (["undrain", "resume", "unmaintenance"].includes(sub)) return cmdNodeDrain(config, options, ui, { drained: false });
+  ui.error(`unknown node command "${sub}" — try: pp node ls | show | add | rm | test | exec | ssh | drain`);
   process.exit(2);
 }
 
@@ -1715,7 +1787,15 @@ function cmdStatus(config, options, ui) {
       state: state === "stopped" && (session.restart === "no" || isStopped(config.path, session.name)) ? "off" : state,
       // why it is not running matters at 3am: "someone stopped it on purpose"
       // and "it never came up" need different answers from the operator
-      reason: state === "stopped" ? (isStopped(config.path, session.name) ? "hand" : session.restart === "no" ? "policy" : "never") : "",
+      reason: state === "stopped"
+        ? drainOf(config, session)
+          ? "drain"
+          : isStopped(config.path, session.name)
+            ? "hand"
+            : session.restart === "no"
+              ? "policy"
+              : "never"
+        : "",
       restart: session.restart,
       pid,
       command,
@@ -1782,7 +1862,11 @@ function cmdStatus(config, options, ui) {
     String(r.index),
     r.name,
     ...(showNode ? [r.node || "-"] : []),
-    r.state === "off" && r.reason === "hand" ? "off (hand)" : r.state,
+    r.state === "off" && r.reason === "hand"
+      ? "off (hand)"
+      : r.state === "off" && r.reason === "drain"
+        ? "off (drain)"
+        : r.state,
     r.idle || "-",
     r.restart,
     r.pid,
@@ -1848,6 +1932,9 @@ function cmdStatus(config, options, ui) {
         (config.nodes?.length ? `  ${ui.paint("dim", `${config.nodes.length} node${config.nodes.length === 1 ? "" : "s"}`)}` : "") +
         (rows.some((r) => r.reason === "hand")
           ? `  ${ui.paint("dim", "(hand) = stopped on purpose; pp up <name> brings it back")}`
+          : "") +
+        (rows.some((r) => r.reason === "drain")
+          ? `  ${ui.paint("dim", "(drain) = machine under maintenance; pp node undrain <name> lets it start")}`
           : "") +
         (showCron ? `  ${ui.paint("dim", "cron: jobs aimed here (* = every session)")}` : "") +
         (unreachableNodes.length ? `  ${ui.paint("red", `unreachable: ${unreachableNodes.join(", ")}`)}` : "") +
@@ -3580,7 +3667,10 @@ function healDrift(job, options) {
     return liveCache.get(key);
   };
   const missing = config.sessions.filter(
-    (session) => !liveFor(session).has(session.tmuxName) && !isStopped(config.path, session.name),
+    (session) =>
+      !liveFor(session).has(session.tmuxName) &&
+      !isStopped(config.path, session.name) &&
+      !drainOf(config, session),
   );
   if (!missing.length) return { status: "delivered", text: "nothing needed starting" };
 
