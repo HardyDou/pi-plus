@@ -28,6 +28,7 @@ pi-plus.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --n
 - **可脚本化**：`--json`、`--dry-run`、`--quiet`，退出码可用（`up` 有失败即 1）。
 - **安全默认**：不经过 shell 拼接命令；tmux 名做白名单校验；重建前先 `check`。
 - **直接跟别的 agent 说话**：`pp mesh ls/send` 直连 remote-pi 的本地 broker，按会话名或跨机地址发消息、拿 ACK、等回复。
+- **定时任务**：`pp cron add` 按「一次 / 每 N 分钟 / crontab 表达式」把 prompt 打进会话，或跑一条命令；装一个 crontab 行就管所有任务，重启后能补跑。
 
 ## 安装
 
@@ -170,6 +171,63 @@ pi -e npm:pi-farm          # 只想这次带着它
 - `/pp-status`、`/pp-peek` 用 `appendEntry` 渲染，**不占模型上下文**；`pi -p` 下改为写 stdout；
 - 只在 tmux pane 里可用（靠 `$TMUX` 定位服务器）。
 
+## 定时任务（`pp cron`）
+
+三件事：**什么时候**、**送给谁**、**送什么**。调度和存储都在 pp 自己手里
+（`$XDG_STATE_HOME/pi-plus/cron.json`），`crontab -l` 里永远只有一条 `pp cron tick`。
+
+```bash
+# 一次性：30 分钟后，往 backend 会话打一句 prompt
+pp cron add --session backend --in 30m "看一下刚才那次 CI 的结果"
+
+# 重复：每天早上 9 点（本地时间）
+pp cron add --session docs --cron "0 9 * * *" "汇总昨天的提交，写到 docs/notes.md"
+
+# 重复：每 5 分钟跑一条命令（不经过 pi）
+pp cron add --every 5m --command "curl -fsS http://localhost:8080/health"
+
+# 每周一、周二、周三 9 点
+pp cron add --session risk-01 --cron "0 9 * * 1,2,3" "汇报昨天夜里跑的策略结果"
+```
+
+三种 schedule 选一个：
+
+| 写法 | 含义 | 例子 |
+| --- | --- | --- |
+| `--at <ISO>` / `--in <时长>` | 只跑一次 | `--at 2026-11-21T09:00`、`--in 90m` |
+| `--every <时长>` | 每隔一段时间 | `--every 30s`、`--every 2h` |
+| `--cron "<表达式>"` | crontab 语法，**本地时间** | `"*/15 * * * *"`、`"0 9 * * 1-5"` |
+
+`--session` 省略时用**当前 tmux 会话**（在 pi 里就是脚下这个）；`--command` 与 prompt
+二选一。作业管理：
+
+```bash
+pp cron ls                 # 表：ID / 目标 / 时间表 / 下次运行 / 跑过几次 / 上次结果
+pp cron run 3c764f         # 立刻跑一次（调试用，不动时间表）
+pp cron rm 3c764f          # 删掉
+pp cron logs -n 40         # 最近的投递记录
+pp cron reset 3c764f       # 把 lastRun 清掉，让它按时间表重排
+pp cron status             # crond 装没装、有没有到期作业、日志在哪
+```
+
+**得有人每分钟叫它一次**（`pp cron tick`，自带文件锁，重入会被跳过）：
+
+```bash
+pp cron install            # 往 crontab 写托管块：每分钟一次 + @reboot 一次补跑
+pp cron install --print    # 先看看会写什么
+pp cron uninstall          # 只删这个托管块，你自己的行一行不动
+```
+
+`@reboot` + 分钟级 tick 的组合负责**重启后补跑**：机器关机期间到期的作业会在开机后
+第一次 tick 触发，前提是迟到时间没超过 `--catch-up`（默认 2 小时，`--catch-up 0` 表示
+"迟到就别跑了"）。超过窗口的会被标成 `skipped: missed by 2h 30m`，而不是几小时后突然
+往你的会话里打一句话。
+
+在 pi 里还多一个工具 `schedule`：直接说「明天早上九点提醒我」就行，模型会自己把它换算成
+绝对时间再建作业（同一个 `cron.json`）——斜杠命令模型看不见，工具才看得见。
+
+细节见 [docs/cron.md](docs/cron.md)。
+
 ## 文档
 
 | 文档 | 内容 |
@@ -180,7 +238,8 @@ pi -e npm:pi-farm          # 只想这次带着它
 | [docs/architecture.md](docs/architecture.md) | 内部实现：模块职责、`up` 数据流、名字解析、restart 状态机、tmux 目标规则 |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | 排障手册：按报错原文查（起不来、`can't find pane`、名字不对、自启没生效、attach 乱码…） |
 | [docs/development.md](docs/development.md) | 开发指南：跑测试、改代码的规矩、测试分层、发布流程（含 npm staged publishing 的坑） |
-| [docs/extension.md](docs/extension.md) | pi 扩展 `/pp-*`：在会话里切 tmux、看别人的屏幕、断开连接（安装与全部命令） |
+| [docs/extension.md](docs/extension.md) | pi 扩展 `/pp-*` 与 `schedule` 工具：在会话里切 tmux、看别人的屏幕、断开连接、让 agent 自己排定时任务 |
+| [docs/cron.md](docs/cron.md) | 定时任务：三种时间表、crond 托管块、补跑与迟到语义、时区、调试 |
 
 ## 配置参考
 ```yaml
@@ -331,6 +390,7 @@ pp attach <name|#>         进入；不存在则先启动
 pp logs <name|#> [-n 200]  打印滚动输出
 pp send <name|#> "文本"     往 pane 里打字并回车（--no-enter 不回车）
 pp mesh ls|resolve|send    直连 remote-pi broker：看谁在线 / 查地址 / 发消息（--reply 等回复）
+pp cron add|ls|rm|tick     定时把 prompt/命令送进会话（--in/--every/--cron；见下节）
 pp check                   校验配置
 pp doctor                  环境诊断（含自启状态、WSL 提示）
 pp init                    写示例配置

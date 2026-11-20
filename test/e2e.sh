@@ -338,6 +338,28 @@ sleep 6
 check "resumed same session"     0 '^1$'                        bash -c "ls ~/.pi/agent/sessions/--tmp-e2e-pifarm-piws--/ | grep -c e2esession1"
 check "pi down"                  0 'stopped e-pi'               pp -c "$E2E/pi.yml" --socket "$SOCK" down
 
+section "cron"
+# isolated state so the developer's own jobs are never touched
+export XDG_STATE_HOME="$E2E/state"
+rm -rf "$XDG_STATE_HOME"; mkdir -p "$XDG_STATE_HOME"
+check "cron ls is empty"          0 'no scheduled jobs'                  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
+check "cron add command job"      0 'scheduled [0-9a-f]'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-always --every 5m --command 'echo cron-ok'"
+CMD_ID=$(cd "$E2E" && "$ROOT/bin/pp.js" -c "$CFG" cron ls --json | grep -o '"id": "[0-9a-f]*"' | head -1 | cut -d'"' -f4)
+check "cron add once job"         0 'scheduled [0-9a-f]'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-always --in 1m 'echo from-cron'"
+check "cron ls lists both"        0 'every 5m'                 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
+check "cron rejects --every 0"    1 'must be positive'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-always --every 0 --command true"
+NEXT=$(node -e 'console.log(new Date(Date.now()+180000).toISOString())')
+check "cron tick delivers"        0 'delivered'                bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron tick --now $NEXT"
+sleep 1
+check "cron typed into the pane"  0 '^[1-9]'                   bash -c "tmux -L $SOCK capture-pane -p -t '=e-always:' | grep -c from-cron"
+check "cron once job pruned"      0 '^1$'                      bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls --json | grep -c '\"id\"'"
+check "cron run fires now"        0 'delivered'                    bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron run $CMD_ID"
+check "cron logs recorded"        0 'delivered'                bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron logs -n 20"
+check "cron status json"          0 '"installed"'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron status --json"
+check "cron install --print"      0 '@reboot.*cron tick'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron install --print | tr '\n' ' ' | grep -o '@reboot.*cron tick'"
+check "cron rm removes job"       0 'removed [0-9a-f]'                  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $CMD_ID"
+check "cron help page"            0 'crontab expression'       bash -c "cd $E2E && $ROOT/bin/pp.js help cron"
+
 section "packaging"
 check "npm test green"           0 'fail 0'                   bash -c "cd $ROOT && npm test 2>&1 | tail -20"
 check "npm pack contents"        0 'bin/pp.js'             bash -c "cd $ROOT && npm pack --dry-run 2>&1 | grep bin/pp.js"

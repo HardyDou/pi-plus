@@ -20,6 +20,7 @@ _pp() {
     'logs:print pane output'
     'send:type text into a pane'
     'mesh:remote-pi mesh (ls/send/resolve/inbox)'
+    'cron:schedule prompts and commands (once/every/crontab)'
     'check:validate the config'
     'doctor:environment diagnostics'
     'init:write an example config'
@@ -58,6 +59,15 @@ _pp() {
     '--reply[wait for a reply after the ACK]:ms:' \
     '--no-wait[do not wait for the mesh ACK]' \
     '--body-json[mesh body as JSON]:json:' \
+    '--at[run once at an absolute time]:time:'
+    '--in[run once after a delay]:duration:'
+    '--every[repeat on an interval]:duration:'
+    '--cron[repeat on a crontab expression]:expr:'
+    '--command[run a shell command]:cmd:'
+    '--catch-up[how late a missed run may be]:duration:'
+    '--start[start the session if it is not running]'
+    '--via[install backend]:backend:(crond)'
+    '--now[tick: pretend it is this time]:time:'
     '--bin-dir[directory for pp alias symlinks]:dir:_files -/' \
     '--check[report only; exit 1 when an update is available]' \
     '--registry[npm registry for pp update]:url:' \

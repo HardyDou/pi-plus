@@ -216,6 +216,21 @@ pp attach backend                        # 或者接到已有会话上
 扩展只列**当前 `$TMUX` 指向的那个服务器**里的会话。`pp up --socket other` 起的会话在另一个
 socket 上，`tmux -L other list-sessions` 才看得到。
 
+## 定时类（`pp cron`）
+
+| 现象 | 原因 / 处理 |
+|---|---|
+| 到点没动静 | `pp cron status` → crond 块在不在；`pp cron tick` 手工跑一遍看输出；`pp cron logs -n 40` |
+| `crontab is not installed on this machine` | 装 cron（Debian/Ubuntu `sudo apt install cron`）；macOS 自带 |
+| `pp cron install` 后 `crontab -l` 没有块 | 某些环境 `crontab` 要交互/权限；用 `crontab -l` 确认，或换成 `pp cron tick` 塞进你自己的调度器 |
+| `cannot tell which session` / `which session?` | `cron add` 不在 tmux 里也没给 `--session`；补 `--session <name|#>` |
+| `skipped: missed by 9h (catch-up 2h)` | 关机太久超了补跑窗口；重建作业时加 `--catch-up 24h` |
+| `option --every needs a value` | 参数漏了值；`--every 5m`、`--in 90m`、`--cron "0 9 * * *"` |
+| `"x" is not a duration` | 只认 `90`/`30s`/`5m`/`2h`/`1d` |
+| 投递了但 pi 没把它当新消息 | 目标 pane 里不是 pi（是 shell 就变成了敲命令）；`pp logs <session>` 看现场 |
+| 作业在别的机器/配置上 | 作业记了 `socket` 与 `configPath`；换配置后重建，或 `pp cron ls` 看来源 |
+| `cron.json.lock` 残留 | 超过 10 分钟自动视为陈旧；急用可手动删除 |
+
 ## 发布 / 安装类
 
 ### `npm i -g pi-farm` 装到的是别的东西或 404

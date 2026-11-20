@@ -7,6 +7,10 @@
  *   /pp-status              where am I: session, pane, cwd, pi session, remote-pi name
  *   /pp-peek [name] [-n N]  last N lines of another session's pane (default 30)
  *
+ * Plus one model-facing tool, `schedule`: it lets the agent queue a prompt to be
+ * typed into a session later ("tomorrow at 9, tell me about the build"), which
+ * is the only part of pp the LLM has to reach for on its own.
+ *
  * Install with `pi install npm:pi-farm`, or try it once with `pi -e npm:pi-farm`.
  */
 import { execFile } from "node:child_process";
@@ -16,6 +20,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 import { Box, Text } from "@earendil-works/pi-tui";
+import { Type } from "typebox";
 
 import {
   SEP,
@@ -318,6 +323,94 @@ export default function ppTmux(pi) {
       const captured = await tmux(["capture-pane", "-p", "-J", "-t", `=${target}:`, "-S", `-${parsed.lines}`]);
       const text = trimCapture(captured, parsed.lines);
       report(ctx, `pp peek — ${target} (last ${parsed.lines} lines)`, text === "" ? "(pane is empty)" : text);
+    },
+  });
+
+  // ---------------------------------------------------------- scheduled prompts
+  //
+  // Everything above is user-facing (`/pp-*`). This tool is the opposite: it is
+  // how the *model* learns that scheduling exists. Slash commands never enter
+  // the model's context, so without a registered tool "明天早上九点提醒我"
+  // would only produce a promise, not a job.
+  const cliPath = join(dirname(fileURLToPath(import.meta.url)), "..", "bin", "pp.js");
+
+  pi.registerTool({
+    name: "schedule",
+    label: "Schedule",
+    description:
+      "Queue a prompt to be typed into a tmux session at a later time, or repeatedly. " +
+      "Use it whenever the user asks to be reminded, to be told or woken about something later, " +
+      "or to have something happen again on a schedule — 明天早上, 今晚十点, 半小时后提醒我, " +
+      "每天九点, 每 5 分钟, 每周一、周二、周三. " +
+      "The delivered text arrives in that session as a normal user message, so the agent living there " +
+      "does the work at that moment. " +
+      "Resolve any relative time to an absolute ISO 8601 local timestamp FIRST (run `date` and do the " +
+      "arithmetic; never guess), then pass it as `at`. For repeating schedules prefer `cron` " +
+      "(five fields: minute hour day month weekday — `*/5 * * * *` is every five minutes, " +
+      "`0 9 * * 1,2,3` is Monday/Tuesday/Wednesday at 09:00). " +
+      "Returns the job id, which can be cancelled later with `pp cron rm <id>`.",
+    parameters: Type.Object({
+      prompt: Type.Optional(
+        Type.String({ description: "Text to type into the session at that time. Omit when using command." }),
+      ),
+      command: Type.Optional(
+        Type.String({ description: "Shell command to run instead of typing into a session (output goes to the pp cron log)." }),
+      ),
+      at: Type.Optional(
+        Type.String({ description: "Absolute local time, ISO 8601 (e.g. 2026-11-21T09:00). Compute it from `date`, do not guess." }),
+      ),
+      every: Type.Optional(Type.String({ description: "Fixed interval instead of a wall clock time: 30s, 5m, 2h, 1d." })),
+      cron: Type.Optional(
+        Type.String({ description: "Five-field cron expression for repeating schedules, e.g. '*/5 * * * *' or '0 9 * * 1,2,3'." }),
+      ),
+      session: Type.Optional(
+        Type.String({ description: "Target session name or number; defaults to the tmux session this conversation runs in." }),
+      ),
+      start: Type.Optional(
+        Type.Boolean({ description: "Start the session first if it is not running when the job fires (default false)." }),
+      ),
+      catch_up: Type.Optional(
+        Type.String({ description: "How late a missed run may still fire, e.g. 2h (default 2h; machine was off)." }),
+      ),
+    }),
+    async execute(_toolCallId, params) {
+      if (!params.prompt && !params.command) {
+        throw new Error("schedule needs either a prompt to deliver or a command to run");
+      }
+      if (params.prompt && params.command) {
+        throw new Error("schedule takes either prompt or command, not both");
+      }
+      const args = [cliPath, "cron", "add", "--json"];
+      const session = params.session ?? (await currentSession().catch(() => null));
+      if (params.prompt) {
+        if (session) args.push("--session", session);
+      }
+      if (params.at) args.push("--at", params.at);
+      if (params.every) args.push("--every", params.every);
+      if (params.cron) args.push("--cron", params.cron);
+      if (params.command) args.push("--command", params.command);
+      if (params.start) args.push("--start");
+      if (params.catch_up) args.push("--catch-up", params.catch_up);
+      if (params.prompt) args.push(params.prompt);
+
+      let stdout;
+      try {
+        ({ stdout } = await execFileAsync(process.execPath, args, { maxBuffer: 1 << 20 }));
+      } catch (error) {
+        const detail = `${error.stderr ?? ""}`.trim() || error.message;
+        throw new Error(`pp cron add failed: ${detail}`);
+      }
+      const created = JSON.parse(stdout.trim() || "{}");
+      const where = created.session ? `session ${created.session}` : `$ ${params.command}`;
+      return {
+        content: [
+          {
+            type: "text",
+            text: `scheduled ${created.id} (${created.schedule}) → ${where}; next run ${created.next ?? "never"}. Cancel with: pp cron rm ${created.id}`,
+          },
+        ],
+        details: created,
+      };
     },
   });
 }

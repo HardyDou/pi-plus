@@ -229,6 +229,60 @@ export const COMMANDS = [
     see: ["send", "status"],
   },
   {
+    name: "cron",
+    aliases: [],
+    summary: "Schedule prompts and commands (once, every N, or crontab syntax)",
+    usage: "pp cron <add|ls|rm|run|tick|install|uninstall|status|logs|reset> [options]",
+    details: [
+      "A tiny scheduler that types a prompt into a session (or runs a shell",
+      "command) on a schedule. Jobs live in `cron.json` under",
+      "`$XDG_STATE_HOME/pi-plus/`; nothing is added to your crontab per job.",
+      "",
+      "Three schedule shapes:",
+      "  --in 30m             one shot, relative  (also --at <ISO>)",
+      "  --every 5m           repeating interval  (30s … 1d)",
+      "  --cron \"0 9 * * 1,2,3\"  crontab expression (local time, both",
+      "                       DOM and DOW behave like cron)",
+      "",
+      "Something has to call `pp cron tick` (it is cheap and takes a lock):",
+      "`pp cron install` writes one crontab line that ticks every minute plus",
+      "one @reboot line for catch-up. `pp cron uninstall` removes exactly that",
+      "block and leaves the rest of your crontab alone.",
+      "",
+      "Catch-up: a job that came due while the machine was off runs on the next",
+      "tick if it is younger than --catch-up (default 2h); older ones are marked",
+      "`skipped: missed by …` instead of firing hours late.",
+      "",
+      "The pi extension registers a `schedule` tool, so you can also just say",
+      "\"remind me at 9 tomorrow\" inside a session — same jobs, same storage.",
+    ].join("\n"),
+    options: [
+      "--at <ISO>       run once at an absolute local time",
+      "--in <dur>       run once after a delay (30s, 10m, 2h, 1d)",
+      "--every <dur>    repeat on an interval",
+      '--cron "<expr>"  repeat on a crontab expression',
+      "--session <name> target session (default: current tmux session)",
+      "--command <cmd>  run a shell command instead of typing a prompt",
+      "--catch-up <dur> how late a missed run may be (default 2h, 0 = never)",
+      "--start          start the session first if it is not running",
+      "--via crond      only backend today",
+      "--now <ISO>      tick: pretend it is this time (for tests)",
+      "--print          install: print the crontab block, do not write",
+      "--dry-run        show what would happen",
+      "--json           JSON output",
+    ],
+    examples: [
+      'pp cron add --session backend --in 30m "check the build"',
+      'pp cron add --session docs --cron "0 9 * * 1,2,3" "weekly summary"',
+      'pp cron add --every 5m --command "curl -fsS localhost:8080/health"',
+      "pp cron ls",
+      "pp cron run 3c764f        # fire one now, to test it",
+      "pp cron logs -n 40",
+      "pp cron install           # one crontab line, ticks every minute",
+    ],
+    see: ["send", "install", "logs"],
+  },
+  {
     name: "check",
     aliases: ["validate"],
     summary: "Validate the config without touching tmux",
@@ -443,6 +497,7 @@ export function renderOverview(version) {
   lines.push("");
   lines.push("Inside a pi session (extension, `pi install npm:pi-farm`):");
   lines.push("  /pp-ls  /pp-sw <session>  /pp-quit  /pp-status  /pp-peek [session] [-n N]");
+  lines.push("  tool: schedule            # the agent may schedule prompts/commands itself");
   lines.push("");
   lines.push(`Run 'pp help <command>' for details, e.g. 'pp help install'.`);
   return `${lines.join("\n")}\n`;

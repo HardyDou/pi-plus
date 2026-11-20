@@ -57,6 +57,31 @@ import {
   probePeers,
   sessionMeshAddress,
 } from "./mesh.js";
+import {
+  buildSchedule,
+  describeSchedule,
+  DEFAULT_CATCH_UP_SECONDS,
+  CronError,
+  cronLogPath,
+  formatDuration,
+  jobsPath,
+  newJobId,
+  nextRun,
+  parseDuration,
+  readJobs,
+  removeJob,
+  resetJob,
+  tick as cronTick,
+  writeJobs,
+} from "./cron.js";
+import {
+  blockStatus as crondBlockStatus,
+  CrondError,
+  installBlock as installCrondBlock,
+  readCrontab,
+  renderBlock as renderCrondBlock,
+  uninstallBlock as uninstallCrondBlock,
+} from "./crond.js";
 import { findCommand, suggestCommand } from "./help.js";
 import { EXAMPLE_CONFIG } from "./example.js";
 
@@ -1388,6 +1413,420 @@ function assertAliasNameSafe(name) {
   }
 }
 
+
+// -------------------------------------------------------------------- pp cron
+
+function tmuxSocketOfEnv(env = process.env) {
+  const raw = env.TMUX;
+  if (!raw) return null;
+  const parts = raw.split(",");
+  return parts.length >= 3 ? parts.slice(0, parts.length - 2).join(",") : null;
+}
+
+function currentTmuxSession(socket) {
+  const args = [...(socket ? ["-L", socket] : []), "display-message", "-p", "#S"];
+  const result = spawnSync("tmux", args, { encoding: "utf8" });
+  if (result.status !== 0) return null;
+  const name = (result.stdout ?? "").trim();
+  return name || null;
+}
+
+function refreshCronLog(options, ui) {
+  // Honour the ui's own quiet flag: `--json` silences info lines so stdout stays
+  // parseable (the model-facing `schedule` tool does JSON.parse on it).
+  if (!ui.quiet && !options.quiet) ui.info(ui.paint("dim", `log: ${cronLogPath()}`));
+}
+
+/** Deliver one job: type the prompt into its pane, or run its command. */
+function deliverJob(job, options) {
+  if (job.action === "command") {
+    const result = spawnSync("sh", ["-c", job.command], { encoding: "utf8" });
+    if (result.error) return { status: `failed: ${result.error.message}` };
+    if (result.status !== 0) return { status: `failed: exit ${result.status}` };
+    return { status: "delivered" };
+  }
+
+  const tmux = new Tmux({ socket: job.socket ?? null });
+  if (!tmux.sessionExists(job.session)) {
+    if (!job.startSession) {
+      return { status: `skipped: session "${job.session}" is not running` };
+    }
+    const args = [scriptPath(options), "up", job.session];
+    if (job.configPath) args.push("--config", job.configPath);
+    if (job.socket) args.push("--socket", job.socket);
+    args.push("--quiet");
+    spawnSync(process.execPath, args, { encoding: "utf8" });
+    if (!tmux.sessionExists(job.session)) {
+      return { status: `skipped: session "${job.session}" is not running (pp up failed)` };
+    }
+  }
+  const send = spawnSync(
+    "tmux",
+    [...(job.socket ? ["-L", job.socket] : []), "send-keys", "-t", `=${job.session}:`, "-l", "--", job.prompt],
+    { encoding: "utf8" },
+  );
+  if (send.status !== 0) return { status: `failed: tmux send-keys: ${(send.stderr ?? "").trim()}` };
+  const enter = spawnSync(
+    "tmux",
+    [...(job.socket ? ["-L", job.socket] : []), "send-keys", "-t", `=${job.session}:`, "Enter"],
+    { encoding: "utf8" },
+  );
+  if (enter.status !== 0) return { status: `failed: tmux send-keys Enter: ${(enter.stderr ?? "").trim()}` };
+  return { status: "delivered" };
+}
+
+/** Local wall-clock stamp: `2026-11-21 09:00` (the timezone cron jobs run in). */
+function localStamp(date) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+function cronRow(job, now = new Date()) {
+  const due = nextRun(job, now);
+  return {
+    id: job.id,
+    session: job.action === "command" ? `$ ${job.command}` : job.session,
+    schedule: describeSchedule(job.schedule),
+    next: due ? localStamp(due) : "-",
+    runs: job.runs ?? 0,
+    last: job.lastStatus ?? "-",
+  };
+}
+
+function printCronJobs(jobs, ui, now = new Date()) {
+  if (!jobs.length) {
+    ui.info("no scheduled jobs — add one with: pp cron add --at \"2026-11-21T09:00\" \"check the build\"");
+    return;
+  }
+  const records = jobs.map((job) => cronRow(job, now));
+  const headers = ["ID", "TARGET", "SCHEDULE", "NEXT", "RUNS", "LAST"];
+  const table = records.map((row) => [row.id, row.session, row.schedule, row.next, String(row.runs), row.last]);
+  const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
+  const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
+  ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
+  table.forEach((row) => {
+    const colored = [...row];
+    colored[0] = ui.paint("dim", colored[0]);
+    colored[3] = ui.paint("cyan", colored[3]);
+    ui.out(colored.map((cell, index) => pad(cell, widths[index])).join("  ").trimEnd());
+  });
+}
+
+async function cmdCronAdd(config, options, ui) {
+  const text = options.names.join(" ").trim();
+  const command = options.command;
+  if (!text && !command) throw new CronError('nothing to say at that time — pass the prompt: pp cron add --at ... "check the build"');
+  if (text && command) throw new CronError("give either a prompt or --command, not both");
+
+  const schedule = buildSchedule({ at: options.in ? new Date(Date.now() + parseDuration(options.in, { what: "--in" }) * 1000).toISOString() : options.at, every: options.every, cron: options.cronExpr });
+
+  let session = null;
+  let socket = options.socket ?? config?.tmuxSocket ?? null;
+  let configPath = config?.path ?? null;
+  if (!command) {
+    const wanted = options.session ?? null;
+    if (wanted) {
+      if (!config) {
+        session = wanted;
+      } else {
+        const resolved = resolveSessionRef(config, wanted);
+        if (resolved) {
+          session = resolved.tmuxName;
+        } else {
+          // a session that is simply running (started by hand or by `pp new`)
+          // is a fine target too: all the tick needs is a name that exists.
+          const tmuxForCheck = makeTmux(config, options);
+          const live = await tmuxForCheck.listSessions().catch(() => []);
+          if (!live.some((entry) => entry.name === wanted)) {
+            throw new CronError(`unknown session "${wanted}" — not in ${config.path} and not running in tmux (pp ls lists both)`);
+          }
+          session = wanted;
+        }
+      }
+    } else {
+      const live = currentTmuxSession(tmuxSocketOfEnv());
+      session = live ?? (config?.sessions.length === 1 ? config.sessions[0].tmuxName : null);
+      if (!session) {
+        throw new CronError("which session? pass --session <name|#> (running inside tmux would have answered this)");
+      }
+    }
+  }
+
+  const jobs = readJobs();
+  const job = {
+    id: newJobId(jobs),
+    action: command ? "command" : "prompt",
+    ...(command ? { command } : { prompt: text, session, socket }),
+    schedule,
+    catchUp: options.catchUp ? parseDuration(options.catchUp, { what: "--catch-up" }) : DEFAULT_CATCH_UP_SECONDS,
+    startSession: Boolean(options.start),
+    configPath,
+    createdAt: new Date().toISOString(),
+    runs: 0,
+  };
+
+  const due = nextRun(job);
+  if (options.dryRun) {
+    ui.out(`[dry-run] would schedule ${job.id}: ${describeSchedule(schedule)} → ${job.action === "command" ? `$ ${command}` : `session ${session}`}`);
+    ui.out(`[dry-run] first run ${due ? due.toISOString() : "never"}`);
+    return;
+  }
+
+  jobs.push(job);
+  writeJobs(jobs);
+  if (ui.json) {
+    ui.out(JSON.stringify({ id: job.id, schedule: describeSchedule(schedule), next: due ? due.toISOString() : null, session }, null, 2));
+    refreshCronLog(options, ui);
+    return;
+  }
+  ui.info(`${ui.paint("green", "scheduled")} ${job.id}  ${describeSchedule(schedule)}  →  ${job.action === "command" ? `$ ${command}` : `session ${session}`}`);
+  ui.info(ui.paint("dim", `first run: ${due ? due.toLocaleString() : "never"}   cancel with: pp cron rm ${job.id}`));
+  if (!options.start && job.action === "prompt") {
+    ui.info(ui.paint("dim", `the session must be running at that moment (add --start to bring it up first)`));
+  }
+  refreshCronLog(options, ui);
+}
+
+async function cmdCronList(config, options, ui) {
+  let jobs = readJobs();
+  if (options.names.length) {
+    const ids = new Set(options.names);
+    jobs = jobs.filter((job) => ids.has(job.id));
+  }
+  if (ui.json) {
+    ui.out(JSON.stringify(jobs.map((job) => cronRow(job)), null, 2));
+    return;
+  }
+  printCronJobs(jobs, ui);
+  refreshCronLog(options, ui);
+}
+
+async function cmdCronRemove(config, options, ui) {
+  if (!options.names.length) throw new CronError("which job? pp cron rm <id> (pp cron ls lists them)");
+  let removed = 0;
+  for (const id of options.names) {
+    if (options.dryRun) {
+      ui.out(`[dry-run] would remove ${id}`);
+      continue;
+    }
+    const jobs = readJobs();
+    const job = jobs.find((entry) => entry.id === id);
+    if (!job) {
+      ui.error(`no job "${id}"`);
+      process.exitCode = 2;
+      continue;
+    }
+    removeJob(id);
+    removed += 1;
+    ui.info(`removed ${id}  ${ui.paint("dim", `(${describeSchedule(job.schedule)})`)}`);
+  }
+  if (!options.dryRun && removed && !options.quiet) ui.info(ui.paint("dim", `${removed} job(s) removed`));
+}
+
+async function cmdCronRun(config, options, ui) {
+  if (!options.names.length) throw new CronError("which job? pp cron run <id>");
+  for (const id of options.names) {
+    const jobs = readJobs();
+    const job = jobs.find((entry) => entry.id === id);
+    if (!job) {
+      ui.error(`no job "${id}"`);
+      process.exitCode = 2;
+      continue;
+    }
+    if (options.dryRun) {
+      ui.out(`[dry-run] would deliver ${id} → ${job.action === "command" ? `$ ${job.command}` : job.session}`);
+      continue;
+    }
+    const result = deliverJob(job, options);
+    job.lastAttempt = new Date().toISOString();
+    job.lastStatus = result.status;
+    if (result.status === "delivered") job.runs = (job.runs ?? 0) + 1;
+    writeJobs(readJobs().map((entry) => (entry.id === id ? job : entry)));
+    const paint = result.status === "delivered" ? "green" : "yellow";
+    ui.info(`${ui.paint(paint, result.status)} ${id}`);
+  }
+}
+
+async function cmdCronTick(config, options, ui) {
+  const now = options.now ? new Date(options.now) : new Date();
+  if (Number.isNaN(now.getTime())) throw new CronError(`--now "${options.now}" is not a date`);
+  const result = cronTick({
+    now,
+    dryRun: Boolean(options.dryRun),
+    deliver: (job) => deliverJob(job, options),
+  });
+  if (result.skipped && result.total === undefined) {
+    if (!options.quiet) ui.info(ui.paint("dim", "another tick is running; skipped"));
+    return;
+  }
+  if (ui.json) {
+    ui.out(JSON.stringify(result, null, 2));
+    return;
+  }
+  if (!options.quiet) {
+    ui.info(`${result.ran.length} delivered, ${result.skipped.length} skipped, ${result.total} job(s) left`);
+  }
+}
+
+function crondState() {
+  try {
+    const text = readCrontab();
+    return crondBlockStatus(text);
+  } catch (error) {
+    return { installed: false, error: error.message };
+  }
+}
+
+async function cmdCronInstall(config, options, ui) {
+  const scriptPathValue = scriptPath(options);
+  const via = options.via ?? "crond";
+  if (via === "systemd") throw new CronError("systemd timers are not used for cron jobs; pp cron install writes a crontab line (--via crond)");
+  const env = { PATH: process.env.PATH ?? "" };
+  const logPath = options.log ?? cronLogPath();
+
+  if (options.print) {
+    ui.out(renderCrondBlock({ scriptPath: scriptPathValue, logPath, env }));
+    return;
+  }
+  if (options.dryRun) {
+    const crontab = readCrontab();
+    ui.out(ui.paint("dim", `[dry-run] crontab is ${crontab ? `${crontab.split("\n").length} line(s)` : "empty"}; block would be:`));
+    ui.out(renderCrondBlock({ scriptPath: scriptPathValue, logPath, env }));
+    return;
+  }
+
+  const result = installCrondBlock({ scriptPath: scriptPathValue, logPath, env });
+  if (ui.json) {
+    ui.out(JSON.stringify({ installed: true, changed: result.changed, lines: crondBlockStatus(result.crontab).lines }, null, 2));
+    return;
+  }
+  ui.info(`${result.changed ? ui.paint("green", "installed") : "already installed"} the pp crontab block  ${ui.paint("dim", "(crond runs `pp cron tick` every minute)")}`);
+  ui.info(ui.paint("dim", `log: ${logPath}`));
+  if (!crondState().installed) ui.info(ui.paint("yellow", "note: crontab still shows no block — check `crontab -l`"));
+}
+
+async function cmdCronUninstall(config, options, ui) {
+  if (options.dryRun) {
+    const state = crondState();
+    ui.out(state.installed ? "[dry-run] would remove the pp crontab block" : "[dry-run] no pp crontab block");
+    return;
+  }
+  const result = uninstallCrondBlock();
+  if (!options.quiet) {
+    ui.info(result.removed ? "removed the pp crontab block" : "no pp crontab block to remove");
+  }
+}
+
+async function cmdCronStatus(config, options, ui) {
+  const state = crondState();
+  const jobs = readJobs();
+  const now = new Date();
+  const due = jobs
+    .map((job) => ({ job, at: nextRun(job, now) }))
+    .filter((row) => row.at)
+    .sort((a, b) => a.at - b.at);
+  if (ui.json) {
+    ui.out(JSON.stringify({ crond: state, jobs: jobs.length, next: due[0] ? { id: due[0].job.id, at: due[0].at.toISOString() } : null }, null, 2));
+    return;
+  }
+  const tickLine = state.error ? ui.paint("red", state.error) : state.installed ? ui.paint("green", "installed (pp cron tick every minute)") : ui.paint("yellow", "not installed — pp cron install");
+  ui.info(`crond   ${tickLine}`);
+  ui.info(`jobs    ${jobs.length}${due[0] ? ui.paint("dim", `   next: ${due[0].job.id} at ${due[0].at.toLocaleString()}`) : ""}`);
+  ui.info(ui.paint("dim", `store   ${jobsPath()}`));
+  ui.info(ui.paint("dim", `log     ${cronLogPath()}`));
+}
+
+async function cmdCronLogs(config, options, ui) {
+  const path = cronLogPath();
+  if (!existsSync(path)) {
+    ui.info(`no cron log yet (${path})`);
+    return;
+  }
+  const lines = readFileSync(path, "utf8").trimEnd().split("\n");
+  const count = options.lines ?? 20;
+  ui.out(lines.slice(-count).join("\n"));
+}
+
+async function cmdCron(config, options, ui) {
+  const rest = [...options.names];
+  const sub = rest.shift();
+  const takeArg = (name) => {
+    const index = rest.indexOf(name);
+    if (index === -1) return null;
+    const value = rest[index + 1];
+    if (!value) throw new CronError(`${name} needs a value`);
+    rest.splice(index, 2);
+    return value;
+  };
+
+  if (!sub) {
+    return cmdCronStatus(config, options, ui);
+  }
+  const restOptions = { ...options };
+  switch (sub) {
+    case "add":
+    case "at": {
+      const at = takeArg("--at") ?? (options.at ?? null);
+      const every = takeArg("--every") ?? (options.every ?? null);
+      const cronExpr = takeArg("--cron") ?? (options.cronExpr ?? null);
+      const inText = takeArg("--in") ?? (options.in ?? null);
+      const session = takeArg("--session") ?? (options.session ?? null);
+      const command = takeArg("--command") ?? (options.command ?? null);
+      const catchUp = takeArg("--catch-up") ?? (options.catchUp ?? null);
+      const orUndef = (value) => (value === null || value === "" ? undefined : value);
+      return cmdCronAdd(
+        config,
+        {
+          ...restOptions,
+          names: rest,
+          at: orUndef(at),
+          every: orUndef(every),
+          cronExpr: orUndef(cronExpr),
+          in: orUndef(inText),
+          session: orUndef(session),
+          command: orUndef(command),
+          catchUp: orUndef(catchUp),
+        },
+        ui,
+      );
+    }
+    case "ls":
+    case "list":
+      return cmdCronList(config, { ...restOptions, names: rest }, ui);
+    case "rm":
+    case "remove":
+    case "delete":
+      return cmdCronRemove(config, { ...restOptions, names: rest }, ui);
+    case "run":
+    case "fire":
+      return cmdCronRun(config, { ...restOptions, names: rest }, ui);
+    case "tick":
+      return cmdCronTick(config, restOptions, ui);
+    case "install":
+      return cmdCronInstall(config, restOptions, ui);
+    case "uninstall":
+      return cmdCronUninstall(config, restOptions, ui);
+    case "status":
+      return cmdCronStatus(config, restOptions, ui);
+    case "logs":
+    case "log":
+      return cmdCronLogs(config, restOptions, ui);
+    case "reset": {
+      for (const id of rest) {
+        if (!resetJob(id)) {
+          ui.error(`no job "${id}"`);
+          process.exitCode = 2;
+        } else {
+          ui.info(`reset ${id}`);
+        }
+      }
+      return;
+    }
+    default:
+      throw new CronError(`unknown cron subcommand: ${sub} (add, ls, rm, run, tick, install, uninstall, status, logs)`);
+  }
+}
+
 export async function runCommand(command, options) {
   const ui = makeUi(options);
   if (options.json) ui.quiet = true;
@@ -1421,6 +1860,19 @@ export async function runCommand(command, options) {
     case "delete": {
       const config = requireConfig(options, ui);
       return cmdRm(config, options, ui);
+    }
+    case "cron": {
+      let config = null;
+      try {
+        config = loadConfig({ configPath: options.config, cwd: options.cwd });
+      } catch (err) {
+        if (options.config) {
+          ui.error(err.message);
+          process.exit(2);
+        }
+        config = null;
+      }
+      return cmdCron(config, options, ui);
     }
     case "restart": {
       const config = requireConfig(options, ui);

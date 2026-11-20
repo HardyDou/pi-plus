@@ -52,6 +52,17 @@ function parseArgs(argv) {
         case "--lines": options.lines = Number(takeValue(flag, inline)) || 200; break;
         case "--no-enter": options.noEnter = true; break;
         case "--no-config": options.noConfig = true; break;
+        case "--at": options.at = takeValue(flag, inline); break;
+        case "--in": options.in = takeValue(flag, inline); break;
+        case "--every": options.every = takeValue(flag, inline); break;
+        case "--cron": options.cronExpr = takeValue(flag, inline); break;
+        case "--session": options.session = takeValue(flag, inline); break;
+        case "--command": options.command = takeValue(flag, inline); break;
+        case "--catch-up": options.catchUp = takeValue(flag, inline); break;
+        case "--start": options.start = true; break;
+        case "--via": options.via = takeValue(flag, inline); break;
+        case "--now": options.now = takeValue(flag, inline); break;
+        case "--log": options.log = takeValue(flag, inline); break;
         case "--print": options.print = true; break;
         case "--watch": {
           if (inline !== undefined) options.watch = Number(inline) || 300;

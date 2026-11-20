@@ -53,7 +53,7 @@ pi remove npm:pi-farm           # 卸载
 
 | 文件 | 作用 |
 |---|---|
-| `extensions/pp-tmux.js` | 扩展入口：注册 5 个命令、调 tmux、渲染结果 |
+| `extensions/pp-tmux.js` | 扩展入口：注册 5 个命令 + `schedule` 工具、调 tmux、渲染结果 |
 | `src/ppui.js` | 纯函数：`$TMUX` 解析、会话标签、前缀匹配、`/pp-peek` 参数解析、截断输出、挑 client |
 
 `pp` 的执行逻辑和扩展互不依赖：扩展直接调 `tmux`，不经过 `pp` 二进制，所以 tmux 里的
@@ -61,6 +61,28 @@ pi remove npm:pi-farm           # 卸载
 `package.json`）。
 
 测试：`node --test test/ppui.test.js`（解析、标签、匹配、参数、截断、client 选择）。
+
+## `schedule` 工具（模型可见）
+
+扩展除了 5 个斜杠命令，还注册了一个**工具** `schedule`：
+
+| 参数 | 说明 |
+|---|---|
+| `prompt` | 到点时打进会话的话（与 `command` 二选一） |
+| `command` | 到点时跑的 shell 命令（与 `prompt` 二选一） |
+| `at` / `every` / `cron` | 三选一：绝对时间 ISO、间隔（`5m`/`2h`）、crontab 表达式 |
+| `session` | 目标会话，默认当前会话 |
+| `start` | 会话没跑时先 `up` |
+| `catch_up` | 迟到多久还补跑（秒） |
+
+调用链是 `schedule` → `pp cron add --json` → 同 CLI 的 `cron.json`，所以
+`pp cron ls`、`pp cron rm` 都能管它。这样「明天早上九点提醒我」这类话才有入口：
+
+- **斜杠命令**（`/pp-*`）只有用户能敲，模型看不见；
+- **工具**的 description 进系统提示，模型每轮自己挑（`compress` 就是这样被触发的）；
+- **skill** 只有 `name` + `description` 常驻，正文按需 `read`，适合"怎么做"而非"怎么触发"。
+
+`pi -p` 里也能用：`pi -p "半小时后提醒我喝水" -e npm:pi-farm`。
 
 ## 常见问题
 

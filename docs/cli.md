@@ -31,6 +31,16 @@ pp <command> [names...] [options]
 | `--reply <ms>` | `mesh send` 收到 ACK 后继续监听回复的时长（单播收到第一条即返回） |
 | `--no-wait` | `mesh send` 只发不等 ACK |
 | `--body-json <json>` | `mesh send` 发结构化 JSON（默认发纯文本） |
+| `--at <ISO>` | `cron add` 一次性绝对时间（本地时区，如 `2026-11-21T09:00`） |
+| `--in <时长>` | `cron add` 一次性相对时间（`30s`/`10m`/`2h`/`1d`） |
+| `--every <时长>` | `cron add` 固定间隔重复 |
+| `--cron "<表达式>"` | `cron add` crontab 表达式（`"0 9 * * 1-5"`） |
+| `--session <name>` | `cron add` 目标会话（默认：当前 tmux 会话） |
+| `--command <cmd>` | `cron add` 跑 shell 命令而不是往会话里打字 |
+| `--catch-up <时长>` | `cron add` 迟到多久之内还要补跑，默认 `2h`，`0` = 不补 |
+| `--start` | `cron add` 到点时会话没跑就先 `up` 再投 |
+| `--via <backend>` | `cron install` 的调度后端，目前只有 `crond` |
+| `--now <ISO>` | `cron tick` 假装现在是这个时间（测试/补跑） |
 | `--bin-dir <dir>` | `alias` 的软链目录，默认 `~/.local/bin` 或 `$PP_BIN_DIR` |
 | `--check` | `update` 只报告：有新版时退出码 1 |
 | `--registry <url>` | `update` 查询/安装用的 npm 源，默认 `https://registry.npmjs.org`（也可用 `$PP_NPM_REGISTRY`） |
@@ -195,6 +205,31 @@ pp alias ls --json
 - 软链指向脚本本身，`npm i -g` 升级后别名自动跟随
 - `add` 遇到同名**非软链**文件会拒绝（`--force` 才替换）；`rm` 遇到指向别的程序的软链也会拒绝
 - `pp doctor` 的 `command name` 行会写明哪个名字是我们的、哪个是别人的，以及装在 PATH 上那份的版本
+
+### `pp cron <子命令>`
+
+把 prompt 或命令按时间送进会话。作业存在 `$XDG_STATE_HOME/pi-plus/cron.json`，
+`crontab` 里只加一条每分钟的 `pp cron tick`（见 [docs/cron.md](cron.md)）。
+
+| 子命令 | 说明 |
+| --- | --- |
+| `add` | 建作业：`--at`/`--in`/`--every`/`--cron` 四选一，`--session` 或 `--command` |
+| `ls` | `ID / 目标 / 时间表 / 下次运行 / 次数 / 上次结果`（`--json` 可读） |
+| `rm <id>` | 删作业 |
+| `run <id>` | 立刻投递一次（调试，不动时间表） |
+| `tick` | 到期就投递（crontab 每分钟调用的就是它；带锁，可重入） |
+| `install` / `uninstall` | 往 crontab 写/删托管块（`--print` 只看） |
+| `status` | crond 块、下次到期、日志路径 |
+| `logs [-n N]` | 投递日志 |
+| `reset <id>` | 清 `lastRun`（改过时间表后用） |
+
+```bash
+pp cron add --session backend --in 30m "看一下 CI"
+pp cron add --session docs --cron "0 9 * * 1,2,3" "每周总结"
+pp cron add --every 5m --command "curl -fsS localhost:8080/health"
+pp cron ls
+pp cron install
+```
 
 ### `pp check [name|#...]`
 

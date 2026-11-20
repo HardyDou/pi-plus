@@ -4,7 +4,7 @@ _pp() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local commands="new n create up start down stop rm remove delete restart status ls list attach a logs log send mesh check validate doctor init install autostart uninstall alias link update upgrade version help"
+  local commands="new n create up start down stop rm remove delete restart status ls list attach a logs log send mesh cron check validate doctor init install autostart uninstall alias link update upgrade version help"
 
   case "$prev" in
     -c|--config)
@@ -16,6 +16,10 @@ _pp() {
       ;;
     mesh)
       COMPREPLY=( $(compgen -W "ls list resolve send inbox listen watch" -- "$cur") )
+      return 0
+      ;;
+    cron)
+      COMPREPLY=( $(compgen -W "add ls list rm remove delete run fire tick install uninstall status logs log reset" -- "$cur") )
       return 0
       ;;
     alias|link)
@@ -42,7 +46,7 @@ _pp() {
   esac
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "--config --socket --json --dry-run --force --reconcile --quiet --verbose --lines --watch --print --path --no-enter --attach --log --save --no-remote-pi --dir --agent --as --wait --reply --no-wait --body-json --bin-dir --check --registry --help --version" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--config --socket --json --dry-run --force --reconcile --quiet --verbose --lines --watch --print --path --no-enter --attach --log --save --no-remote-pi --dir --agent --as --wait --reply --no-wait --body-json --bin-dir --check --at --in --every --command --catch-up --start --via --now --registry --help --version" -- "$cur") )
     return 0
   fi
   if [[ $COMP_CWORD -eq 2 && "${COMP_WORDS[1]}" == "help" ]]; then
@@ -54,4 +58,4 @@ _pp() {
     return 0
   fi
 }
-complete -F _pp pp pi-plus
+complete -F _pp pp pi-plus pifarm
