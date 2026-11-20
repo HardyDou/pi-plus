@@ -19,9 +19,14 @@ CLI 和 pi 扩展是**两份安装**：`pp` 走 `npm i -g pi-farm`，`/pp-*` 走
 pi 的 TUI 把它当粘贴处理，紧跟其后的 `Enter` 可能被吞掉（只多插入一个换行），于是文字躺在
 输入框里没发出去。
 
-现在 `sendText` 会等 200ms 再按 Enter，并在**屏幕完全没变化**时补按（最多两次）——被接受的
-Enter 一定会让屏幕变化（出现转圈/新消息），所以"没变化"就是"被吞了"。仍然没发出去时，
-`pp cron ls` 的 `lastStatus` 会显示 `typed into <session> but Enter never took`，而不是假装成功。
+现在 `sendText` 会等 200ms 再按 Enter，并在**屏幕完全没变化**时补按（最多三次，每次退避 200/400/800ms）
+——被接受的 Enter 一定会让屏幕变化（出现转圈/新消息），所以"没变化"就是"被吞了"。仍然没发出去时，
+`pp cron ls` 的 `lastStatus` 会显示
+`typed into <session> but Enter never took — pane showed: <面板最后两行>`，把当时的画面一并带出来，
+而不是假装成功。
+
+先看 `pp cron ls` 里的 `pane showed:`：如果那是**你之前打了一半的草稿**，说明 Enter 是在草稿里另起
+一行而不是提交——在里面按一次 `Ctrl+C`（pi 的"清空编辑器"，连按两次才会退出）把草稿清掉即可。
 
 手工补救：`pp send <session> "<提示词>"`。
 

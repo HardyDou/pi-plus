@@ -201,7 +201,7 @@ export class Tmux {
    * box unsent. Hence the pause before Enter, and the retry when the screen did
    * not move at all - an accepted Enter always changes what is on the screen.
    */
-  sendText(name, text, { enter = true, settleMs = 200, retries = 2 } = {}) {
+  sendText(name, text, { enter = true, settleMs = 200, retries = 3 } = {}) {
     this.run(["send-keys", "-t", paneTarget(name), "-l", "--", text]);
     if (!enter) return { submitted: false, retries: 0 };
     sleep(settleMs);
@@ -209,12 +209,19 @@ export class Tmux {
     this.run(["send-keys", "-t", paneTarget(name), "Enter"]);
     sleep(settleMs);
     let attempts = 0;
+    // Each retry waits longer: a busy agent may take a moment to notice the key.
     while (attempts < retries && this.screenSignature(name) === before) {
+      sleep(settleMs * 2 ** attempts);
       attempts += 1;
       this.run(["send-keys", "-t", paneTarget(name), "Enter"]);
       sleep(settleMs);
     }
-    return { submitted: this.screenSignature(name) !== before, retries: attempts };
+    const after = this.screenSignature(name);
+    return {
+      submitted: after !== before,
+      retries: attempts,
+      screen: after === before ? after : "",
+    };
   }
 
   /** What the last few visible lines look like, with colours and padding gone. */

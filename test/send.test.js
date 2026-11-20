@@ -38,7 +38,8 @@ test("screenSignature ignores colours, padding and the tail beyond six lines", (
 test("sendText presses Enter once when the screen moves", () => {
   const tmux = new FakeTmux([draft, submitted, submitted]);
   const result = tmux.sendText("alpha", "巡检提示词", { settleMs: 0 });
-  assert.deepEqual(result, { submitted: true, retries: 0 });
+  assert.equal(result.submitted, true);
+  assert.equal(result.retries, 0);
   assert.equal(tmux.enters(), 1);
   assert.ok(tmux.calls[0].includes("-l -- 巡检提示词"));
 });
@@ -46,15 +47,18 @@ test("sendText presses Enter once when the screen moves", () => {
 test("sendText presses Enter again when a paste swallowed the first one", () => {
   const tmux = new FakeTmux([draft, draft, submitted]);
   const result = tmux.sendText("alpha", "巡检提示词", { settleMs: 0 });
-  assert.deepEqual(result, { submitted: true, retries: 1 }, "the extra Enter rescued it");
+  assert.equal(result.submitted, true, "the extra Enter rescued it");
+  assert.equal(result.retries, 1);
   assert.equal(tmux.enters(), 2);
 });
 
 test("sendText gives up and says so when Enter never takes", () => {
   const tmux = new FakeTmux([draft]);
   const result = tmux.sendText("alpha", "巡检提示词", { settleMs: 0 });
-  assert.deepEqual(result, { submitted: false, retries: 2 }, "two retries, then an honest failure");
-  assert.equal(tmux.enters(), 3);
+  assert.equal(result.submitted, false, "three retries, then an honest failure");
+  assert.equal(result.retries, 3);
+  assert.match(result.screen, /等待发送/, "the pane is quoted back for the log");
+  assert.equal(tmux.enters(), 4);
 });
 
 test("sendText with --no-enter types and stops", () => {

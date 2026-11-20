@@ -1993,7 +1993,17 @@ function deliverJob(job, options) {
   } catch (error) {
     return { status: `failed: tmux send-keys: ${error.message}` };
   }
-  if (!result.submitted) return { status: `failed: typed into ${job.session} but Enter never took` };
+  if (!result.submitted) {
+    // Quote what the pane showed: "Enter never took" alone does not say why.
+    const tail = String(result.screen ?? "")
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .slice(-2)
+      .join(" / ")
+      .slice(0, 160);
+    return { status: `failed: typed into ${job.session} but Enter never took${tail ? ` — pane showed: ${tail}` : ""}` };
+  }
   return { status: "delivered" };
 }
 
