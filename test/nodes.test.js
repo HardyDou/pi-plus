@@ -284,3 +284,26 @@ test("an empty nodes section is filled, not duplicated", () => {
   assert.match(text, /^sessions: \[\]$/m, "the sessions line is untouched");
   rmSync(file, { force: true });
 });
+
+test("a machine can carry its own base path and session defaults", () => {
+  const node = normalizeNode(
+    { name: "t114", host: "h", base_path: "/srv", defaults: { agent: "pi", restart: "no", remote_pi_mode: "env" } },
+    0,
+    "<t>",
+  );
+  assert.equal(node.basePath, "/srv");
+  assert.deepEqual(node.defaults, { agent: "pi", restart: "no", remote_pi_mode: "env" });
+  const text = renderNodeBlock(node);
+  assert.match(text, /^ {4}base_path: \/srv$/m);
+  assert.match(text, /^ {4}defaults:$/m);
+  assert.match(text, /^ {6}restart: "no"$/m, "restart: no must be quoted or yaml reads a boolean");
+});
+
+test("base_path and defaults are validated", () => {
+  assert.throws(() => normalizeNode({ name: "a", host: "h", base_path: "srv" }, 0, "<t>"), /base_path .* must be absolute/);
+  assert.throws(() => normalizeNode({ name: "a", host: "h", defaults: ["x"] }, 0, "<t>"), /defaults must be a mapping/);
+  assert.throws(() => normalizeNode({ name: "a", host: "h", defaults: { restart: "sometimes" } }, 0, "<t>"), /defaults\.restart/);
+  const warnings = [];
+  normalizeNode({ name: "a", host: "h", defaults: { cwd: "/x" } }, 0, "<t>", warnings);
+  assert.equal(warnings.some((w) => w.includes("defaults.cwd")), true, "cwd is not a node-level default");
+});

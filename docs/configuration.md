@@ -35,6 +35,9 @@ nodes:                     # 可选：别的机器，session 可以用 node: 指
     host: 10.0.0.11
     user: deploy
     identity: ~/.ssh/id_ed25519
+    base_path: /srv/apps   # 可选：这台机器上相对 cwd 的根
+    defaults:              # 可选：这台机器上会话的默认值
+      restart: unless-stopped
 
 sessions:                  # 必填，非空列表
   - name: backend
@@ -44,8 +47,16 @@ sessions:                  # 必填，非空列表
     cwd: /srv/api
 ```
 
-`nodes:` 的字段（`name`/`host` 必填，`port`/`user`/`identity`/`password`/`password_env`/`note` 可选）
-和远端会话怎么跑，见 [nodes.md](nodes.md)。
+`nodes:` 的字段（`name`/`host` 必填，`port`/`user`/`identity`/`password`/`password_env`/`note`/
+`tags`/`guarded`/`base_path`/`defaults` 可选）和远端会话怎么跑，见 [nodes.md](nodes.md)。
+
+值的来源有三层，**越具体的越优先**：
+
+```
+会话自己写的字段  >  节点 defaults:  >  顶层 defaults:
+```
+
+所以一台机器可以整体换 agent 或 restart 策略，而会话条目仍然只有两行。
 
 ## session 字段
 

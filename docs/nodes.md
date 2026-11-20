@@ -94,9 +94,54 @@ sessions:
 | `password` | | 明文密码（不推荐，文件会被 chmod 600） |
 | `password_env` | | 从这个环境变量读密码 |
 | `note` | | 自由文本，`pp node ls` 里显示 |
+| `tags` | | 标签数组（或逗号串），给 `--tag` 选机器用 |
+| `guarded` | | `true` 时这台机器上的会话拒绝 `pp down` / `pp rm`（除非 `--force`） |
+| `base_path` | | 这台机器的根目录，会话写相对的 `cwd` 时拼在它下面 |
+| `defaults` | | 这台机器的会话默认值：`agent` / `restart` / `remote_pi_mode` |
 
 `password` 与 `password_env` 只能给一个；两个都写会报错。同时给 `identity` 和
 `password` 只给警告（ssh 会先用密钥）。
+
+## 一台机器的默认值：`base_path` 与 `defaults`
+
+机群大了以后，每条会话都重复 `cwd: /srv/xxx`、`restart: unless-stopped` 是噪音。
+把机器共同的部分写在节点上，会话就只剩"叫什么、在哪个目录"：
+
+```yaml
+nodes:
+  - name: prod-01
+    host: 10.0.0.11
+    base_path: /srv/apps        # 相对 cwd 的根
+    defaults:
+      agent: node /srv/agent.js # 这台机器上 pi 不在 PATH 里时的替代
+      restart: unless-stopped
+      remote_pi_mode: env
+
+sessions:
+  - name: prod-api
+    node: prod-01
+    cwd: api                    # → /srv/apps/api
+  - name: prod-web
+    node: prod-01
+    cwd: web                    # → /srv/apps/web
+```
+
+优先级：**会话自己写的 > 节点 `defaults:` > 顶层 `defaults:`**，所以一台机器可以整体
+不同，又不用把每个字段都抄一遍。`cwd` 以 `/`、`~`、`./`、`../` 开头时按原样用，
+只有相对路径才会拼到 `base_path` 下（远端目录是否存在由远端决定，`pp up` 会报错，
+本地则会在启动前就拒绝）。
+
+`defaults` 里只认三个键：`agent`、`restart`、`remote_pi_mode`。写别的会警告并忽略
+（例如 `cwd` —— 那是每条会话自己的事）。
+
+命令行等价物：
+
+```bash
+pp node add prod-01 --host 10.0.0.11 --base-path /srv/apps \
+  --default-agent "node /srv/agent.js" --default-restart unless-stopped
+pp node show prod-01          # 看它现在带的默认值
+pp new api --node prod-01 -C api --save   # 落到 /srv/apps/api
+```
 
 ## 命令
 

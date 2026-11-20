@@ -92,6 +92,10 @@ function parseArgs(argv) {
         case "--password": options.password = takeValue(flag, inline); break;
         case "--password-env": options.passwordEnv = takeValue(flag, inline); break;
         case "--note": options.note = takeValue(flag, inline); break;
+        case "--base-path": options.basePath = takeValue(flag, inline); break;
+        case "--default-agent": options.defaultAgent = takeValue(flag, inline); break;
+        case "--default-restart": options.defaultRestart = takeValue(flag, inline); break;
+        case "--default-remote-pi-mode": options.defaultRemotePiMode = takeValue(flag, inline); break;
         case "--node": options.node = takeValue(flag, inline); break;
         case "--limit": options.lines = Number(takeValue(flag, inline)); break;
         case "--action": options.action = takeValue(flag, inline); break;

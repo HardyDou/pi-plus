@@ -369,7 +369,11 @@ async function cmdNew(baseConfig, options, ui) {
       process.exit(2);
     }
   }
-  const cwd = resolve(expandPath(options.dir ?? process.cwd()));
+  let cwd = resolve(expandPath(options.dir ?? process.cwd()));
+  if (node?.basePath && options.dir && !/^[~/]/.test(options.dir) && !/^\.\.?\//.test(options.dir)) {
+    // "-C api" on a machine whose sessions live in /srv means /srv/api
+    cwd = `${String(node.basePath).replace(/\/+$/, "")}/${options.dir.replace(/^\.\//, "")}`;
+  }
   if (!node && (!existsSync(cwd) || !statSync(cwd).isDirectory())) {
     ui.error(`directory does not exist: ${cwd}`);
     process.exit(2);
@@ -1001,6 +1005,15 @@ function showNode(config, options, ui) {
     ["password", node.password ? ui.paint("yellow", "set (in the config file)") : node.passwordEnv ? ui.paint("dim", `from $${node.passwordEnv}`) : ui.paint("dim", "-")],
     ["tags", node.tags?.length ? node.tags.join(", ") : ui.paint("dim", "-")],
     ["guarded", node.guarded ? ui.paint("yellow", "yes — pp down / pp rm need --force") : ui.paint("dim", "no")],
+    ["base_path", node.basePath || ui.paint("dim", "-")],
+    [
+      "defaults",
+      node.defaults && Object.keys(node.defaults).length
+        ? Object.entries(node.defaults)
+            .map(([key, value]) => `${key}=${Array.isArray(value) ? value.join(" ") : value}`)
+            .join("  ")
+        : ui.paint("dim", "-"),
+    ],
     ["note", node.note || ui.paint("dim", "-")],
     ["sessions", used.length ? used.map((s) => `${s.name}${s.node === node.name ? "" : ""}`).join(", ") : ui.paint("dim", "none")],
   ];
@@ -1066,6 +1079,13 @@ async function cmdNodeAdd(config, options, ui) {
   if (options.note) spec.note = options.note;
   if (options.guard) spec.guarded = true;
   if (options.noGuard) spec.guarded = false;
+  if (options.basePath !== undefined) spec.base_path = options.basePath;
+  if (options.defaultAgent || options.defaultRestart || options.defaultRemotePiMode) {
+    spec.defaults = {};
+    if (options.defaultAgent) spec.defaults.agent = options.defaultAgent;
+    if (options.defaultRestart) spec.defaults.restart = options.defaultRestart;
+    if (options.defaultRemotePiMode) spec.defaults.remote_pi_mode = options.defaultRemotePiMode;
+  }
   // Re-adding a node is the documented way to edit it, so everything the
   // command line did not mention has to survive the rewrite.
   const previous = (config.nodes ?? []).find((n) => n.name === name);
@@ -1077,6 +1097,16 @@ async function cmdNodeAdd(config, options, ui) {
     if (spec.identity === undefined && previous.identity) spec.identity = previous.identity;
     if (spec.password === undefined && previous.password) spec.password = previous.password;
     if (spec.password_env === undefined && previous.passwordEnv) spec.password_env = previous.passwordEnv;
+    if (spec.base_path === undefined && previous.basePath) spec.base_path = previous.basePath;
+    if (spec.user === undefined && previous.user) spec.user = previous.user;
+    if (spec.port === undefined && previous.port) spec.port = previous.port;
+    // editing a machine should not require repeating where it is
+    if (!spec.host && previous.host) spec.host = previous.host;
+    const defaults = { ...(spec.defaults ?? {}) };
+    for (const [key, value] of Object.entries(previous.defaults ?? {})) {
+      if (defaults[key] === undefined) defaults[key] = value;
+    }
+    if (Object.keys(defaults).length) spec.defaults = defaults;
   } else if (options.tags?.length) {
     spec.tags = options.tags;
   }
@@ -1107,9 +1137,10 @@ async function cmdNodeAdd(config, options, ui) {
   const existing = (config.nodes ?? []).find((n) => n.name === node.name);
   if (existing && !options.force) {
     // Re-adding is the documented way to edit a node, but say what changed.
-    const changed = ["host", "port", "user", "identity", "password", "note", "tags"].filter(
+    const changed = ["host", "port", "user", "identity", "password", "note", "tags", "basePath", "guarded"].filter(
       (key) => String(existing[key] ?? "") !== String(node[key] ?? ""),
     );
+    if (JSON.stringify(existing.defaults ?? {}) !== JSON.stringify(node.defaults ?? {})) changed.push("defaults");
     if (!changed.length) {
       ui.info(`${node.name} is unchanged (${nodeTarget(node)}:${node.port}, ${authSummary(node)})`);
       return;
@@ -2261,6 +2292,9 @@ function cmdCheck(config, options, ui) {
 
   for (const session of config.sessions) {
     context: {
+      // a remote session's cwd lives on the node; checking it here would only
+      // produce false alarms (or worse, hide a real one behind them)
+      if (session.node) break context;
       if (!existsSync(session.cwd)) {
         problems.push(`"${session.name}": cwd does not exist: ${session.cwd}`);
         break context;

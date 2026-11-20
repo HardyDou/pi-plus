@@ -238,7 +238,12 @@ function normalizeSession(raw, defaults, index, configPath) {
     remotePiName = sanitized;
   }
 
-  const mode = String(rp.mode ?? session.remote_pi_mode ?? "config").toLowerCase();
+  // A remote session cannot write its name into the node's working directory,
+  // so "env" is the sensible default there — and saying so should not be a
+  // warning on every single remote session.
+  const modeDefault = session.node ? "env" : "config";
+  const modeGiven = rp.mode !== undefined || session.remote_pi_mode !== undefined;
+  const mode = String(rp.mode ?? session.remote_pi_mode ?? modeDefault).toLowerCase();
   if (!["config", "env", "off"].includes(mode)) {
     throw new ConfigError(`${where}: remote_pi_mode must be "config", "env" or "off"`);
   }
@@ -271,6 +276,7 @@ function normalizeSession(raw, defaults, index, configPath) {
     piSessionName,
     remotePiName,
     remotePiMode: mode,
+    remotePiModeGiven: modeGiven,
     env: asStringMap(session.env, `${where}.env`),
     args: asTokens(session.args, `${where}.args`),
     log: session.log === true ? join(cwd, ".pi-plus.log") : session.log ? resolve(expandPath(String(session.log))) : null,
@@ -279,6 +285,12 @@ function normalizeSession(raw, defaults, index, configPath) {
     remainOnExit: Boolean(session.remain_on_exit ?? false) || restart === "no",
     restart,
   };
+}
+
+/** `/srv`, `~/x`, `./x`, `..` are paths; `api` alone is a path relative to the node. */
+function isAbsolutePath(value) {
+  const text = String(value).trim();
+  return text.startsWith("/") || text.startsWith("~") || text.startsWith("./") || text.startsWith("../") || text === "." || text === "..";
 }
 
 export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
@@ -311,7 +323,22 @@ export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
   if (!Array.isArray(raw.sessions)) {
     throw new ConfigError(`${configPath}: "sessions" must be a list`);
   }
-  const sessions = raw.sessions.map((s, i) => normalizeSession(s, defaults, i, configPath));
+  // A machine can carry its own defaults ("everything on t114 runs in /srv with
+  // restart: no") so a session entry only has to say what makes it different.
+  const nodesByName = new Map(nodes.map((node) => [node.name, node]));
+  const sessions = raw.sessions.map((s, i) => {
+    const nodeName = typeof s?.node === "string" && s.node.trim() !== "" ? s.node.trim() : null;
+    const node = nodeName ? nodesByName.get(nodeName) : null;
+    if (!node) return normalizeSession(s, defaults, i, configPath);
+    const nodeDefaults = { ...defaults, ...(node.defaults ?? {}) };
+    const merged = { ...s };
+    if (node.basePath && typeof merged.cwd === "string" && merged.cwd !== "" && !isAbsolutePath(merged.cwd)) {
+      // a relative cwd is relative to the machine's base path, not to whoever
+      // happened to run pp
+      merged.cwd = join(node.basePath, merged.cwd);
+    }
+    return normalizeSession(merged, nodeDefaults, i, configPath);
+  });
 
   const nodeNames = new Set(nodes.map((n) => n.name));
   for (const s of sessions) {
@@ -322,7 +349,7 @@ export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
           (nodeNames.size ? ` (known: ${[...nodeNames].join(", ")})` : " (there are no nodes yet — pp node add)"),
       );
     }
-    if (s.remotePiMode === "config") {
+    if (s.remotePiMode === "config" && s.remotePiModeGiven) {
       // The remote-pi name would have to be written into the *remote* working
       // directory; pp cannot do that yet, so fall back to the env mode.
       warnings.push(

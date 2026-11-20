@@ -23,9 +23,15 @@ export const NODE_KEYS = new Set([
   "note",
   "tags",
   "guarded",
+  "base_path",
+  "defaults",
 ]);
 
+/** Session settings a machine may set for every session that runs on it. */
+export const NODE_DEFAULT_KEYS = new Set(["agent", "restart", "remote_pi_mode"]);
+
 export const DEFAULT_PORT = 22;
+const RESTART_POLICIES = ["no", "always", "on-failure", "unless-stopped"];
 const NODE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const TAG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
@@ -119,10 +125,51 @@ export function normalizeNode(raw, index, configPath = "<config>", warnings = []
   // thought: `pp down`/`pp rm` refuse until you say --force.
   const guarded = raw.guarded === true || raw.guarded === "true" || raw.guarded === "yes";
 
+  // `base_path` makes short session paths possible: cwd "api" on a machine
+  // with base_path "/srv" means /srv/api.
+  let basePath = "";
+  if (raw.base_path != null && raw.base_path !== "") {
+    basePath = String(asScalar(raw.base_path)).trim();
+    if (!basePath.startsWith("/") && !basePath.startsWith("~")) {
+      throw new NodeError(`${where}: base_path "${basePath}" must be absolute (or start with ~)`);
+    }
+  }
+
+  // Per-machine defaults for the sessions that run there.
+  const defaults = {};
+  if (raw.defaults != null) {
+    if (typeof raw.defaults !== "object" || Array.isArray(raw.defaults)) {
+      throw new NodeError(`${where}: defaults must be a mapping`);
+    }
+    for (const [key, value] of Object.entries(raw.defaults)) {
+      if (!NODE_DEFAULT_KEYS.has(key)) {
+        warnings.push(`${configPath}: node "${name}": defaults.${key} is not a session setting (ignored)`);
+        continue;
+      }
+      if (key === "restart") {
+        const policy = value === true ? "always" : value === false ? "no" : String(value);
+        if (!RESTART_POLICIES.includes(policy)) {
+          throw new NodeError(`${where}: defaults.restart must be one of ${RESTART_POLICIES.join(", ")}`);
+        }
+        defaults.restart = policy;
+      } else if (key === "remote_pi_mode") {
+        const mode = String(value);
+        if (!["config", "env", "off"].includes(mode)) {
+          throw new NodeError(`${where}: defaults.remote_pi_mode must be config, env or off`);
+        }
+        defaults.remote_pi_mode = mode;
+      } else {
+        defaults.agent = value;
+      }
+    }
+  }
+
   return {
     name,
     tags,
     guarded,
+    basePath,
+    defaults,
     host: target.host,
     port: target.port ?? DEFAULT_PORT,
     user: target.user,
@@ -360,6 +407,16 @@ export function renderNodeBlock(node) {
   if (node.note) lines.push(`    note: ${yamlScalar(node.note)}`);
   if (node.tags?.length) lines.push(`    tags: [${node.tags.join(", ")}]`);
   if (node.guarded) lines.push(`    guarded: true`);
+  if (node.basePath) lines.push(`    base_path: ${yamlScalar(node.basePath)}`);
+  const defaults = node.defaults ?? {};
+  const defaultKeys = Object.keys(defaults).filter((key) => defaults[key] != null && defaults[key] !== "");
+  if (defaultKeys.length) {
+    lines.push("    defaults:");
+    for (const key of defaultKeys) {
+      const value = key === "agent" && Array.isArray(defaults.agent) ? defaults.agent.join(" ") : defaults[key];
+      lines.push(`      ${key}: ${yamlScalar(value)}`);
+    }
+  }
   return lines.join("\n");
 }
 

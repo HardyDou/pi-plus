@@ -271,6 +271,8 @@ pp node rm prod-01          # 还有 session 指着它时拒绝，--force 才硬
 pp node exec prod-01 -- df -h /          # 一条命令，不占会话
 pp node exec --all -- uptime             # 全机群巡检，逐台打印
 pp node ssh prod-01         # 按登记的参数开交互式 ssh
+pp node add prod-01 --base-path /srv/apps --default-restart unless-stopped
+pp new api --node prod-01 -C api --save   # 落到 /srv/apps/api
 ```
 
 | 选项 | 说明 |
@@ -282,6 +284,10 @@ pp node ssh prod-01         # 按登记的参数开交互式 ssh
 | `--password-env <VAR>` | 从环境变量取密码；变量没设置直接报错 |
 | `--from-ssh-config <alias>` | 抄 `~/.ssh/config` 里某个 Host 的 HostName/Port/User/IdentityFile |
 | `--note <text>` | 备注，`pp node ls` 显示 |
+| `--base-path <dir>` | 这台机器的根目录：会话写相对的 `cwd` 时拼在它下面 |
+| `--default-agent <cmd>` | 这台机器上会话的默认 agent（会话自己写的优先） |
+| `--default-restart <策略>` | 默认 restart：`no`/`always`/`on-failure`/`unless-stopped` |
+| `--default-remote-pi-mode <模式>` | 默认 `remote_pi_mode`：`config`/`env`/`off` |
 | `--all` | `test`/`exec`：对所有节点 |
 | `--tag <name>` | 给节点打标签（可重复，累加）；`ls`/`test`/`exec`/`up`/`down`/`restart` 用它选机器 |
 | `--timeout <秒>` | `exec`：单机超时（默认 60），超时按失败计 |

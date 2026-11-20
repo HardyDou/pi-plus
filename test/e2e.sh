@@ -467,7 +467,7 @@ tmux -L "$SOCK" new-session -d -s far-x "sleep 600" 2>/dev/null || true
 check "node is listed"                0 'far'                     bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node ls"
 check "node shows its auth"           0 'agent'                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node ls"
 check "node show lists its sessions"  0 'far-x'                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node show far"
-check "node show hides passwords"     0 'password  -'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node show far"
+check "node show hides passwords"     0 'password +-'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node show far"
 check "remote session is seen running" 0 'running'                bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls far-x"
 check "the NODE column names the machine" 0 'far'                 bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls far-x"
 check "a dead node is unreachable, not stopped" 0 'unreachable'    bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls dead-x"
@@ -481,6 +481,29 @@ check "node add needs a host"        2 'missing --host'          bash -c "cd $E2
 check "node add refuses a used name" 2 'usage: pp node add'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/add.yml node add"
 check "node rm drops it"             0 'removed node'            bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/add.yml node rm prod --force"
 check "node rm leaves sessions alone" 0 ''                       bash -c "grep -q 'name: far-x' $E2E/add.yml"
+cat > "$E2E/nodedef.yml" <<'YAML'
+version: 1
+defaults:
+  agent: pi
+  restart: always
+nodes:
+  - name: box
+    host: 10.9.9.9
+    base_path: /srv/apps
+    defaults:
+      agent: bash
+      restart: no
+sessions:
+  - name: api
+    node: box
+    cwd: api
+  - name: web
+    node: box
+    cwd: /opt/web
+YAML
+check "node defaults resolve the session cwd"    0 '/srv/apps/api'    pp check -c "$E2E/nodedef.yml"
+check "an absolute cwd ignores base_path"        0 '/opt/web'         pp check -c "$E2E/nodedef.yml"
+check "node add writes base_path and defaults"   0 'base_path: /srv'  bash -c "printf 'version: 1\nsessions: []\n' > $E2E/nd2.yml && $ROOT/bin/pp.js -c $E2E/nd2.yml node add box --host 10.9.9.9 --base-path /srv --default-restart no --default-agent bash >/dev/null && cat $E2E/nd2.yml"
 check "node rm refuses a referenced node" 1 'still run on'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node rm far"
 check "an unknown node is a config error" 2 'is not defined under' bash -c "cd $E2E && printf 'version: 1\nnodes:\n  - name: far\n    host: h\nsessions:\n  - name: x\n    node: nope\n    cwd: /tmp\n' > $E2E/badnode.yml && $ROOT/bin/pp.js -c $E2E/badnode.yml check"
 check "node exec runs one command"   0 'marker-from-exec'         bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG node exec far -- 'echo marker-from-exec'"

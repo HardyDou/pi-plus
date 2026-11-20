@@ -45,6 +45,20 @@ _pp() {
     '(-h --help)'{-h,--help}'[show help]' \
     '(-V --version)'{-V,--version}'[print version]' \
     '--socket[tmux socket name]:socket:' \
+    '--node[only sessions on this machine]:name:' \
+    '--tag[only machines carrying these tags]:tag:' \
+    '--host[ssh address of the machine]:host:' \
+    '--port[ssh port]:port:' \
+    '--user[ssh user]:user:' \
+    '--identity[private key]:file:_files' \
+    '--password-env[read the password from this variable]:var:' \
+    '--from-ssh-config[copies HostName/Port/User/IdentityFile]:alias:' \
+    '--base-path[sessions on this machine land under it]:dir:_files -/' \
+    '--default-agent[default agent for that machine]:command:' \
+    '--default-restart[default restart policy]:policy:(no always on-failure unless-stopped)' \
+    '--default-remote-pi-mode[default remote-pi mode]:mode:(config env off)' \
+    '--guard[protect its sessions from pp down/rm]:' \
+    '--no-guard[drop the protection]:' \
     '--json[machine-readable output]' \
     '--dry-run[print actions without touching tmux]' \
     '--force[recreate running sessions]' \
@@ -65,16 +79,16 @@ _pp() {
     '--reply[wait for a reply after the ACK]:ms:' \
     '--no-wait[do not wait for the mesh ACK]' \
     '--body-json[mesh body as JSON]:json:' \
-    '--at[run once at an absolute time]:time:'
-    '--in[run once after a delay]:duration:'
-    '--every[repeat on an interval]:duration:'
-    '--cron[repeat on a crontab expression]:expr:'
-    '--command[run a shell command]:cmd:'
-    '--catch-up[how late a missed run may be]:duration:'
-    '--start[start the session if it is not running]'
-    '--via[install backend]:backend:(crond)'
-    '--all[ls: include finished todos]'
-    '--now[tick: pretend it is this time]:time:'
+    '--at[run once at an absolute time]:time:' \
+    '--in[run once after a delay]:duration:' \
+    '--every[repeat on an interval]:duration:' \
+    '--cron[repeat on a crontab expression]:expr:' \
+    '--command[run a shell command]:cmd:' \
+    '--catch-up[how late a missed run may be]:duration:' \
+    '--start[start the session if it is not running]' \
+    '--via[install backend]:backend:(crond)' \
+    '--all[ls: include finished todos]' \
+    '--now[tick: pretend it is this time]:time:' \
     '--bin-dir[directory for pp alias symlinks]:dir:_files -/' \
     '--check[report only; exit 1 when an update is available]' \
     '--registry[npm registry for pp update]:url:' \
