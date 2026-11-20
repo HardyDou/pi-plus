@@ -1655,6 +1655,35 @@ function cmdStatus(config, options, ui) {
     return list;
   };
 
+  // scheduled jobs aimed at each session: the answer to "why does this pane
+  // keep talking on its own?" without reading cron.json by hand
+  const cronFor = (() => {
+    let jobs = [];
+    try {
+      jobs = readJobs();
+    } catch {
+      jobs = [];
+    }
+    const counts = new Map();
+    let broadcast = 0;
+    for (const job of jobs) {
+      if (job.action === "heal") continue;
+      if (job.session === ALL_SESSIONS) {
+        broadcast++;
+        continue;
+      }
+      if (!job.session) continue;
+      counts.set(job.session, (counts.get(job.session) ?? 0) + 1);
+    }
+    return (tmuxName) => {
+      const own = counts.get(tmuxName) ?? 0;
+      if (own && broadcast) return `${own}*`;
+      if (own) return String(own);
+      if (broadcast) return "*";
+      return "";
+    };
+  })();
+
   const SORT_KEYS = new Set(["config", "idle", "name"]);
   const sortKey = options.sort ?? "config";
   if (!SORT_KEYS.has(sortKey)) {
@@ -1698,6 +1727,8 @@ function cmdStatus(config, options, ui) {
       idleSeconds,
       idle: idleSeconds === null ? "" : shortAge(idleSeconds),
       remotePiName: session.remotePiName ?? "",
+      // scheduled jobs aimed at this session (heal jobs are fleet-wide, not per session)
+      cron: cronFor(session.tmuxName),
       // "who is looking at this" — the question before `pp down` on a shared box
       client: (() => {
         const client = clientsFor(session.node).find((entry) => entry.session === session.tmuxName);
@@ -1738,10 +1769,13 @@ function cmdStatus(config, options, ui) {
   const showNode = (config.nodes?.length ?? 0) > 0;
   // the CLIENT column only earns its width when somebody is actually attached
   const showClient = rows.some((row) => row.client);
+  // so does CRON: a fleet with no schedules should not pay for the column
+  const showCron = rows.some((row) => row.cron);
   const headers = [
     ...(showNode
       ? ["#", "NAME", "NODE", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]
       : ["#", "NAME", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]),
+    ...(showCron ? ["CRON"] : []),
     ...(showClient ? ["CLIENT"] : []),
   ];
   const table = shown.map((r) => [
@@ -1762,6 +1796,7 @@ function cmdStatus(config, options, ui) {
           ? `${r.piSessionName} (new)`
           : "(new)",
     r.remotePiName,
+    ...(showCron ? [r.cron || "-"] : []),
     ...(showClient ? [r.client || "-"] : []),
   ]);
   const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
@@ -1777,6 +1812,10 @@ function cmdStatus(config, options, ui) {
     const color = row.state === "running" ? "green" : row.state === "attached" ? "cyan" : row.state === "dead" || row.state === "unreachable" ? "red" : "dim";
     colored[stateAt] = ui.paint(color, colored[stateAt]);
     const idleAt = stateAt + 1;
+    if (showCron && row.cron) {
+      const at = widths.length - (showClient ? 2 : 1);
+      colored[at] = ui.paint("cyan", colored[at]);
+    }
     if (showClient && row.client) {
       const at = widths.length - 1;
       colored[at] = ui.paint(row.client.startsWith(`${process.env.USER ?? "?"}@`) ? "dim" : "cyan", colored[at]);
@@ -1810,6 +1849,7 @@ function cmdStatus(config, options, ui) {
         (rows.some((r) => r.reason === "hand")
           ? `  ${ui.paint("dim", "(hand) = stopped on purpose; pp up <name> brings it back")}`
           : "") +
+        (showCron ? `  ${ui.paint("dim", "cron: jobs aimed here (* = every session)")}` : "") +
         (unreachableNodes.length ? `  ${ui.paint("red", `unreachable: ${unreachableNodes.join(", ")}`)}` : "") +
         `  ${ui.paint("dim", `config: ${config.path}`)}`,
     );

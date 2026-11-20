@@ -387,6 +387,10 @@ check "cron add --heal"               0 'heal \(up --drift\)'    bash -c "cd $E2
 check "cron add --heal rejects a session" 1 'needs no session'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --heal --session e-always --every 5m"
 check "cron add --heal rejects a prompt"  1 'no prompt'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --heal --every 5m 'hi'"
 check "cron ls names the heal job"    0 'drift \(up --drift\)'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
+check "cron add broadcast job"        0 'scheduled'               bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --all --every 10m 'hb'"
+check "status shows which sessions get jobs" 0 'CRON'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG status"
+check "status marks a broadcast with *"      0 '"cron": "[*]"'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG status --json"
+check "status --json carries the job count"  0 '"cron"'         bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG status --json"
 HEAL_ID=$(cd "$E2E" && "$ROOT/bin/pp.js" -c "$CFG" cron ls --json | grep -B3 '"action": "heal"' | grep -o '"id": "[0-9a-f]*"' | head -1 | cut -d'"' -f4)
 check "heal restarts a dead session"  0 'delivered'              bash -c "tmux -L $SOCK kill-session -t e-onfail 2>/dev/null; cd $E2E && $ROOT/bin/pp.js -c $CFG cron run $HEAL_ID"
 check "heal brought it back"          0 'e-onfail'               bash -c "tmux -L $SOCK ls -F '#{session_name}'"
