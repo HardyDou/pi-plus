@@ -1475,6 +1475,15 @@ function cmdStatus(config, options, ui) {
 }
 
 /** Rows for the sessions panel: config entries first, then live strays. */
+/** "3m" for a session that last moved three minutes ago. */
+function shortAge(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) return "";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
+  if (seconds < 86400) return `${Math.round(seconds / 3600)}h`;
+  return `${Math.round(seconds / 86400)}d`;
+}
+
 function tuiSessionRows(config, live) {
   const rows = [];
   const seen = new Set();
@@ -1487,18 +1496,29 @@ function tuiSessionRows(config, live) {
     seen.add(session.tmuxName);
     const entry = live.get(session.tmuxName) ?? null;
     const state = stateOf(entry);
+    const age = entry?.activity ? shortAge(Date.now() / 1000 - entry.activity) : "";
     rows.push({
       name: session.tmuxName,
       node: session.node ?? "",
       state,
-      label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}${session.node ? ` @${session.node}` : ""}  ${state}`,
+      activity: entry?.activity ?? 0,
+      age,
+      label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}${session.node ? ` @${session.node}` : ""}  ${state}${age ? ` ${age}` : ""}`,
       dim: state === "off" || state === "dead",
     });
   }
   for (const [name, entry] of live) {
     if (seen.has(name)) continue;
     const state = stateOf(entry);
-    rows.push({ name, state, label: ` - ${name}  ${state} (not in config)`, dim: true });
+    const age = entry?.activity ? shortAge(Date.now() / 1000 - entry.activity) : "";
+    rows.push({
+      name,
+      state,
+      activity: entry?.activity ?? 0,
+      age,
+      label: ` - ${name}  ${state}${age ? ` ${age}` : ""} (not in config)`,
+      dim: true,
+    });
   }
   return rows;
 }

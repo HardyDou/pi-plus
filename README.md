@@ -313,11 +313,12 @@ pp todo ls --all --json       # 连已完成的、机器可读
 │ 6 risk-01  running                     │ │   a1b2c3d fix: ...                                    │
 │ 7 risk-02  running                     │ │ ⏳ Working...                                          │
 └────────────────────────────────────────┘ └───────────────────────────────────────────────────────┘
- ↑↓ move   Tab panel   Enter attach   d done   [ ] width   r refresh   q quit
+ ↑↓ move   PgUp/PgDn scroll   Tab panel   Enter attach   d done   [ ] width   -/+ rows   f follow   q quit
 ```
 
 - 待办框的高度跟着内容走（空 3 行、每条 +1、最多 9 行），预览拿走剩下的行；
 - 终端窄于 88 列时自动竖排（会话 / 待办 / 预览），空待办框直接隐藏；
+- 会话行末的 `3m` / `2h` 是这条会话最后一次有动静的时间（`#{session_activity}`），一眼看出谁在干活、谁已经晾了一下午；
 - 从会话回到面板：`pp back` 或 `/pp-back`（`switch-client`，不 detach，不留残留画面）。
 
 按键：
@@ -325,6 +326,9 @@ pp todo ls --all --json       # 连已完成的、机器可读
 | 键 | 作用 |
 |---|---|
 | `↑` `↓` / `k` `j` | 在聚焦的列表里移动 |
+| `PgUp` / `PgDn` | 整页翻动列表（光标跟着走，标题框不会跑丢） |
+| `-` / `+` | 待办框少一行 / 多一行，预览把行让出来或收回去 |
+| `f` | 暂停 / 恢复预览跟随（要读一段输出时按住它别动） |
 | `Tab` | 切换列表（会话 ↔ 待办） |
 | `Enter` | 进入（会话：在 tmux 里 `switch-client`，在 tmux 外 `tmux attach`）；从待办进则进它所属的会话 |
 | `d` | 把选中的待办标记完成 |

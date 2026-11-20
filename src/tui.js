@@ -130,6 +130,9 @@ export function parseKeys(input) {
       else if (char === "]") keys.push("wider");
       else if (char === "g") keys.push("top");
       else if (char === "G") keys.push("bottom");
+      else if (char === "-") keys.push("less");
+      else if (char === "+" || char === "=") keys.push("more");
+      else if (char === "f") keys.push("follow");
       i += 1;
     }
   }
@@ -182,14 +185,19 @@ export function todoBoxHeight(todoCount, body) {
   return Math.max(3, Math.min(wanted, body - 3));
 }
 
-export function computeLayout(cols, rows, { leftWidth: wanted = 0, todoCount = 0 } = {}) {
+export function computeLayout(cols, rows, { leftWidth: wanted = 0, todoCount = 0, todoRows = 0 } = {}) {
   const width = Math.max(40, cols);
   const height = Math.max(10, rows);
   const footer = 1;
   const body = height - footer;
   const mode = width < STACK_WIDTH ? "stacked" : "split";
   // on a narrow terminal an empty todo box is pure overhead: give the rows to the preview
-  const todoHeight = mode === "stacked" && (Number(todoCount) || 0) === 0 ? 0 : todoBoxHeight(todoCount, body);
+  const forced = Math.max(0, Math.round(Number(todoRows) || 0));
+  const autoHeight = mode === "stacked" && (Number(todoCount) || 0) === 0 ? 0 : todoBoxHeight(todoCount, body);
+  // -/+ pin the todo box to an exact height; keep at least 3 rows for the preview
+  const todoHeight = forced
+    ? Math.max(TODO_MIN_HEIGHT, Math.min(forced, Math.max(TODO_MIN_HEIGHT, body - 3)))
+    : autoHeight;
 
   if (mode === "stacked") {
     const previewMin = 3;
@@ -321,7 +329,22 @@ export function moveSelection(index, length, delta) {
  *   io.attach(name) -> promise settled when tmux gives the terminal back
  */
 export function createTui({ io, version = "", leftWidth = 0 }) {
-  let state = { sessions: [], todos: [], preview: { title: "—", lines: [] }, focus: "sessions", footer: "", todoOffset: 0, sessionIndex: 0, todoIndex: 0, leftWidth: 0 };
+  let state = {
+    sessions: [],
+    todos: [],
+    preview: { title: "—", lines: [] },
+    focus: "sessions",
+    footer: "",
+    todoOffset: 0,
+    sessionOffset: 0,
+    sessionIndex: 0,
+    todoIndex: 0,
+    leftWidth: 0,
+    /** 0 = let the layout decide; otherwise the todo box gets exactly this many rows */
+    todoRows: 0,
+    /** false = the preview keeps the last frame it showed (someone is reading it) */
+    follow: true,
+  };
   let running = false;
   /**
    * `running` means "the panel owns the screen"; `finished` means "the user wants out".
@@ -336,13 +359,16 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
   state.leftWidth = leftWidth;
 
   function footerText(extra = "") {
-    const base = " ↑↓ move · Tab panel · Enter attach · d done · [ ] width · r refresh · q quit ";
-    const text = extra ? `${extra}  ${base}` : base;
+    const paused = state.follow === false ? "PAUSED · " : "";
+    const base = " ↑↓ move · PgUp/PgDn scroll · Tab panel · Enter attach · d done · [ ] width · -/+ rows · f follow · q quit ";
+    const text = extra ? `${paused}${extra}  ${base}` : `${paused}${base}`;
     return `${DIM}${padWidth(text, io.size().cols)}${RESET}`;
   }
 
   function indexItems() {
-    const sessions = state.sessions.map((item, index) => ({ ...item, selected: index === state.sessionIndex }));
+    const sessions = state.sessions
+      .map((item, index) => ({ ...item, selected: index === state.sessionIndex }))
+      .slice(Math.max(0, state.sessionOffset ?? 0));
     const visible = state.todos.slice(state.todoOffset, state.todoOffset + 200);
     const todos = visible.map((item, index) => ({ ...item, selected: state.todoOffset + index === state.todoIndex }));
     return { ...state, sessions, todos };
@@ -350,7 +376,7 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
 
   function draw() {
     const { cols, rows } = io.size();
-    const layout = computeLayout(cols, rows, { leftWidth: state.leftWidth, todoCount: state.todos.length });
+    const layout = computeLayout(cols, rows, { leftWidth: state.leftWidth, todoCount: state.todos.length, todoRows: state.todoRows });
     const model = indexItems();
     model.footer = footerText(state.note ?? "");
     // never paint more rows than the terminal actually has
@@ -364,7 +390,7 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
     const note = [extra, kept].filter(Boolean).join(" · ");
     state.sessions = data.sessions ?? [];
     state.todos = data.todos ?? [];
-    state.preview = data.preview ?? { title: "—", lines: [] };
+    if (state.follow) state.preview = data.preview ?? { title: "—", lines: [] };
     state.sessionIndex = Math.min(state.sessionIndex, Math.max(0, state.sessions.length - 1));
     state.todoIndex = Math.min(state.todoIndex, Math.max(0, state.todos.length - 1));
     state.note = note;
@@ -397,6 +423,26 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
     finished = true;
   }
 
+  /** How many rows the focused panel can show right now. */
+  function panelHeight(focus) {
+    const { cols, rows } = io.size();
+    const layout = computeLayout(cols, rows, { leftWidth: state.leftWidth, todoCount: state.todos.length, todoRows: state.todoRows });
+    const box = focus === "sessions" ? layout.sessions : layout.todos;
+    return Math.max(1, (box?.h ?? 3) - 2);
+  }
+
+  /** Scroll just enough that the cursor stays on screen. */
+  function keepVisible() {
+    const visible = panelHeight(state.focus);
+    const window = state.focus === "sessions" ? "sessionOffset" : "todoOffset";
+    const index = state.focus === "sessions" ? state.sessionIndex : state.todoIndex;
+    const total = state.focus === "sessions" ? state.sessions.length : state.todos.length;
+    let offset = Math.max(0, state[window] ?? 0);
+    if (index < offset) offset = index;
+    else if (index >= offset + visible) offset = index - visible + 1;
+    state[window] = Math.max(0, Math.min(offset, Math.max(0, total - visible)));
+  }
+
   async function handle(key) {
     if (key === "quit" || key === "escape") {
       quit();
@@ -419,13 +465,39 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
       const delta = key === "up" ? -1 : 1;
       if (state.focus === "sessions") state.sessionIndex = moveSelection(state.sessionIndex, state.sessions.length, delta);
       else state.todoIndex = moveSelection(state.todoIndex, state.todos.length, delta);
+      keepVisible();
+      await refresh();
+      return;
+    }
+    if (key === "pageup" || key === "pagedown") {
+      const step = Math.max(1, panelHeight(state.focus) - 1);
+      const delta = key === "pageup" ? -step : step;
+      if (state.focus === "sessions") state.sessionIndex = moveSelection(state.sessionIndex, state.sessions.length, delta);
+      else state.todoIndex = moveSelection(state.todoIndex, state.todos.length, delta);
+      keepVisible();
       await refresh();
       return;
     }
     if (key === "top" || key === "bottom") {
       if (state.focus === "sessions") state.sessionIndex = key === "top" ? 0 : Math.max(0, state.sessions.length - 1);
       else state.todoIndex = key === "top" ? 0 : Math.max(0, state.todos.length - 1);
+      keepVisible();
       await refresh();
+      return;
+    }
+    if (key === "less" || key === "more") {
+      // the todo box and the preview share one column: asking one for rows takes them from the other
+      const { rows } = io.size();
+      const layout = computeLayout(io.size().cols, rows, { leftWidth: state.leftWidth, todoCount: state.todos.length, todoRows: state.todoRows });
+      const current = state.todoRows || layout.todos.h;
+      state.todoRows = Math.max(TODO_MIN_HEIGHT, Math.min(current + (key === "more" ? 2 : -2), Math.max(TODO_MIN_HEIGHT, layout.height - 4)));
+      keepVisible();
+      await refresh(`todo box: ${state.todoRows} rows`);
+      return;
+    }
+    if (key === "follow") {
+      state.follow = !state.follow;
+      await refresh(state.follow ? "following the preview" : "preview paused — f resumes");
       return;
     }
     if (key === "refresh") {

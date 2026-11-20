@@ -136,6 +136,59 @@ test("renderFrame scrolls the todo list with todoOffset", () => {
   assert.doesNotMatch(text, /todo-0 /);
 });
 
+test("PageDown scrolls the session list instead of running off the screen", async () => {
+  const sessions = Array.from({ length: 40 }, (_, index) => ({ label: `row-${index}`, name: `s${index}` }));
+  const { input, io, lastFrame } = fakeIo({ sessions, todos: [], preview: [] });
+  const tui = createTui({ io, version: "9.9.9" });
+  const done = tui.start();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  for (let i = 0; i < 8; i += 1) input.emit("data", "\u001b[6~");
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  const last = lastFrame();
+  input.emit("data", "q");
+  await done;
+  assert.match(last, /row-[23][0-9]/, "the cursor went deep into the list and the frame followed it");
+  assert.doesNotMatch(last, /row-0 /, "the top of the list scrolled out of view");
+});
+
+test("f pauses the preview and f again resumes it", async () => {
+  let calls = 0;
+  const { input, io, lastFrame } = fakeIo({ sessions: [{ label: "1 alpha", name: "alpha" }], todos: [], preview: [] });
+  io.refresh = async () => {
+    calls += 1;
+    return {
+      sessions: [{ label: "1 alpha", name: "alpha" }],
+      todos: [],
+      preview: { title: "alpha", lines: [`frame-${calls}`] },
+    };
+  };
+  const shown = () => (lastFrame().match(/frame-(\d+)/) ?? [])[1];
+  const tui = createTui({ io, version: "9.9.9" });
+  const done = tui.start();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  input.emit("data", "f");
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const frozen = shown();
+  assert.ok(frozen, "the preview is on screen");
+  await new Promise((resolve) => setTimeout(resolve, 1300));
+  assert.equal(shown(), frozen, "the preview kept the frame it was showing");
+  assert.match(lastFrame(), /PAUSED/);
+  input.emit("data", "f");
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  assert.notEqual(shown(), frozen, "following again picks up the live pane");
+  input.emit("data", "q");
+  await done;
+});
+
+test("- and + give the todo box an exact height", () => {
+  const auto = computeLayout(120, 30, { todoCount: 2 });
+  const tall = computeLayout(120, 30, { todoCount: 2, todoRows: 9 });
+  assert.equal(tall.todos.h, 9);
+  assert.equal(tall.preview.h, auto.preview.h - (9 - auto.todos.h), "the preview lends the rows");
+  const huge = computeLayout(120, 30, { todoCount: 2, todoRows: 999 });
+  assert.ok(huge.preview.h >= 3, "the preview always keeps three rows");
+});
+
 test("moveSelection clamps to the list", () => {
   assert.equal(moveSelection(0, 3, -1), 0);
   assert.equal(moveSelection(2, 3, 1), 2);

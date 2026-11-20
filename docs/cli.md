@@ -322,6 +322,9 @@ pp new api --node prod-01 -C api --save   # 落到 /srv/apps/api
 | `d` | 待办标记完成 |
 | `[` / `]` | 左列变窄 / 变宽（每按一次 4 列） |
 | `r` | 重绘 |
+| `PgUp` / `PgDn` | 整页翻动列表 |
+| `-` / `+` | 待办框行数 -1 / +1（预览相应让出或收回） |
+| `f` | 暂停 / 恢复预览跟随（暂停时 footer 显示 `PAUSED`） |
 | `q` / `Esc` / `Ctrl-C` | 退出 |
 
 ```bash

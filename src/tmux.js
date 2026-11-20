@@ -248,6 +248,7 @@ export class Tmux {
           "#{pane_current_path}",
           "#{session_created}",
           "#{session_attached}",
+          "#{session_activity}",
         ].join(FIELD_SEP),
       ],
       { allowFailure: true, readOnly: true },
@@ -256,14 +257,16 @@ export class Tmux {
     if (res.status !== 0) return sessions;
     for (const line of decodeFields(res.stdout).split("\n")) {
       if (!line.trim()) continue;
-      const [name, paneId, pid, command, dead, path, created, attached] = line.split(FIELD_SEP);
+      const [name, paneId, pid, command, dead, path, created, attached, activity] = line.split(FIELD_SEP);
       const entry = sessions.get(name) ?? {
         name,
         path,
         created: Number(created) || 0,
         attached: Number(attached) || 0,
+        activity: Number(activity) || 0,
         panes: [],
       };
+      entry.activity = Math.max(entry.activity, Number(activity) || 0);
       entry.panes.push({ id: paneId, pid: Number(pid) || 0, command, dead: dead === "1" });
       sessions.set(name, entry);
     }
