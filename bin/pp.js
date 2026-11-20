@@ -33,6 +33,9 @@ function parseArgs(argv) {
   while (args.length > 0) {
     const arg = args.shift();
     if (arg === "--") {
+      // Everything after `--` is an opaque payload (a remote command, a prompt
+      // with dashes in it), but the tokens before it are still names.
+      options.rest = [...args];
       options.names.push(...args);
       break;
     }
@@ -89,6 +92,8 @@ function parseArgs(argv) {
         case "--password": options.password = takeValue(flag, inline); break;
         case "--password-env": options.passwordEnv = takeValue(flag, inline); break;
         case "--note": options.note = takeValue(flag, inline); break;
+        case "--node": options.node = takeValue(flag, inline); break;
+        case "--timeout": options.timeout = Number(takeValue(flag, inline)); break;
         case "--from-ssh-config": options.fromSshConfig = takeValue(flag, inline); break;
         case "--wait": options.wait = Number(takeValue(flag, inline)) || 5000; break;
         case "--no-wait": options.noWait = true; break;

@@ -157,7 +157,8 @@ pp mesh send backend "跑一下测试" --reply 60000        # 等它回话，收
 
 ```bash
 pp node add prod-01 --host 10.0.0.11 --user deploy --identity ~/.ssh/id_ed25519
-pp node test prod-01        # 一次 ssh 往返：os / tmux / pi / pp / 会话数 / 负载
+pp node test prod-01                 # tmux/pi/pp/负载/会话数，一次 ssh 往返
+pp node exec prod-01 -- df -h /      # 一条命令，不占会话
 pp node ls                  # NODE  TARGET  PORT  AUTH  SESSIONS  NOTE
 ```
 

@@ -176,12 +176,22 @@ function requireConfig(options, ui) {
 }
 
 function selectSessions(config, names, ui, { all = false, options = null } = {}) {
+  // `--node <name>` narrows any batch command to one machine, so a broken host
+  // can be restarted without touching the other 40 sessions.
+  const onlyNode = options?.node;
+  if (onlyNode !== undefined && !(config.nodes ?? []).some((node) => node.name === onlyNode)) {
+    ui.error(`no node "${onlyNode}" — see pp node ls`);
+    process.exit(2);
+  }
+  const onNode = (list) => (onlyNode === undefined ? list : list.filter((s) => (s.node ?? null) === onlyNode));
   if (!names || names.length === 0) {
-    if (all) return config.sessions;
+    if (all) return onNode(config.sessions);
     // Compose-style: `restart: no` is never part of a bare `up`/`restart`, and
     // a reconcile pass also honours sessions stopped by hand.
-    return config.sessions.filter(
-      (s) => s.restart !== "no" && !(options?.reconcile && isStopped(config.path, s.name)),
+    return onNode(
+      config.sessions.filter(
+        (s) => s.restart !== "no" && !(options?.reconcile && isStopped(config.path, s.name)),
+      ),
     );
   }
   const picked = [];
@@ -495,7 +505,7 @@ async function cmdUp(config, options, ui) {
 
 function cmdDown(config, options, ui) {
   // Stopping is always safe: a bare "down" stops everything, enabled or not.
-  const sessions = selectSessions(config, options.names, ui, { all: true });
+  const sessions = selectSessions(config, options.names, ui, { all: true, options });
   let killed = 0;
   let missing = 0;
   for (const session of sessions) {
@@ -712,7 +722,7 @@ async function cmdRm(config, options, ui) {
     process.exitCode = 2;
     return;
   }
-  const sessions = selectSessions(config, options.names, ui, { all: false });
+  const sessions = selectSessions(config, options.names, ui, { all: false, options });
   if (!sessions.length) {
     ui.error("nothing to remove — name the session(s): pp rm <name|#>");
     process.exitCode = 2;
@@ -1113,6 +1123,75 @@ function cmdNodeSsh(config, options, ui) {
   process.exit(res.status ?? 0);
 }
 
+/**
+ * Run one command on one machine, or on all of them.
+ *
+ * The tokens after `--` are joined into a single remote command string: ssh
+ * hands the remote shell one command line, so anything else would lose the
+ * quoting the user typed (`pp node exec db -- docker ps --format {{.Names}}`).
+ */
+function cmdNodeExec(config, options, ui) {
+  const command = options.rest ?? [];
+  // names holds the tokens before `--` *and* the payload after it.
+  const refs = options.all
+    ? (config?.nodes ?? []).map((node) => node.name)
+    : options.names.slice(1, options.names.length - (options.rest?.length ?? 0));
+  if (!refs.length) {
+    ui.error("usage: pp node exec <name>... | --all -- <command>");
+    process.exit(2);
+  }
+  if (!command.length) {
+    ui.error("nothing to run — put the command after a --, e.g. pp node exec db-01 -- uptime");
+    process.exit(2);
+  }
+  const remote = command.join(" ");
+  const timeout = Math.max(1, Number(options.timeout ?? 60)) * 1000;
+  const results = [];
+  for (const ref of refs) {
+    const node = findNode(config, ref);
+    if (!node) {
+      results.push({ node: ref, ok: false, status: null, ms: 0, stdout: "", stderr: `no node "${ref}"` });
+      continue;
+    }
+    const started = Date.now();
+    let result;
+    try {
+      const res = runOnNode(node, [remote], { timeout });
+      result = {
+        node: node.name,
+        target: nodeTarget(node),
+        ok: res.status === 0 && !res.timedOut,
+        status: res.status,
+        ms: Date.now() - started,
+        stdout: res.stdout,
+        stderr: res.timedOut ? `${res.stderr}${res.stderr ? "\n" : ""}timed out after ${timeout / 1000}s` : res.stderr,
+      };
+    } catch (err) {
+      result = {
+        node: node.name,
+        target: nodeTarget(node),
+        ok: false,
+        status: null,
+        ms: Date.now() - started,
+        stdout: "",
+        stderr: err.message,
+      };
+    }
+    results.push(result);
+    if (ui.json) continue;
+    if (options.quiet && result.ok) continue;
+    const head = result.ok
+      ? `${ui.paint("green", "ok")}   ${ui.paint("cyan", result.node.padEnd(12))} ${ui.paint("dim", `exit 0  ${result.ms}ms`)}`
+      : `${ui.paint("red", "fail")} ${ui.paint("cyan", result.node.padEnd(12))} ${ui.paint("dim", `exit ${result.status ?? "?"}  ${result.ms}ms`)}`;
+    ui.out(refs.length > 1 ? `===== ${head}` : head);
+    const body = (result.stdout ?? "").replace(/\n$/, "");
+    if (body) ui.out(body);
+    if (result.stderr.trim()) ui.out(ui.paint("dim", result.stderr.trimEnd()));
+  }
+  if (ui.json) ui.out(JSON.stringify(results.length === 1 ? results[0] : results, null, 2));
+  if (results.some((result) => !result.ok)) process.exitCode = 1;
+}
+
 async function cmdNode(config, options, ui) {
   const sub = (options.names[0] ?? "ls").toLowerCase();
   if (["ls", "list", "status"].includes(sub)) {
@@ -1127,13 +1206,18 @@ async function cmdNode(config, options, ui) {
   if (["rm", "remove", "delete"].includes(sub)) return cmdNodeRm(config, options, ui);
   if (["test", "ping", "probe", "check"].includes(sub)) return cmdNodeTest(config, options, ui);
   if (["ssh", "shell", "connect"].includes(sub)) return cmdNodeSsh(config, options, ui);
-  ui.error(`unknown node command "${sub}" — try: pp node ls | show | add | rm | test | ssh`);
+  if (["exec", "run", "sh"].includes(sub)) return cmdNodeExec(config, options, ui);
+  ui.error(`unknown node command "${sub}" — try: pp node ls | show | add | rm | test | exec | ssh`);
   process.exit(2);
 }
 
 function cmdStatus(config, options, ui) {
   // status lists every configured session, whatever its restart policy.
-  const sessions = selectSessions(config, options.names, ui, { all: true });
+  const sessions = selectSessions(config, options.names, ui, { all: true, options });
+  if (!sessions.length && options.node) {
+    ui.info(`no sessions on node "${options.node}"`);
+    return;
+  }
   // One tmux query per machine, not one per session: a node is expensive to
   // reach and every session on it shares the answer.
   const liveCache = new Map();
@@ -1331,6 +1415,7 @@ async function cmdTui(config, options, ui) {
 
   // Sessions can live on other machines: merge one listing per node, remember
   // who owns each name, and hand back a tmux handle for the right machine.
+  let sessionOwner = new Map();
   const readLive = () => {
     const live = new Map();
     const owner = new Map();
@@ -1347,6 +1432,7 @@ async function cmdTui(config, options, ui) {
         owner.set(name, nodeName);
       }
     }
+    sessionOwner = owner;
     return { live, tmuxFor: (name) => makeTmux(config, options, { node: owner.get(name) ?? null }) };
   };
 
@@ -1439,9 +1525,18 @@ async function cmdTui(config, options, ui) {
           tui?.noteFromAttach(`${name} is this panel — Tab switches panels, q quits, d closes a todo`);
           return;
         }
-        if (!tmux.sessionExists(name)) {
+        // the session may live on another machine: ask the machine that owns it
+        const handle = makeTmux(config, options, { node: sessionOwner.get(name) ?? null });
+        if (!handle.sessionExists(name)) {
           // no ui.warn here: printing into a live alt screen tears the frame
           tui?.noteFromAttach(`${name} is not running — start it with: pp up ${name}`);
+          return;
+        }
+        if (handle.remote) {
+          // You cannot point a local tmux client at a remote session, so the
+          // panel hands its own terminal to ssh and gets it back on detach.
+          const status = handle.attach(name);
+          if (status !== 0) tui?.noteFromAttach(`could not attach to ${name} on ${handle.remote.node.name} — exited ${status}`);
           return;
         }
         if (process.env.TMUX) {
@@ -1765,7 +1860,7 @@ async function cmdMeshResolve(config, options, ui) {
     ui.error("no config found; cannot resolve session names (use a raw mesh address instead)");
     process.exit(2);
   }
-  const sessions = selectSessions(config, options.names, ui, { all: true });
+  const sessions = selectSessions(config, options.names, ui, { all: true, options });
   let peers = [];
   try {
     peers = await probePeers({ timeoutMs: options.wait ?? 3000 });

@@ -107,9 +107,50 @@ sessions:
 | `pp node add <name> …` | 新增；同名视为编辑，会报告改了哪些字段 |
 | `pp node rm <name>` | 删除；还有会话指向它时**拒绝**，`--force` 才硬删（会留下悬空引用） |
 | `pp node test <name>` | 一次 ssh 往返，报告机器体检结果（`--all` 测全部） |
+| `pp node exec <name>… -- <cmd>` | 在机器上跑一条命令，不占会话；`--all` 全机群，`--timeout <秒>` 限时，`--json` 机读 |
 | `pp node ssh <name>` | 照着登记的参数开一个交互式 ssh 会话 |
 
 `pp node add --dry-run` 只打印将要写入的 YAML 块，不动文件。
+
+### 用 `pp node exec` 做巡检（不开会话）
+
+```bash
+pp node exec db-01 -- df -h / | tail -1          # 一台
+pp node exec --all -- uptime                     # 所有机器，逐台打印
+pp node exec --all -- 'systemctl is-active nginx || true'
+pp node exec --all --json -- 'cat /proc/loadavg' # 机读，接监控
+pp node exec --all --quiet -- 'test -f /etc/cron.d/backup'   # 只关心失败的
+```
+
+`--` 之后的整串作为**一条**远端命令行交给远端 shell，管道、通配符、引号都按你在那边敲的行为执行。
+任一台非零退出，`pp` 自身返回 1（`--json` 时每台一条记录）。`--timeout` 默认 60 秒，超时按失败计。
+
+`pp node test --json` 的字段是稳定的，可以直接当监控契约：
+
+```json
+{ "node": "prod-01", "ok": true, "ms": 412, "host": "prod-01.example", "os": "Linux 6.8.0",
+  "arch": "x86_64", "tmux": "tmux 3.4", "pi": "0.13.1", "pp": "-", "sessions": "3",
+  "load": "0.42 0.51 0.60", "up": "1182" }
+```
+
+（`node` 是远端的 node 版本；读不到的键是 `"-"`，`up` 单位是秒。）
+
+### 在面板里进入远端会话
+
+`pp tui` 的会话列表会给远端会话标上 `@<node>`，右下预览也是按会话所在机器抓的（一条 ssh 往返）。
+在那行上按 Enter：本地面板把自己的终端交给 `ssh -t <node> tmux attach`，你在远端会话里 detach（或 `/pp-quit`）
+就回到面板 —— 不能像本机那样 `switch-client`，因为 client 在本地、会话在远端。
+
+### 只对一台机器批量操作
+
+```bash
+pp up --node t114            # 只把这台机器上的会话拉起来
+pp down --node t114          # 只停这台机器上的
+pp restart --node t114       # 只重启这台机器上的
+pp ls --node t114            # 只看这台机器上的会话
+```
+
+不带名字时 `--node` 只影响"批量"命令（`up`/`down`/`restart`/`ls`/`send`），单会话命令本来就已经定位到具体机器了。
 
 ## 远端会话是怎么跑起来的
 
