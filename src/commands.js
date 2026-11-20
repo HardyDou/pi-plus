@@ -84,6 +84,17 @@ import {
 } from "./crond.js";
 import { findCommand, suggestCommand } from "./help.js";
 import { EXAMPLE_CONFIG } from "./example.js";
+import {
+  addTodo,
+  clearTodos,
+  filterTodos,
+  readTodos,
+  removeTodo,
+  resolveTodo,
+  setTodoState,
+  todoRow,
+  TodoError,
+} from "./todo.js";
 
 const COLORS = {
   reset: "\u001b[0m",
@@ -113,6 +124,15 @@ function makeUi({ json = false, quiet = false, color = true } = {}) {
     },
     error: (line) => process.stderr.write(`${paint("red", "error:")} ${line}\n`),
   };
+}
+
+function tryLoadConfig(options) {
+  try {
+    return loadConfig({ configPath: options.config, cwd: options.cwd });
+  } catch (err) {
+    if (options.config) throw err;
+    return null;
+  }
 }
 
 function requireConfig(options, ui) {
@@ -468,6 +488,176 @@ async function confirmOnTerminal(question) {
  * `pp down` only stops them; this is the destructive one, so it asks first
  * (or demands --force when there is no terminal to ask on).
  */
+function printTodos(config, options, ui) {
+  let live = new Map();
+  try {
+    live = makeTmux(config, options).listSessions();
+  } catch {
+    live = new Map();
+  }
+  const todos = filterTodos(readTodos(), { session: options.session ?? null, all: options.all });
+  if (ui.json) {
+    ui.out(JSON.stringify(todos.map((todo) => todoRow(todo)), null, 2));
+    return;
+  }
+  if (!todos.length) {
+    const hint = options.all ? "nothing has been recorded yet" : "nothing needs you right now";
+    ui.info(`${hint} — pi records a todo when a session shows a prompt or ends on a question`);
+    return;
+  }
+  const records = todos.map((todo) => todoRow(todo, { live }));
+  const headers = ["#", "STATE", "WAITED", "SESSION", "KIND", "WHAT"];
+  const table = records.map((row, index) => [
+    String(index + 1),
+    row.state,
+    row.age,
+    row.session,
+    row.kind,
+    `${row.title}${row.live === false ? "  (offline)" : ""}`,
+  ]);
+  const widths = headers.map((header, i) => Math.max(header.length, ...table.map((row) => row[i].length)));
+  const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
+  ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
+  table.forEach((row) => {
+    const cells = row.map((value, i) => pad(value, widths[i]));
+    const state = row[1] === "new" ? "bold" : "dim";
+    cells[1] = pad(ui.paint(state, row[1]), widths[1] + (ui.color ? ui.paint(state, row[1]).length - row[1].length : 0));
+    ui.out(cells.join("  ").trimEnd());
+  });
+  ui.info("open one with: pp todo attach <#>   finish it with: pp todo done <#>");
+}
+
+async function cmdTodoAdd(options, ui) {
+  const text = options.names.join(" ").trim();
+  if (!text) {
+    ui.error('usage: pp todo add "what needs doing" [--session <name|#>]');
+    process.exit(2);
+  }
+  let session = options.session ?? null;
+  if (!session || session === "current") {
+    const config = tryLoadConfig(options);
+    // Only guess from tmux when we are actually inside a pane; outside it,
+    // `display-message -p '#S'` answers with whatever the server used last.
+    session = process.env.TMUX ? (currentTmuxSession(tmuxSocketOfEnv()) ?? null) : null;
+    if (!session && config) {
+      const running = config.sessions.filter((item) => {
+        try {
+          return makeTmux(config, options).sessionExists(item.tmuxName);
+        } catch {
+          return false;
+        }
+      });
+      if (running.length === 1) session = running[0].tmuxName;
+    }
+  }
+  if (!session) {
+    ui.error("which session is this todo for? pass --session <name> (pp ls lists them)");
+    process.exit(2);
+  }
+  const { todo, created } = addTodo({ session, kind: "manual", title: text }, process.env);
+  if (ui.json) {
+    ui.out(JSON.stringify(todoRow(todo), null, 2));
+    return;
+  }
+  ui.info(`${created ? "added" : "still open"} #${todo.id} ${session}: ${todo.title}`);
+}
+
+function todoRefs(rest, ui, usage) {
+  if (!rest.length) {
+    ui.error(usage);
+    process.exit(2);
+  }
+  return rest;
+}
+
+async function cmdTodoAttach(config, refs, options, ui) {
+  const todos = readTodos();
+  const todo = resolveTodo(todos, refs[0]).todo;
+  setTodoState(todos, todo, "seen");
+  const name = todo.session;
+  const known = config?.sessions.find((item) => item.name === name || item.tmuxName === name) ?? null;
+  if (known) {
+    return cmdAttach(config, { ...options, names: [known.name] }, ui);
+  }
+  const tmux = makeTmux(config, options);
+  if (!tmux.sessionExists(name)) {
+    ui.error(`session "${name}" is not running (starting it is up to the config that owns it)`);
+    process.exit(1);
+  }
+  if (options.dryRun) {
+    ui.info(`[dry-run] tmux attach-session -t =${name}`);
+    return;
+  }
+  process.exit(tmux.attach(name));
+}
+
+async function cmdTodo(config, options, ui) {
+  const rest = [...options.names];
+  const sub = rest.shift() ?? "ls";
+  try {
+    switch (sub) {
+      case "ls":
+      case "list":
+        return printTodos(config, options, ui);
+      case "add":
+      case "note":
+        return cmdTodoAdd({ ...options, names: rest }, ui);
+      case "done":
+      case "finish": {
+        const refs = todoRefs(rest, ui, "usage: pp todo done <#>");
+        const todos = readTodos();
+        const done = refs.map((ref) => resolveTodo(todos, ref).todo);
+        for (const todo of done) setTodoState(todos, todo, "done");
+        ui.info(done.length === 1 ? `done #${done[0].id} ${done[0].session}` : `done ${done.length} todos`);
+        return;
+      }
+      case "seen": {
+        const refs = todoRefs(rest, ui, "usage: pp todo seen <#>");
+        const todos = readTodos();
+        const seen = refs.map((ref) => resolveTodo(todos, ref).todo);
+        for (const todo of seen) setTodoState(todos, todo, "seen");
+        ui.info(`marked ${seen.length} todo(s) seen`);
+        return;
+      }
+      case "attach":
+      case "go": {
+        const refs = todoRefs(rest, ui, "usage: pp todo attach <#>");
+        return cmdTodoAttach(config, refs, options, ui);
+      }
+      case "rm":
+      case "remove":
+      case "delete": {
+        const refs = todoRefs(rest, ui, "usage: pp todo rm <#>");
+        let todos = readTodos();
+        const gone = refs.map((ref) => resolveTodo(todos, ref).todo);
+        for (const todo of gone) todos = removeTodo(todos, todo);
+        ui.info(`removed ${gone.length} todo(s)`);
+        return;
+      }
+      case "clear":
+      case "prune": {
+        const removed = clearTodos({ doneOnly: !options.force });
+        ui.info(
+          removed === 0
+            ? "nothing to clear"
+            : `cleared ${removed} ${options.force ? "todo(s)" : "finished todo(s)"}${options.force ? "" : " (add --force to drop open ones too)"}`,
+        );
+        return;
+      }
+      default:
+        ui.error(`unknown todo subcommand: ${sub}`);
+        ui.info("usage: pp todo [ls | add | done | seen | attach | rm | clear]");
+        process.exit(2);
+    }
+  } catch (err) {
+    if (err instanceof TodoError) {
+      ui.error(err.message);
+      process.exit(2);
+    }
+    throw err;
+  }
+}
+
 async function cmdRm(config, options, ui) {
   // never sweep: a bare `pp rm` would delete the whole farm by accident
   if (!options.names.length) {
@@ -1877,6 +2067,20 @@ export async function runCommand(command, options) {
         config = null;
       }
       return cmdCron(config, options, ui);
+    }
+    case "todo":
+    case "todos": {
+      let config = null;
+      try {
+        config = loadConfig({ configPath: options.config, cwd: options.cwd });
+      } catch (err) {
+        if (options.config) {
+          ui.error(err.message);
+          process.exit(2);
+        }
+        config = null;
+      }
+      return cmdTodo(config, options, ui);
     }
     case "restart": {
       const config = requireConfig(options, ui);

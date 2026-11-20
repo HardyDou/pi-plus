@@ -46,6 +46,7 @@ function parseArgs(argv) {
         case "--json": options.json = true; break;
         case "--dry-run": options.dryRun = true; break;
         case "--force": options.force = true; break;
+        case "--all": options.all = true; break;
         case "--reconcile": options.reconcile = true; break;
         case "--quiet": options.quiet = true; break;
         case "--verbose": options.verbose = true; break;

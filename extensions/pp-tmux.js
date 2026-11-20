@@ -6,6 +6,7 @@
  *   /pp-quit                detach this client, session and pi keep running (Ctrl-b d)
  *   /pp-status              where am I: session, pane, cwd, pi session, remote-pi name
  *   /pp-peek [name] [-n N]  last N lines of another session's pane (default 30)
+ *   /pp-todo                what is waiting for a decision, jump into it
  *
  * Plus one model-facing tool, `schedule`: it lets the agent queue a prompt to be
  * typed into a session later ("tomorrow at 9, tell me about the build"), which
@@ -21,6 +22,8 @@ import { promisify } from "node:util";
 
 import { Box, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+
+import { addTodo, closeSessionTodos, filterTodos, looksLikeQuestion, readTodos, settledMode } from "../src/todo.js";
 
 import {
   SEP,
@@ -413,4 +416,148 @@ export default function ppTmux(pi) {
       };
     },
   });
+  // ---------------------------------------------------------------------
+  // todos — "a session wants a decision from you"
+  //
+  // Nothing here depends on the model remembering to file a todo. Two pi
+  // events decide what belongs in the list:
+  //   ui_prompt_start  a blocking select/confirm/input is on screen
+  //   agent_settled    the run ended; only interesting if it ended on a question
+  // and `agent_start` closes the session's open todos, because a session that
+  // runs again has clearly been answered.
+  let lastAssistantText = "";
+
+  const sessionNameOrNull = async () => {
+    try {
+      return await currentSession();
+    } catch {
+      return null;
+    }
+  };
+
+  pi.on("turn_end", (event) => {
+    const message = event?.message;
+    if (!message || message.role !== "assistant") return;
+    const parts = Array.isArray(message.content) ? message.content : [];
+    const text = parts
+      .filter((part) => part?.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n")
+      .trim();
+    if (text) lastAssistantText = text;
+  });
+
+  pi.on("ui_prompt_start", async (event) => {
+    const where = await sessionNameOrNull();
+    if (!where) return;
+    const kind = String(event?.kind ?? "prompt");
+    const title = String(event?.title ?? `${kind} prompt`).trim();
+    try {
+      addTodo({ session: where, kind: "prompt", title: `waiting: ${title}`, body: kind });
+    } catch {
+      // a broken state dir must never break the prompt itself
+    }
+  });
+
+  pi.on("agent_settled", async (event) => {
+    if (event?.aborted) return;
+    const mode = settledMode();
+    if (mode === "off") return;
+    const text = lastAssistantText;
+    if (!text) return;
+    if (mode === "question" && !looksLikeQuestion(text)) return;
+    const where = await sessionNameOrNull();
+    if (!where) return;
+    const lastLine = text.split("\n").map((line) => line.trim()).filter(Boolean).pop() ?? text;
+    try {
+      addTodo({ session: where, kind: "settled", title: lastLine.slice(0, 100), body: text.slice(-1500) });
+    } catch {
+      // ignore
+    }
+    lastAssistantText = "";
+  });
+
+  pi.on("agent_start", async () => {
+    const where = await sessionNameOrNull();
+    if (!where) return;
+    try {
+      closeSessionTodos(where);
+    } catch {
+      // ignore
+    }
+  });
+
+  command("pp-todo", {
+    description: "List what is waiting for a decision, and jump into a session that asked",
+    handler: async (_args, ctx) => {
+      const todos = filterTodos(readTodos());
+      if (todos.length === 0) {
+        ctx.ui.notify("nothing is waiting for you", "info");
+        return;
+      }
+      const labels = todos.map((todo, index) => {
+        const age = Math.max(0, Math.round((Date.now() - Date.parse(todo.createdAt)) / 60000));
+        const how = age < 60 ? `${age}m` : `${Math.round(age / 60)}h`;
+        return `${index + 1}. ${todo.session} — ${todo.title}  (${how}, ${todo.kind})`;
+      });
+      const current = await sessionNameOrNull();
+      const pick = await ctx.ui.select("waiting for a decision", labels);
+      if (!pick) return;
+      const todo = todos[labels.indexOf(pick)];
+      if (!todo) return;
+      if (todo.session === current) {
+        ctx.ui.notify(`${todo.session} is this session`, "info");
+        return;
+      }
+      await switchClient(ctx, todo.session);
+      if (ctx.hasUI) ctx.ui.notify(`switched to ${todo.session}`, "info");
+    },
+  });
+
+  // The model-facing half: the agent can file something it cannot finish alone.
+  pi.registerTool({
+    name: "todo",
+    label: "Todo",
+    description:
+      "Record a decision you need from the user, or list what is already waiting. " +
+      "Use `add` when you are blocked on a choice only the user can make (which branch, delete or keep, " +
+      "which of two designs) and the user may not be looking at this session right now; " +
+      "use `list` to see what other sessions are waiting on. " +
+      "Never record something you can decide yourself.",
+    parameters: Type.Object({
+      action: Type.Optional(Type.String({ description: "add (default) or list", })),
+      title: Type.Optional(Type.String({ description: "One line: what you need the user to decide." })),
+      body: Type.Optional(Type.String({ description: "Optional detail: the options, the trade-off." })),
+      session: Type.Optional(Type.String({ description: "Session this belongs to; defaults to this one." })),
+    }),
+    async execute(_toolCallId, params) {
+      const action = (params.action ?? "add").toLowerCase();
+      if (action === "list") {
+        const todos = filterTodos(readTodos());
+        const lines = todos.map((todo) => `${todo.session}  ${todo.kind}  ${todo.title}`);
+        return {
+          content: [{ type: "text", text: lines.length ? lines.join("\n") : "nothing is waiting" }],
+          details: { todos },
+        };
+      }
+      if (!params.title) throw new Error("todo add needs a title");
+      const session = params.session ?? (await sessionNameOrNull()) ?? "unknown";
+      const { todo, created } = addTodo({
+        session,
+        kind: "manual",
+        title: params.title,
+        body: params.body ?? "",
+      });
+      return {
+        content: [
+          {
+            type: "text",
+            text: `${created ? "recorded" : "already open"} todo ${todo.id} for ${session}: ${todo.title}. The user sees it in \`pp todo\`.`,
+          },
+        ],
+        details: { todo, created },
+      };
+    },
+  });
+
 }

@@ -4,7 +4,7 @@ _pp() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local commands="new n create up start down stop rm remove delete restart status ls list attach a logs log send mesh cron check validate doctor init install autostart uninstall alias link update upgrade version help"
+  local commands="new n create up start down stop rm remove delete restart status ls list attach a logs log send mesh cron todo todos check validate doctor init install autostart uninstall alias link update upgrade version help"
 
   case "$prev" in
     -c|--config)
@@ -20,6 +20,10 @@ _pp() {
       ;;
     cron)
       COMPREPLY=( $(compgen -W "add ls list rm remove delete run fire tick install uninstall status logs log reset" -- "$cur") )
+      return 0
+      ;;
+    todo|todos)
+      COMPREPLY=( $(compgen -W "ls list add done finish seen attach go rm remove delete clear prune" -- "$cur") )
       return 0
       ;;
     alias|link)

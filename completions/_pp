@@ -21,6 +21,7 @@ _pp() {
     'send:type text into a pane'
     'mesh:remote-pi mesh (ls/send/resolve/inbox)'
     'cron:schedule prompts and commands (once/every/crontab)'
+    'todo:sessions waiting for a decision from you'
     'check:validate the config'
     'doctor:environment diagnostics'
     'init:write an example config'
@@ -67,6 +68,7 @@ _pp() {
     '--catch-up[how late a missed run may be]:duration:'
     '--start[start the session if it is not running]'
     '--via[install backend]:backend:(crond)'
+    '--all[ls: include finished todos]'
     '--now[tick: pretend it is this time]:time:'
     '--bin-dir[directory for pp alias symlinks]:dir:_files -/' \
     '--check[report only; exit 1 when an update is available]' \

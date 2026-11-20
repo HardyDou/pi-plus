@@ -231,6 +231,18 @@ socket 上，`tmux -L other list-sessions` 才看得到。
 | 作业在别的机器/配置上 | 作业记了 `socket` 与 `configPath`；换配置后重建，或 `pp cron ls` 看来源 |
 | `cron.json.lock` 残留 | 超过 10 分钟自动视为陈旧；急用可手动删除 |
 
+## 待办类（`pp todo`）
+
+| 现象 | 原因 / 处理 |
+|---|---|
+| 清单一直是空的 | 扩展是不是新版：`pp -V` ≥ 0.8.0，且 `pi install npm:pi-farm` 之后重开 pi；`PP_TODO_SETTLED=off` 时只有阻塞提示和手工登记会入列 |
+| 每个会话跑完都刷一条 | `PP_TODO_SETTLED` 默认只记「结尾是问句」的；你可能是 `always`，改回 `question` 或 `off` |
+| 待办一直不消失 | 只有会话**重新开跑**才会自动完成；你只是 `Esc` 关掉提示不算 |
+| 显示 `(offline)` | 该会话当前没在跑（按 `pp` 用的 socket 判断）；待办本身仍然有效 |
+| `no todo #9` | `#` 按创建时间倒序（含已完成的行）编号，先 `pp todo ls --all` 看实际条目数 |
+| 在 A 机器记的待办，B 机器看不到 | 待办是本机的（`$XDG_STATE_HOME/pi-plus/todos.json`），不跨机器同步 |
+| 想彻底不来待办 | `PP_TODO_SETTLED=off` 并且别调 `todo` 工具；阻塞提示仍会登记（那是真实阻塞） |
+
 ## 发布 / 安装类
 
 ### `npm i -g pi-farm` 装到的是别的东西或 404

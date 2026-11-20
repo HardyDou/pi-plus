@@ -29,6 +29,7 @@ pi-plus.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --n
 - **安全默认**：不经过 shell 拼接命令；tmux 名做白名单校验；重建前先 `check`。
 - **直接跟别的 agent 说话**：`pp mesh ls/send` 直连 remote-pi 的本地 broker，按会话名或跨机地址发消息、拿 ACK、等回复。
 - **定时任务**：`pp cron add` 按「一次 / 每 N 分钟 / crontab 表达式」把 prompt 打进会话，或跑一条命令；装一个 crontab 行就管所有任务，重启后能补跑。
+- **谁在等我**：`pp todo` 列出「哪个会话卡在问题上」，`pp todo attach 2` 直接进去；pi 弹提示或跑完停在问句时自动登记。
 
 ## 安装
 
@@ -228,6 +229,34 @@ pp cron uninstall          # 只删这个托管块，你自己的行一行不动
 
 细节见 [docs/cron.md](docs/cron.md)。
 
+## 谁在等我（`pp todo`）
+
+会话卡在一个问题上，你却在别的窗口 —— 这类「等你决策」的事会被自动收进一张清单：
+
+```bash
+pp todo                       # 需要我决策的
+#  #  STATE  WAITED  SESSION     KIND     WHAT
+#  1  new    3m      risk-01     settled  要我现在合并到 main 吗？
+#  2  new    18m     backend     prompt   waiting: 选一个分支 — Enter to switch
+
+pp todo attach 1              # 进入那个会话（顺手标记 seen）
+pp todo done 1 2              # 处理完了
+pp todo ls --all --json       # 连已完成的、机器可读
+```
+
+怎么判定「在等你」：
+
+- **`prompt`** —— pi 弹出了阻塞式提示（`ui_prompt_start`：`select` / `confirm` / `input` / `editor`），会话确实停在那儿；
+- **`settled`** —— 一轮跑完，最后一段话以问号结尾或含「请确认 / 要不要 / 是否需要」；
+- **`manual`** —— `pp todo add "…" --session <name>`，或模型自己调用 `todo` 工具登记。
+
+会话重新跑起来时，它自己的未完成待办会自动标记完成（你已经回答过了）。
+噪音太大就 `export PP_TODO_SETTLED=off`（只记阻塞提示），想全都记就 `always`。
+
+在 pi 里还有 `/pp-todo`：弹出清单，选中即切过去。
+
+细节（数据文件、去重规则、边界）见 [docs/todo.md](docs/todo.md)。
+
 ## 文档
 
 | 文档 | 内容 |
@@ -240,6 +269,7 @@ pp cron uninstall          # 只删这个托管块，你自己的行一行不动
 | [docs/development.md](docs/development.md) | 开发指南：跑测试、改代码的规矩、测试分层、发布流程（含 npm staged publishing 的坑） |
 | [docs/extension.md](docs/extension.md) | pi 扩展 `/pp-*` 与 `schedule` 工具：在会话里切 tmux、看别人的屏幕、断开连接、让 agent 自己排定时任务 |
 | [docs/cron.md](docs/cron.md) | 定时任务：三种时间表、crond 托管块、补跑与迟到语义、时区、调试 |
+| [docs/todo.md](docs/todo.md) | 待办：三种来源、去重、`PP_TODO_SETTLED` 噪音控制、数据文件、边界 |
 
 ## 配置参考
 ```yaml
@@ -391,6 +421,7 @@ pp logs <name|#> [-n 200]  打印滚动输出
 pp send <name|#> "文本"     往 pane 里打字并回车（--no-enter 不回车）
 pp mesh ls|resolve|send    直连 remote-pi broker：看谁在线 / 查地址 / 发消息（--reply 等回复）
 pp cron add|ls|rm|tick     定时把 prompt/命令送进会话（--in/--every/--cron；见下节）
+pp todo [ls|attach|done]   谁在等我决策：列表 / 进去 / 完成（--all、--session）
 pp check                   校验配置
 pp doctor                  环境诊断（含自启状态、WSL 提示）
 pp init                    写示例配置
@@ -402,7 +433,7 @@ pp help [命令]             帮助（不带参数为总览）
 pp version                 打印版本
 ```
 
-全局选项：`-c/--config`、`--socket`、`--json`、`--dry-run`、`--force`、`-q`、`-v`、`-h`、`-V`。
+全局选项：`-c/--config`、`--socket`、`--json`、`--dry-run`、`--force`、`--all`、`-q`、`-v`、`-h`、`-V`。
 
 `--reconcile` 是给自启/巡检用的：跳过被手动停止的 `unless-stopped` / `on-failure` 会话。
 日常手动 `up` 不需要它。

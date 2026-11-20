@@ -28,6 +28,7 @@ pi remove npm:pi-farm           # 卸载
 | `/pp-quit` | `Ctrl-b d` | 断开当前 client；**会话和 pi 都继续运行**，回来接上就能看到 |
 | `/pp-status` | `Ctrl-b i` 的加强版 | 会话 / 窗口 / pane / cwd / 已连接 client 数 / socket / pi 会话 id 与文件 / remote-pi 名字 / pp 版本 |
 | `/pp-peek [会话] [-n N]` | `Ctrl-b w` 的只读版 | 打印另一个会话最近 N 行输出（默认 30），不切换 |
+| `/pp-todo` | 无 | 列出「等你决策」的待办，选中即切到那个会话（等于 `pp todo` + 切换） |
 
 `/pp-sw` 和 `/pp-peek` 带参数补全：输入 `/pp-sw ` 后按 Tab，会列出会话名并标注当前会话。
 `/pp-peek` 省略会话名时看自己这个会话。
@@ -53,7 +54,7 @@ pi remove npm:pi-farm           # 卸载
 
 | 文件 | 作用 |
 |---|---|
-| `extensions/pp-tmux.js` | 扩展入口：注册 5 个命令 + `schedule` 工具、调 tmux、渲染结果 |
+| `extensions/pp-tmux.js` | 扩展入口：注册 6 个命令 + `schedule` / `todo` 两个工具、订阅 pi 事件、调 tmux、渲染结果 |
 | `src/ppui.js` | 纯函数：`$TMUX` 解析、会话标签、前缀匹配、`/pp-peek` 参数解析、截断输出、挑 client |
 
 `pp` 的执行逻辑和扩展互不依赖：扩展直接调 `tmux`，不经过 `pp` 二进制，所以 tmux 里的
@@ -61,6 +62,26 @@ pi remove npm:pi-farm           # 卸载
 `package.json`）。
 
 测试：`node --test test/ppui.test.js`（解析、标签、匹配、参数、截断、client 选择）。
+
+## 待办是怎么自动出现的
+
+扩展订阅了三个 pi 事件，不需要模型自觉：
+
+| 事件 | 做什么 |
+|---|---|
+| `ui_prompt_start` | 弹出阻塞提示（`ctx.ui.select/confirm/input/editor`）时登记一条 `prompt` 待办，标题带 `waiting:` 前缀 |
+| `agent_settled` | 一轮真正结束（`ctx.isIdle()` 为真）时，若最后一段话以问号结尾或含「请确认/要不要」，登记一条 `settled` 待办 |
+| `agent_start` | 这个会话重新开跑 → 把它的未完成待办自动标为 `done`（你已经回答过了） |
+
+噪音控制：`export PP_TODO_SETTLED=question|always|off`（默认 `question`）。
+
+要强制验证一下这条链路（不需要模型配合，因为 `/pp-ls` 自己就是一个 `select`）：
+
+```bash
+tmux new -d -s probe -c ~/.cache "XDG_STATE_HOME=/tmp/t pi -e npm:pi-farm"
+tmux send-keys -t probe "/pp-ls" Enter
+XDG_STATE_HOME=/tmp/t pp todo          # 应出现 kind = prompt 的一行
+```
 
 ## `schedule` 工具（模型可见）
 

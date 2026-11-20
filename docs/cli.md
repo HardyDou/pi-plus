@@ -231,6 +231,30 @@ pp cron ls
 pp cron install
 ```
 
+### `pp todo <子命令>`
+
+「谁在等我决策」清单。存在 `$XDG_STATE_HOME/pi-plus/todos.json`，pi 扩展在会话
+弹出阻塞提示或跑完停在问句时自动写入（见 [docs/todo.md](todo.md)）。
+
+| 子命令 | 说明 |
+| --- | --- |
+| `ls`（默认） | `# / 状态 / 等了多久 / 会话 / 类型 / 内容`；`--all` 含已完成，`--session` 过滤 |
+| `add "文字"` | 手工登记（`--session` 指定；默认取当前 tmux 会话） |
+| `attach <#>` | 进入该待办对应的会话，并标记 `seen` |
+| `done <#>...` | 标记完成（可一次多条） |
+| `rm <#>...` | 从清单删掉（不是完成） |
+| `clear` | 清掉已完成的；`--force` 连未完成的也清 |
+
+引用可以写 `#`（1 起，按创建时间倒序，含已完成的行，编号稳定）或 id 前缀。
+
+```bash
+pp todo
+pp todo attach 2
+pp todo done 2 5
+pp todo add "看一下这份迁移方案" --session backend
+pp todo ls --all --json
+```
+
 ### `pp check [name|#...]`
 
 只校验配置，不碰 tmux。失败项进 stderr 并退出 1；`notes` 是提示（`restart: no`、手动停过、共享目录写同名等）。JSON：`{ "ok": true, "problems": [], "notes": [], "config": "..." }`。
