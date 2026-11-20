@@ -405,12 +405,15 @@ export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
  * alone (comments, ordering, quoting). Returns `{ text, removed }`; `removed`
  * is false when the name is not there, so callers can say so.
  */
-export function removeSessionBlock(text, name) {
+/**
+ * Locate the `sessions:` list items: { start, end, name, indent } per block.
+ * `end` is either the next item's line or the first line after the section —
+ * never `lines.length`, which used to make every caller truncate the file.
+ */
+export function findSessionBlocks(text) {
   const lines = String(text).split("\n");
   const sectionStart = lines.findIndex((line) => /^sessions\s*:/.test(line));
-  if (sectionStart === -1 || /^sessions\s*:\s*\[\s*\]\s*$/.test(lines[sectionStart])) {
-    return { text: String(text), removed: false };
-  }
+  if (sectionStart === -1 || /^sessions\s*:\s*\[\s*\]\s*$/.test(lines[sectionStart])) return { lines, blocks: [] };
 
   const blocks = [];
   let indent = null;
@@ -425,14 +428,62 @@ export function removeSessionBlock(text, name) {
     if (item && (indent === null || item[1].length === indent)) {
       if (indent === null) indent = item[1].length;
       if (current) current.end = i;
-      current = { start: i, end: lines.length, name: null };
+      current = { start: i, end: lines.length, name: null, indent: item[1].length + 2 };
       blocks.push(current);
     }
     if (!current) continue;
     const named = /^\s*(?:-\s*)?name\s*:\s*(.+?)\s*$/.exec(line);
     if (named && current.name === null) current.name = named[1].replace(/^['"]|['"]$/g, "");
   }
+  return { lines, blocks };
+}
 
+/**
+ * Set (or with `null` delete) one field of one session, touching nothing else.
+ * Returns the new text, or null when that session is not in the file.
+ */
+export function setSessionField(text, name, key, value) {
+  const { lines, blocks } = findSessionBlocks(text);
+  const target = blocks.find((entry) => entry.name === name);
+  if (!target) return null;
+  const body = lines.slice(target.start, target.end);
+  const pattern = new RegExp(`^(\\s*)(-\\s*)?${key}\\s*:`);
+  let at = -1;
+  for (let i = 0; i < body.length; i += 1) {
+    if (pattern.test(body[i])) {
+      at = i;
+      break;
+    }
+  }
+  if (value === null || value === undefined) {
+    if (at === -1) return String(text);
+    body.splice(at, 1);
+  } else if (at !== -1) {
+    const leadIndent = pattern.exec(body[at])[1];
+    const dash = /^(\s*)-\s*/.exec(body[at]);
+    body[at] = `${leadIndent}${dash ? "- " : ""}${key}: ${value}`;
+  } else {
+    // put it right after `name:` so the block reads in the usual order
+    const nameAt = body.findIndex((line) => /^\s*(?:-\s*)?name\s*:/.test(line));
+    const indent = " ".repeat(target.indent);
+    body.splice(nameAt === -1 ? body.length : nameAt + 1, 0, `${indent}${key}: ${value}`);
+  }
+  const next = [...lines.slice(0, target.start), ...body, ...lines.slice(target.end)];
+  return `${next.join("\n").replace(/\n*$/, "")}\n`;
+}
+
+/** Rewrite one field of one session on disk. Returns true when it changed. */
+export function setSessionFieldInFile(configPath, name, key, value) {
+  const path = expandPath(configPath);
+  const text = readFileSync(path, "utf8");
+  const next = setSessionField(text, name, key, value);
+  if (next === null || next === text) return false;
+  writeFileSync(path, next);
+  return true;
+}
+
+export function removeSessionBlock(text, name) {
+  const { lines, blocks } = findSessionBlocks(text);
   const target = blocks.find((entry) => entry.name === name);
   if (!target) return { text: String(text), removed: false };
 

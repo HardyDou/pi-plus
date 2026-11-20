@@ -481,6 +481,35 @@ check "node test reports a broken node" 1 'ssh'                  bash -c "cd $E2
 check "doctor --nodes tours the park" 0 'reachable'             bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK doctor --nodes --node far"
 check "doctor --nodes marks a dead host" 1 'down'                bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK doctor --nodes --node dead"
 check "doctor --nodes --json carries the probe" 0 '"probe"'      bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK doctor --nodes --node far --json"
+# mv gets its own file: it rewrites the config, and the checks above read this one
+MVCFG="$E2E/mv.yml"
+cat > "$MVCFG" <<'YAML'
+version: 1
+nodes:
+  - name: far
+    host: 127.0.0.1
+    user: nobody
+  - name: dead
+    host: 127.0.0.1
+    user: dead
+sessions:
+  - name: mv-x
+    node: far
+    cwd: /tmp
+    agent: bash
+    restart: "no"
+  - name: bystander
+    cwd: /tmp
+    agent: bash
+    restart: "no"
+YAML
+check "mv needs a destination"     2 'say where'                bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $MVCFG --socket $SOCK mv mv-x"
+check "mv rejects an unknown node" 2 'no node'                  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $MVCFG --socket $SOCK mv mv-x --node nope"
+check "mv refuses an unreachable node" 1 'unreachable'          bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $MVCFG --socket $SOCK mv mv-x --node dead"
+check "mv brings a session home"   0 'moved mv-x'               bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $MVCFG --socket $SOCK mv mv-x --local --force"
+check "mv drops only that node line" 0 'clean'                  bash -c "grep -A2 'name: mv-x' $MVCFG | grep -q node: && echo still-there || echo clean"
+check "mv leaves the neighbour alone" 0 '^1$'                   bash -c "grep -c 'name: bystander' $MVCFG"
+check "mv sends it back out"       0 'moved mv-x'               bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $MVCFG --socket $SOCK mv mv-x --node far --force"
 check "attach to a remote session is built for ssh" 0 'attach-session .*far-x' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach far-x --dry-run"
 check "node add writes the config"   0 'added node'              bash -c "cp $NODECFG $E2E/add.yml && cd $E2E && $ROOT/bin/pp.js -c $E2E/add.yml node add prod --host 10.0.0.11 --user deploy --identity ~/.ssh/id_ed25519"
 check "node add keeps the sessions"  0 ''                        bash -c "grep -q 'name: far-x' $E2E/add.yml"

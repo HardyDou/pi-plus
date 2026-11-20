@@ -82,6 +82,9 @@ function parseArgs(argv) {
           break;
         }
         case "--dir": options.dir = takeValue(flag, inline); break;
+        // --cwd is the working directory for config discovery; a session's own
+        // directory (mv/new) is a different thing
+        case "--cwd": options.sessionCwd = takeValue(flag, inline); break;
         case "--agent": options.agent = takeValue(flag, inline); break;
         case "--log": options.log = true; break;
         case "--save": options.save = true; break;

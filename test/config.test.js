@@ -8,6 +8,7 @@ import {
   removeSessionBlock,
   resolveSessionRef,
   sanitizeRemotePiName,
+  setSessionField,
   splitCommand,
 } from "../src/config.js";
 import { parseYaml } from "../src/yaml.js";
@@ -226,4 +227,28 @@ test("removeSessionBlock reports a miss instead of rewriting the file", () => {
   const { text, removed } = removeSessionBlock(raw, "ghost");
   assert.equal(removed, false);
   assert.equal(text, raw);
+});
+
+test("setSessionField edits one line of one session and nothing else", () => {
+  const text = `version: 1
+sessions:
+  - name: api
+    cwd: /srv/api
+  - name: web
+    cwd: /srv/web
+`;
+  const added = setSessionField(text, "api", "node", "prod-01");
+  assert.match(added, /- name: api\n {4}node: prod-01\n {4}cwd: \/srv\/api/);
+  assert.match(added, /- name: web\n {4}cwd: \/srv\/web/, "the other session is untouched");
+
+  const updated = setSessionField(added, "api", "node", "prod-02");
+  assert.equal(updated.match(/node:/g).length, 1, "updating replaces, it does not add");
+  assert.match(updated, /node: prod-02/);
+
+  const removed = setSessionField(updated, "api", "node", null);
+  assert.doesNotMatch(removed, /node:/);
+  assert.match(removed, /- name: api\n {4}cwd: \/srv\/api/);
+
+  assert.equal(setSessionField(text, "nope", "node", "x"), null);
+  assert.equal(setSessionField(text, "api", "node", "prod-01").split("\n").length, text.split("\n").length + 1);
 });

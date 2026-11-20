@@ -271,6 +271,20 @@ pp ls --node t114            # 只看这台机器上的会话
 
 不带名字时 `--node` 只影响"批量"命令（`up`/`down`/`restart`/`ls`/`send`），单会话命令本来就已经定位到具体机器了。
 
+### 把会话挪到另一台机器
+
+```bash
+$ pp mv backend --node prod-01
+stopped backend @dev-01
+started backend → tmux:backend  cwd:/data/app
+moved backend: dev-01 -> prod-01
+the pi conversation stays on dev-01 — prod-01 starts a fresh one
+```
+
+改的只是配置里那一行 `node:`。`--local` 把它挪回本机，`--cwd` 顺便换目录（会在目标机上
+检查目录存在）。目标机不可达、或那台机器上已经有同名会话，就拒绝（`--force` 替换）。
+pi 的历史留在旧机器，这一条会在输出里说明，不会让人事后才发现。
+
 ### 机群体检：一次看清整排机器
 
 ```bash

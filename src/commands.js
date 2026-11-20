@@ -7,6 +7,7 @@ import {
   isSessionPath,
   expandPath,
   loadConfig,
+  setSessionFieldInFile,
   resolve,
   splitCommand,
   resolveSessionRef,
@@ -475,6 +476,104 @@ export function saveNewSession(configPath, session, ui) {
   }
   writeFileSync(configPath, body, "utf8");
   ui.info(`saved to ${configPath}`);
+}
+
+/**
+ * Move a session to another machine: stop it where it is, rewrite the one
+ * `node:` line in the config, start it there. What it cannot move is the pi
+ * conversation — that jsonl lives beside the old cwd — so say so out loud
+ * instead of letting the next person wonder where their history went.
+ */
+async function cmdMv(config, options, ui) {
+  const names = [...(options.names ?? [])].filter((name) => name !== undefined);
+  if (names.length !== 1) {
+    ui.error("usage: pp mv <session> --node <machine>   (or --local to bring it home)");
+    process.exit(2);
+  }
+  const session = resolveSessionRef(config, names[0]);
+  if (!session) {
+    ui.error(`no session named "${names[0]}" — see pp ls`);
+    process.exit(2);
+  }
+  const target = options.node ?? (options.local ? "" : null);
+  if (target === null) {
+    ui.error("say where it should run: --node <machine>, or --local to bring it back here");
+    process.exit(2);
+  }
+  const from = session.node ?? "";
+  const where = (name) => (name ? `on ${name}` : "here");
+  if (target === from) {
+    ui.error(`${session.name} already runs ${where(from)}`);
+    process.exit(1);
+  }
+
+  let targetNode = null;
+  if (target) {
+    targetNode = findNode(config, target);
+    if (!targetNode) {
+      ui.error(`no node "${target}" — see: pp node ls`);
+      process.exit(2);
+    }
+    const probe = makeTmux(config, options, { node: target });
+    if (!probe.reachable()) {
+      ui.error(`node "${target}" is unreachable — nothing was changed`);
+      process.exit(1);
+    }
+    if (options.sessionCwd) {
+      const check = runOnNode(targetNode, [`[ -d ${shellQuote(options.sessionCwd)} ] && echo yes || echo no`], { timeout: 15000 });
+      if (check.stdout.trim() !== "yes") {
+        ui.error(`${options.sessionCwd} does not exist on ${target} — create it first, or pass another --cwd`);
+        process.exit(1);
+      }
+    }
+  } else if (options.sessionCwd && !existsSync(options.sessionCwd)) {
+    ui.error(`${options.sessionCwd} does not exist here`);
+    process.exit(1);
+  }
+
+  const targetTmux = makeTmux(config, options, { node: target || null });
+  if (targetTmux.sessionExists(session.tmuxName)) {
+    if (!options.force) {
+      ui.error(`a session named ${session.tmuxName} is already running ${where(target)} — stop it, or use --force`);
+      process.exit(1);
+    }
+    if (!options.dryRun) targetTmux.kill(session.tmuxName);
+    ui.info(`replaced the session already running ${where(target)}`);
+  }
+
+  const source = makeTmux(config, options, session);
+  const running = source.sessionExists(session.tmuxName);
+  if (options.dryRun) {
+    ui.out(`[dry-run] tmux kill-session -t =${session.tmuxName} ${from ? `(via ${from})` : ""}`);
+    ui.out(`[dry-run] ${config.path}: ${session.name}.node = ${target || "local"}`);
+    if (options.sessionCwd) ui.out(`[dry-run] ${config.path}: ${session.name}.cwd = ${options.sessionCwd}`);
+    ui.out(`[dry-run] pp up ${session.name} ${target ? `(via ${target})` : ""}`);
+    return;
+  }
+  if (running) {
+    source.kill(session.tmuxName);
+    ui.info(`stopped ${session.tmuxName} ${where(from)}`);
+  }
+
+  const yamlValue = (value) => (/^[A-Za-z0-9._/~@%+-]+$/.test(value) ? value : JSON.stringify(value));
+  setSessionFieldInFile(config.path, session.name, "node", target ? yamlValue(target) : null);
+  if (options.sessionCwd) setSessionFieldInFile(config.path, session.name, "cwd", yamlValue(options.sessionCwd));
+
+  const fresh = loadConfig({ configPath: config.path, cwd: process.cwd() });
+  const moved = fresh?.sessions.find((entry) => entry.name === session.name);
+  if (!moved) {
+    ui.error(`${session.name} vanished from ${config.path} after the edit — check the file`);
+    process.exit(1);
+  }
+  await cmdUp(fresh, { ...options, names: [session.name], node: undefined, tags: undefined }, ui);
+  note("mv", session.name, { detail: `${from || "local"} -> ${target || "local"}`, node: target || null });
+  ui.info(`moved ${session.name}: ${from || "local"} -> ${target || "local"}`);
+  if (moved.pi) {
+    ui.info(
+      `the pi conversation stays ${where(from)} — ${where(target)} starts a fresh one` +
+        (options.sessionCwd && options.sessionCwd !== session.cwd ? " in the new cwd" : ""),
+    );
+  }
 }
 
 async function cmdUp(config, options, ui) {
@@ -3429,6 +3528,11 @@ export async function runCommand(command, options) {
     case "start": {
       const config = requireConfig(options, ui);
       return cmdUp(config, options, ui);
+    }
+    case "mv":
+    case "move": {
+      const config = requireConfig(options, ui);
+      return cmdMv(config, options, ui);
     }
     case "down":
     case "stop": {

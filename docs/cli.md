@@ -136,6 +136,23 @@ Without a terminal (a script, an autostart job) it refuses unless `--force` is
 given. Comments elsewhere in the file survive — only the deleted block is
 rewritten, so the diff stays small.
 
+### `pp mv <name|#> --node <machine> | --local`
+
+把一条会话挪到另一台机器：在原来的地方停掉、改配置里那一行 `node:`、在新地方起来。
+文件里其它行一个字节都不动。
+
+```bash
+pp mv backend --node prod-01          # 挪过去
+pp mv backend --local                 # 挪回来
+pp mv 3 --node prod-01 --cwd /srv/app # 顺便换目录（会在目标机上检查是否存在）
+```
+
+**挪不动的东西**：pi 的对话记录（jsonl）在旧机器旧目录旁边，新机器上是全新的一轮 ——
+会话名、agent、remote-pi 名都不变，所以除了"历史"以外一切照旧。
+
+拒绝的情况：目标机不可达、目标机已有同名 tmux 会话（`--force` 会替换）、
+`--cwd` 在目标机上不存在。
+
 ### `pp restart [name|#...]`
 
 先 `down` 再 `up`，遵守 `restart` 策略：`restart: no` 的会话不参与裸 `restart`。

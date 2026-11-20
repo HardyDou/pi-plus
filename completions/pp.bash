@@ -4,14 +4,14 @@ _pp() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local commands="tui panel back new n create up start down stop rm remove delete restart status ls list attach a logs log send mesh audit cron todo todos node nodes check validate doctor init install autostart uninstall alias link update upgrade version help"
+  local commands="tui panel back new n create up start down stop rm remove delete mv restart status ls list attach a logs log send mesh audit cron todo todos node nodes check validate doctor init install autostart uninstall alias link update upgrade version help"
 
   case "$prev" in
     -c|--config)
       COMPREPLY=( $(compgen -f -- "$cur") )
       return 0
       ;;
-    --socket|--lines|--idle-over|--sort|-n|--agent|-C|--dir|--host|--port|--user|--identity|--password|--note|--tag|--timeout|--node|--password-env|--from-ssh-config|--base-path|--default-agent|--default-restart|--default-remote-pi-mode)
+    --socket|--lines|--idle-over|--sort|--cwd|-n|--agent|-C|--dir|--host|--port|--user|--identity|--password|--note|--tag|--timeout|--node|--password-env|--from-ssh-config|--base-path|--default-agent|--default-restart|--default-remote-pi-mode)
       return 0
       ;;
     --password-env|--from-ssh-config)
