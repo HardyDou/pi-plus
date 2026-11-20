@@ -1603,6 +1603,33 @@ function commandExists(command) {
   return command.includes("/") ? existsSync(found) : false;
 }
 
+/** The copy of this package that pi's extension host loads (pi install npm:pi-farm). */
+export function installedExtension(env = process.env) {
+  const base = env.PP_EXT_DIR ?? join(env.HOME ?? homedir(), ".pi", "agent", "npm", "node_modules", "pi-farm");
+  try {
+    const pkg = JSON.parse(readFileSync(join(base, "package.json"), "utf8"));
+    return { dir: base, version: String(pkg.version ?? "?") };
+  } catch {
+    return null;
+  }
+}
+
+function ownVersion() {
+  try {
+    return String(JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version ?? "?");
+  } catch {
+    return "?";
+  }
+}
+
+function describeExtension(installed, own) {
+  if (!installed) return "not installed — pi install npm:pi-farm  (needed for /pp-* commands)";
+  if (installed.version !== own) {
+    return `${installed.version} but this cli is ${own} — npm install --prefix ${dirname(installed.dir)} pi-farm@${own} --registry https://registry.npmjs.org/`;
+  }
+  return `pi-farm@${installed.version} in ${installed.dir}`;
+}
+
 function cmdDoctor(config, options, ui) {
   const tmux = makeTmux(config, options);
   const checks = [];
@@ -1621,6 +1648,9 @@ function cmdDoctor(config, options, ui) {
   // A missing server is normal (tmux starts on demand) — not a failure.
   add("tmux server", true, hasServer ? "running" : "not running (starts on demand)");
   add("pi", commandExists("pi"), resolveExecutable("pi"));
+  const extension = installedExtension();
+  const own = ownVersion();
+  add("pi extension", Boolean(extension) && extension.version === own, describeExtension(extension, own));
   const names = inspectCommandNames({ target: scriptPath(options) });
   add("command name", names.ok, describeCommandNames(names));
   add("config", Boolean(config), config?.path ?? "not found");
@@ -1640,6 +1670,12 @@ function cmdDoctor(config, options, ui) {
     ui.out(`${mark} ${check.label.padEnd(14)} ${ui.paint("dim", check.detail ?? "")}`);
   }
   if (!config) ui.out(`\n${ui.paint("dim", "hint:")} no config found; run pp init`);
+  if (!extension || extension.version !== own) {
+    ui.out(
+      `${ui.paint("dim", "hint:")} /pp-* commands come from the pi extension, not from the cli — ` +
+        `upgrade it, then /reload inside pi`,
+    );
+  }
   if (!names.ok) {
     ui.out(
       `${ui.paint("dim", "hint:")} another program owns the name on PATH; pick one with ` +
@@ -1951,18 +1987,13 @@ function deliverJob(job, options) {
       return { status: `skipped: session "${job.session}" is not running (pp up failed)` };
     }
   }
-  const send = spawnSync(
-    "tmux",
-    [...(job.socket ? ["-L", job.socket] : []), "send-keys", "-t", `=${job.session}:`, "-l", "--", job.prompt],
-    { encoding: "utf8" },
-  );
-  if (send.status !== 0) return { status: `failed: tmux send-keys: ${(send.stderr ?? "").trim()}` };
-  const enter = spawnSync(
-    "tmux",
-    [...(job.socket ? ["-L", job.socket] : []), "send-keys", "-t", `=${job.session}:`, "Enter"],
-    { encoding: "utf8" },
-  );
-  if (enter.status !== 0) return { status: `failed: tmux send-keys Enter: ${(enter.stderr ?? "").trim()}` };
+  let result;
+  try {
+    result = tmux.sendText(job.session, job.prompt);
+  } catch (error) {
+    return { status: `failed: tmux send-keys: ${error.message}` };
+  }
+  if (!result.submitted) return { status: `failed: typed into ${job.session} but Enter never took` };
   return { status: "delivered" };
 }
 

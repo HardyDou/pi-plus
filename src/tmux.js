@@ -20,6 +20,27 @@ export class TmuxError extends Error {
 
 const FIELD_SEP = "\u001f";
 
+/** Sleep without a dependency (Atomics on a throwaway buffer blocks exactly). */
+export function sleep(ms) {
+  if (!(ms > 0)) return;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, Math.round(ms));
+}
+
+/**
+ * Coarse fingerprint of a pane's last lines: ANSI stripped, trailing padding
+ * dropped, blank lines removed. Used to tell "Enter was accepted" (the screen
+ * moves) from "Enter was swallowed by a paste" (it does not move at all).
+ */
+export function screenSignature(text) {
+  return String(text)
+    .replace(/\u001b\[[0-9;?]*[A-Za-z]/g, "")
+    .split("\n")
+    .map((line) => line.replace(/\s+$/, ""))
+    .filter((line) => line.trim())
+    .slice(-6)
+    .join("\n");
+}
+
 /** Resolve a bare command name against PATH (absolute paths are kept as-is). */
 export function resolveExecutable(command, env = process.env) {
   if (!command || command.includes("/") || command.includes("\\")) return command;
@@ -171,9 +192,34 @@ export class Tmux {
     return out.replace(/\s+$/, "");
   }
 
-  sendText(name, text, { enter = true } = {}) {
+  /**
+   * Type `text` into a session and, unless told otherwise, press Enter.
+   *
+   * A prompt that spans several lines arrives as one burst of bytes, which pi's
+   * TUI reads as a paste: an Enter sent in the same instant is swallowed into
+   * that paste and only inserts another newline, so the text sits in the input
+   * box unsent. Hence the pause before Enter, and the retry when the screen did
+   * not move at all - an accepted Enter always changes what is on the screen.
+   */
+  sendText(name, text, { enter = true, settleMs = 200, retries = 2 } = {}) {
     this.run(["send-keys", "-t", paneTarget(name), "-l", "--", text]);
-    if (enter) this.run(["send-keys", "-t", paneTarget(name), "Enter"]);
+    if (!enter) return { submitted: false, retries: 0 };
+    sleep(settleMs);
+    const before = this.screenSignature(name);
+    this.run(["send-keys", "-t", paneTarget(name), "Enter"]);
+    sleep(settleMs);
+    let attempts = 0;
+    while (attempts < retries && this.screenSignature(name) === before) {
+      attempts += 1;
+      this.run(["send-keys", "-t", paneTarget(name), "Enter"]);
+      sleep(settleMs);
+    }
+    return { submitted: this.screenSignature(name) !== before, retries: attempts };
+  }
+
+  /** What the last few visible lines look like, with colours and padding gone. */
+  screenSignature(name) {
+    return screenSignature(this.capture(name, 12));
   }
 
   pipeLog(name, path) {

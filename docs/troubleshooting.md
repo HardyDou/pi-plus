@@ -1,3 +1,30 @@
+## `/pp-back`（或别的 `/pp-*`）不存在
+
+CLI 和 pi 扩展是**两份安装**：`pp` 走 `npm i -g pi-farm`，`/pp-*` 走 pi 自己的
+`~/.pi/agent/npm`，两者版本可以差很远。表现就是命令明明发了新版，pi 里还是旧的（甚至没有）。
+
+1. `pp doctor` 看 `pi extension` 一行：会直接写出扩展版本与本机 CLI 版本，不一致时给出修好的命令。
+2. `pi install npm:pi-farm` 对**已安装**的包是空操作（`up to date`），不会升级；要指定版本：
+
+   ```bash
+   npm install --prefix ~/.pi/agent/npm pi-farm@<cli 版本> --registry https://registry.npmjs.org/
+   ```
+
+   （`--registry` 不能省——内网镜像通常滞后，会报 `notarget`。）
+3. 装完在 pi 里 `/reload`（或重启 pi），再 `/pp-status` 看 `pp` 与 `pp cli` 两行的版本。
+
+## 定时任务的提示词只被填进输入框，没有发出去
+
+`pp cron` 的 prompt 任务是 `tmux send-keys -l` 打字 + `Enter`。多行提示词会以一整块字节到达，
+pi 的 TUI 把它当粘贴处理，紧跟其后的 `Enter` 可能被吞掉（只多插入一个换行），于是文字躺在
+输入框里没发出去。
+
+现在 `sendText` 会等 200ms 再按 Enter，并在**屏幕完全没变化**时补按（最多两次）——被接受的
+Enter 一定会让屏幕变化（出现转圈/新消息），所以"没变化"就是"被吞了"。仍然没发出去时，
+`pp cron ls` 的 `lastStatus` 会显示 `typed into <session> but Enter never took`，而不是假装成功。
+
+手工补救：`pp send <session> "<提示词>"`。
+
 ## `pp tui` 会滚屏 / 看起来每刷新一次就多一帧
 
 按时间排查（每条都能定位到底是谁在滚）：

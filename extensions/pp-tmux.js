@@ -50,6 +50,16 @@ function packageVersion() {
   }
 }
 
+/** Version of the `pp` on PATH — differs from packageVersion() when the CLI was upgraded alone. */
+async function cliVersion() {
+  try {
+    const { stdout } = await execFileAsync("pp", ["-V"]);
+    return stdout.trim();
+  } catch {
+    return undefined;
+  }
+}
+
 async function tmux(args) {
   try {
     const { stdout } = await execFileAsync("tmux", args, { maxBuffer: 16 * 1024 * 1024 });
@@ -329,6 +339,7 @@ export default function ppTmux(pi) {
         piSessionFile: clipPath(ctx.sessionManager?.getSessionFile?.()),
         remotePi: remotePiInfo(process.cwd()),
         ppVersion: packageVersion(),
+        cliVersion: await cliVersion(),
       });
       report(ctx, `pp status — ${session}`, lines.join("\n"));
     },

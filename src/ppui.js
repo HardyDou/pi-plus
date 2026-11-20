@@ -176,6 +176,7 @@ export function formatStatusLines(info) {
   push("pi file", info.piSessionFile);
   push("remote-pi", info.remotePi);
   push("pp", info.ppVersion);
+  push("pp cli", info.cliVersion);
   const width = rows.reduce((max, [label]) => Math.max(max, label.length), 0);
   return rows.map(([label, value]) => `${label.padEnd(width)}  ${value}`);
 }

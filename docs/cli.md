@@ -310,6 +310,11 @@ pp todo ls --all --json
 
 只校验配置，不碰 tmux。失败项进 stderr 并退出 1；`notes` 是提示（`restart: no`、手动停过、共享目录写同名等）。JSON：`{ "ok": true, "problems": [], "notes": [], "config": "..." }`。
 
+### `pp doctor`（节选）
+
+除了 node / tmux / 配置 / 自启，还会检查 **pi 扩展的版本**：扩展（`/pp-*` 命令）和 CLI 是两份
+独立安装，版本很容易不一致，`✗ pi extension` 会直接给出对齐用的 `npm install --prefix …` 命令。
+
 ### `pp doctor`
 
 环境体检：node / tmux / tmux server / pi / 配置文件 / 自启状态 / WSL 提示。任何一项失败 → 退出 1。JSON：`{ "checks": [{name, ok, detail}], "warnings": [] }`。
