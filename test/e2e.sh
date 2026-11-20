@@ -387,6 +387,15 @@ check "todo help page"             0 'One list of everything'   bash -c "cd $E2E
 check "todo appears in the overview" 0 'todo \(todos\)'         bash -c "cd $E2E && $ROOT/bin/pp.js help"
 check "todo state file is separated" 0 'todos.json'             bash -c "ls '$XDG_STATE_HOME/pi-plus/todos.json'"
 
+section "tui"
+check "tui renders the sessions panel" 0 'sessions \('          bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
+check "tui renders the todo panel"     0 'todo \('              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
+check "tui renders the preview panel"  0 'preview'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
+check "tui lists a real session"       0 'e-always'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
+check "tui without a tty explains itself" 2 'needs a terminal'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui < /dev/null"
+check "tui help page"                  0 'attach'              bash -c "cd $E2E && $ROOT/bin/pp.js help tui"
+check "tui appears in the overview"    0 'tui \(panel\)'        bash -c "cd $E2E && $ROOT/bin/pp.js help"
+
 section "packaging"
 check "npm test green"           0 'fail 0'                   bash -c "cd $ROOT && npm test 2>&1 | tail -20"
 check "npm pack contents"        0 'bin/pp.js'             bash -c "cd $ROOT && npm pack --dry-run 2>&1 | grep bin/pp.js"

@@ -257,6 +257,45 @@ pp todo ls --all --json       # 连已完成的、机器可读
 
 细节（数据文件、去重规则、边界）见 [docs/todo.md](docs/todo.md)。
 
+## 一块屏看全部（`pp tui`）
+
+会话多了以后，`pp ls` + `pp todo` + `pp attach` 来回敲就烦了。`pp tui` 把它们拼成一屏：
+
+```
+┌ sessions (7) ──────────────────────────┐ ┌ todo (2) ─────────────────────────────────────────────┐
+│ 1 bh-system-01  running                │ │ 1. risk-01 — 要我现在合并到 main 吗？ (3m, settled)     │
+│ 2 bh-system-02  running                │ │ 2. backend — waiting: 选一个分支 (18m, prompt)          │
+│ 3 mango-release-01  running            │ └───────────────────────────────────────────────────────┘
+│ 4 mano-dev-01  attached                │ ┌ preview: bh-system-01 ────────────────────────────────┐
+│ 5 ops-5  running                       │ │ ● Bash(git log --oneline -5)                          │
+│ 6 risk-01  running                     │ │   a1b2c3d fix: ...                                    │
+│ 7 risk-02  running                     │ │ ⏳ Working...                                          │
+└────────────────────────────────────────┘ └───────────────────────────────────────────────────────┘
+ ↑↓ move   Tab panel   Enter attach   d done   r refresh   q quit
+```
+
+按键：
+
+| 键 | 作用 |
+|---|---|
+| `↑` `↓` / `k` `j` | 在聚焦的列表里移动 |
+| `Tab` | 切换列表（会话 ↔ 待办） |
+| `Enter` | 进入（会话：在 tmux 里 `switch-client`，在 tmux 外 `tmux attach`）；从待办进则进它所属的会话 |
+| `d` | 把选中的待办标记完成 |
+| `r` | 立即重绘 |
+| `q` / `Esc` / `Ctrl-C` | 退出 |
+
+`Enter` 进去后 `Ctrl-b d` 回来，面板会自动重绘 —— 不退出 pp。
+
+**它不是终端模拟器**：右侧下半部分是 `capture-pane` 的快照（每秒刷新），不是活终端。
+真正接管终端的是 tmux，这也是它只有 ~400 行、不容易出玄学 bug 的原因。
+
+```bash
+pp tui                 # 交互
+pp tui --once          # 打印一帧就退出（管道/CI 里也能用）
+pp tui -c ./pi-plus.yml --socket work
+```
+
 ## 文档
 
 | 文档 | 内容 |
@@ -422,6 +461,7 @@ pp send <name|#> "文本"     往 pane 里打字并回车（--no-enter 不回车
 pp mesh ls|resolve|send    直连 remote-pi broker：看谁在线 / 查地址 / 发消息（--reply 等回复）
 pp cron add|ls|rm|tick     定时把 prompt/命令送进会话（--in/--every/--cron；见下节）
 pp todo [ls|attach|done]   谁在等我决策：列表 / 进去 / 完成（--all、--session）
+pp tui                     一块屏管所有会话和待办（左侧会话、右侧待办、下方预览）
 pp check                   校验配置
 pp doctor                  环境诊断（含自启状态、WSL 提示）
 pp init                    写示例配置

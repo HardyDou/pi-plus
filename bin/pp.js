@@ -46,6 +46,7 @@ function parseArgs(argv) {
         case "--json": options.json = true; break;
         case "--dry-run": options.dryRun = true; break;
         case "--force": options.force = true; break;
+        case "--once": options.once = true; break;
         case "--all": options.all = true; break;
         case "--reconcile": options.reconcile = true; break;
         case "--quiet": options.quiet = true; break;
@@ -142,6 +143,7 @@ function showHelp(name) {
 
 const { command, options } = parseArgs(process.argv.slice(2));
 options.scriptPath = scriptPath();
+options.version = VERSION;
 
 if (!command) process.exit(showHelp(null));
 if (command === "version") {

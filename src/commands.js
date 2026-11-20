@@ -86,6 +86,7 @@ import { findCommand, suggestCommand } from "./help.js";
 import { EXAMPLE_CONFIG } from "./example.js";
 import {
   addTodo,
+  agoString,
   clearTodos,
   filterTodos,
   readTodos,
@@ -95,6 +96,7 @@ import {
   todoRow,
   TodoError,
 } from "./todo.js";
+import { computeLayout, createTui, renderFrame } from "./tui.js";
 
 const COLORS = {
   reset: "\u001b[0m",
@@ -807,6 +809,129 @@ function cmdStatus(config, options, ui) {
     const running = rows.filter((r) => r.state === "running" || r.state === "attached").length;
     ui.out(`\n${running}/${rows.length} running  ${ui.paint("dim", `config: ${config.path}`)}`);
   }
+}
+
+/** Rows for the sessions panel: config entries first, then live strays. */
+function tuiSessionRows(config, live) {
+  const rows = [];
+  const seen = new Set();
+  const stateOf = (entry) => {
+    if (!entry) return "off";
+    if (entry.panes?.length && entry.panes.every((pane) => pane.dead)) return "dead";
+    return entry.attached ? "attached" : "running";
+  };
+  for (const session of config?.sessions ?? []) {
+    seen.add(session.tmuxName);
+    const entry = live.get(session.tmuxName) ?? null;
+    const state = stateOf(entry);
+    rows.push({
+      name: session.tmuxName,
+      state,
+      label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}  ${state}`,
+      dim: state === "off" || state === "dead",
+    });
+  }
+  for (const [name, entry] of live) {
+    if (seen.has(name)) continue;
+    const state = stateOf(entry);
+    rows.push({ name, state, label: ` - ${name}  ${state} (not in config)`, dim: true });
+  }
+  return rows;
+}
+
+function tuiTodoRows(todos, now) {
+  return todos.map((todo, index) => ({
+    name: todo.session,
+    ref: todo.id,
+    label: `${index + 1}. ${todo.session} — ${todo.title} (${agoString(todo.createdAt, now)}, ${todo.kind})`,
+    dim: todo.state === "done" || todo.state === "seen",
+  }));
+}
+
+async function cmdTui(config, options, ui) {
+  const tmux = makeTmux(config, options);
+  const once = Boolean(options.once);
+  if (!process.stdout.isTTY && !once) {
+    ui.error("pp tui needs a terminal (try `pp tui --once` to print one frame)");
+    process.exit(2);
+  }
+
+  const readLive = () => {
+    try {
+      return tmux.listSessions();
+    } catch {
+      return new Map();
+    }
+  };
+
+  if (once) {
+    const cols = process.stdout.columns || 100;
+    const rows = process.stdout.rows || 30;
+    const layout = computeLayout(cols, rows);
+    const live = readLive();
+    const model = {
+      sessions: tuiSessionRows(config, live),
+      todos: tuiTodoRows(filterTodos(readTodos()), Date.now()),
+      preview: { title: "—", lines: [] },
+      focus: "sessions",
+      footer: " pp tui --once ",
+    };
+    for (const line of renderFrame(model, layout)) ui.out(line);
+    return;
+  }
+
+  const previewLines = () => Math.max(4, computeLayout(process.stdout.columns || 100, process.stdout.rows || 30).preview.h - 2);
+
+  const tui = createTui({
+    version: options.version ?? "",
+    io: {
+      input: process.stdin,
+      output: process.stdout,
+      isTTY: Boolean(process.stdin.isTTY),
+      size: () => ({ cols: process.stdout.columns || 100, rows: process.stdout.rows || 30 }),
+      onResize: (callback) => process.stdout.on("resize", callback),
+      async refresh({ index = 0 } = {}) {
+        const live = readLive();
+        const sessions = tuiSessionRows(config, live);
+        const todos = tuiTodoRows(filterTodos(readTodos()), Date.now());
+        const current = sessions[index]?.name ?? sessions[0]?.name;
+        let preview = { title: "—", lines: ["no session selected"] };
+        if (current && live.has(current)) {
+          const text = tmux.capture(current, previewLines());
+          preview = { title: current, lines: text ? text.split("\n") : ["(empty pane)"] };
+        }
+        return { sessions, todos, preview };
+      },
+      async closeTodo(item) {
+        const todos = readTodos();
+        try {
+          setTodoState(todos, resolveTodo(todos, item.ref).todo, "done");
+        } catch {
+          // a vanished todo is not worth an error in the middle of a redraw
+        }
+      },
+      async attach(name) {
+        if (!tmux.sessionExists(name)) {
+          ui.warn(`${name} is not running; start it with pp up ${name}`);
+          await new Promise((resolve) => setTimeout(resolve, 600));
+          return;
+        }
+        if (process.env.TMUX) {
+          const clients = tmux.listClients?.() ?? [];
+          const client = clients.sort((a, b) => b.activity - a.activity)[0];
+          tmux.run(
+            client
+              ? ["switch-client", "-c", client.name, "-t", `=${name}`]
+              : ["switch-client", "-t", `=${name}`],
+            { allowFailure: true },
+          );
+          return;
+        }
+        tmux.attach(name);
+      },
+    },
+  });
+  await tui.start();
 }
 
 async function cmdAttach(config, options, ui) {
@@ -2082,6 +2207,9 @@ export async function runCommand(command, options) {
       }
       return cmdTodo(config, options, ui);
     }
+    case "tui":
+    case "panel":
+      return cmdTui(tryLoadConfig(options), options, ui);
     case "restart": {
       const config = requireConfig(options, ui);
       return cmdRestart(config, options, ui);

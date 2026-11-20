@@ -125,6 +125,22 @@ export class Tmux {
     return sessions;
   }
 
+  /** Map of attached clients: [{ name, session, activity }]. */
+  listClients() {
+    const res = this.run(
+      ["list-clients", "-F", ["#{client_name}", "#{client_session}", "#{client_activity}"].join(FIELD_SEP)],
+      { allowFailure: true, readOnly: true },
+    );
+    if (res.status !== 0) return [];
+    return res.stdout
+      .split("\n")
+      .filter((line) => line.trim())
+      .map((line) => {
+        const [name, session, activity] = line.split(FIELD_SEP);
+        return { name, session, activity: Number(activity) || 0 };
+      });
+  }
+
   create(session, { argv, env = {} }) {
     const envPairs = Object.entries(env).map(([k, v]) => `${k}=${v}`);
     const command = envPairs.length ? ["env", ...envPairs, ...argv] : argv;

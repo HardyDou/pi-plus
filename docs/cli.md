@@ -231,6 +231,34 @@ pp cron ls
 pp cron install
 ```
 
+### `pp tui [选项]`
+
+一屏内的控制面板：左列会话（配置顺序在前，再补 tmux 里多出来的），右列上半是待办、
+下半是所选会话的 `capture-pane` 快照（每秒刷新一次）。
+
+| 键 | 作用 |
+|---|---|
+| `↑` `↓` / `k` `j` | 移动 |
+| `Tab` | 切换列表 |
+| `Enter` | 进入会话（tmux 内 `switch-client`，tmux 外 `tmux attach`） |
+| `d` | 待办标记完成 |
+| `r` | 重绘 |
+| `q` / `Esc` / `Ctrl-C` | 退出 |
+
+```bash
+pp tui
+pp tui --once                 # 一帧输出后退出，不需要 tty
+pp tui --socket work
+```
+
+| 选项 | 说明 |
+|---|---|
+| `--once` | 打印一帧就退出（管道里可用；`stdout` 不是 tty 时也只有这条路） |
+| `--socket <name>` | 看哪个 tmux server |
+
+非 tty 且没有 `--once` 时退出码 2，提示 `pp tui needs a terminal`。
+右侧预览是快照：真正的终端由 tmux 接管，pp 不解析转义序列。
+
 ### `pp todo <子命令>`
 
 「谁在等我决策」清单。存在 `$XDG_STATE_HOME/pi-plus/todos.json`，pi 扩展在会话

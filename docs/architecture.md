@@ -23,6 +23,7 @@ src/autostart.js   systemd / launchd 单元渲染与安装/卸载/状态查询
 src/cron.js        定时作业：crontab 语法解析、nextRun、tick 投递、cron.json 存储与锁
 src/crond.js       crontab 托管块渲染与安装/卸载（只碰自己的标记之间）
 src/todo.js        待办清单：todos.json 存储、去重、稳定编号、会话重新开跑时自动关闭
+src/tui.js         控制面板：纯函数（宽度/按键/布局/渲染）+ 可注入 io 的交互循环；不做终端仿真
 src/commands.js    各子命令实现（up/down/restart/status/attach/logs/send/mesh/cron/todo/check/doctor/init/install/new/alias）
 src/help.js        COMMANDS 单一数据源 + 总览/单命令页/拼写建议
 src/aliases.js     备用命令名（pifarm/pi-plus/自定义软链）+ PATH 上 pp 归属判定

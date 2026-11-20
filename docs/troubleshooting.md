@@ -231,6 +231,18 @@ socket 上，`tmux -L other list-sessions` 才看得到。
 | 作业在别的机器/配置上 | 作业记了 `socket` 与 `configPath`；换配置后重建，或 `pp cron ls` 看来源 |
 | `cron.json.lock` 残留 | 超过 10 分钟自动视为陈旧；急用可手动删除 |
 
+## 控制面板类（`pp tui`）
+
+| 现象 | 原因 / 处理 |
+|---|---|
+| `pp tui needs a terminal` | 退出码 2：`stdout` 不是 tty（管道、`$( )`、CI）。要一帧快照用 `pp tui --once` |
+| 画面像乱码 / 一直滚动 | 终端不是 UTF-8 或 `TERM` 太原始：`export TERM=xterm-256color`、`export LANG=C.UTF-8` |
+| 中文字符把边框挤歪 | 宽度按 `displayWidth` 算（CJK 记 2 列）；若某个 emoji 仍错位，多半是宽度表没覆盖到，把该字符和 `pp -V` 一起报上来 |
+| 预览是空的 | 该会话还没输出，或 pane 已 dead（`remain-on-exit` 下会保留最后一屏）；`pp logs <name>` 对照 |
+| `Enter` 后没反应 | 会话没在跑：底部会提示 `X is not running; start it with pp up X`，等你按任意键返回 |
+| `Enter` 后回到面板但内容没变 | 那就在同一个 client 上 `switch-client` 了（tmux 内）；按 `r` 重绘，或 `Ctrl-b d` 再回来 |
+| 列表里多出「not in config」的会话 | tmux 里手工起的；`pp up <name>` 想接管就先写进配置 |
+
 ## 待办类（`pp todo`）
 
 | 现象 | 原因 / 处理 |
