@@ -394,6 +394,41 @@ check "status --json carries the job count"  0 '"cron"'         bash -c "cd $E2E
 HEAL_ID=$(cd "$E2E" && "$ROOT/bin/pp.js" -c "$CFG" cron ls --json | grep -B3 '"action": "heal"' | grep -o '"id": "[0-9a-f]*"' | head -1 | cut -d'"' -f4)
 check "heal restarts a dead session"  0 'delivered'              bash -c "tmux -L $SOCK kill-session -t e-onfail 2>/dev/null; cd $E2E && $ROOT/bin/pp.js -c $CFG cron run $HEAL_ID"
 check "heal brought it back"          0 'e-onfail'               bash -c "tmux -L $SOCK ls -F '#{session_name}'"
+
+# -- stalls: a pi turn that never ends is the one thing `ps` cannot tell you
+STALLCFG="$E2E/stall.yml"
+cat > "$STALLCFG" <<YAML
+version: 1
+tmux:
+  socket: $SOCK
+sessions:
+  - name: stall-x
+    cwd: /tmp
+    agent: $E2E/busy.sh
+YAML
+cat > "$E2E/busy.sh" <<'SH'
+#!/bin/sh
+line=$(printf '─%.0s' $(seq 40))
+while true; do printf '%s ⠋ Working\n' "$line"; sleep 1; done
+SH
+chmod +x "$E2E/busy.sh"
+(cd "$E2E" && XDG_STATE_HOME=$E2E/state-stall "$ROOT/bin/pp.js" -c "$STALLCFG" --socket "$SOCK" up >/dev/null 2>&1)
+sleep 2
+(cd "$E2E" && XDG_STATE_HOME=$E2E/state-stall "$ROOT/bin/pp.js" -c "$STALLCFG" --socket "$SOCK" doctor >/dev/null 2>&1)
+python3 - "$E2E/state-stall/pi-plus/state.json" <<'PYSEED'
+import datetime, json, sys
+path = sys.argv[1]
+data = json.load(open(path))
+for key in list(data):
+    if key.endswith("stall.yml"):
+        data[key]["stall-x"]["busySince"] = (
+            datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=90)
+        ).isoformat().replace("+00:00", "Z")
+json.dump(data, open(path, "w"))
+PYSEED
+check "a stuck agent is reported"     1 'stall-x busy [0-9]+m'   bash -c "cd $E2E && XDG_STATE_HOME=$E2E/state-stall $ROOT/bin/pp.js -c $STALLCFG --socket $SOCK doctor"
+check "a fresh turn is not a stall"   1 'no agent stuck'         bash -c "cd $E2E && XDG_STATE_HOME=$E2E/state-stall PP_STALL_MINUTES=600 $ROOT/bin/pp.js -c $STALLCFG --socket $SOCK doctor"
+tmux -L "$SOCK" kill-session -t stall-x 2>/dev/null || true
 check "heal audit trail recorded"     0 'heal'                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG audit --action heal"
 check "heal drops a hand-stopped one" 0 'delivered'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG down e-unless --force >/dev/null; $ROOT/bin/pp.js -c $CFG cron run $HEAL_ID"
 check "stopped session stayed down"   1 'can.t find session|no server'  bash -c "tmux -L $SOCK has-session -t '=e-unless:'"

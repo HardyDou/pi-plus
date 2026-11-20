@@ -61,7 +61,7 @@ import {
   launchAgentPath,
   systemdUserDir,
 } from "./autostart.js";
-import { clearStopped, isStopped, markStopped } from "./state.js";
+import { busySinceOf, clearBusy, clearStopped, isStopped, markBusy, markStopped } from "./state.js";
 import {
   compareVersions,
   fetchLatestVersion,
@@ -1980,6 +1980,12 @@ export function diffLines(before, after) {
   return b.slice(-40);
 }
 
+/** Forget how long an agent has been busy — used when it is not busy at all. */
+export function stallMinutes(env = process.env) {
+  const raw = Number(env.PP_STALL_MINUTES);
+  return Number.isFinite(raw) && raw > 0 ? raw : 45;
+}
+
 export function staleSeconds(env = process.env) {
   const raw = Number(env?.PP_STALE_MINUTES);
   const minutes = Number.isFinite(raw) && raw > 0 ? raw : 30;
@@ -3275,6 +3281,47 @@ function cmdDoctor(config, options, ui) {
       [parked.length ? `off: ${parked.join(", ")} — pp up` : null, strays.length ? `not in config: ${strays.join(", ")} — pp adopt` : null]
         .filter(Boolean)
         .join(" · ") || "nothing off, nothing unmanaged",
+    );
+  }
+  if (config) {
+    // "Which agent is stuck?" is the question nobody can answer from `ps`: a pi
+    // turn that has been open for hours looks exactly like a busy one, and the
+    // only difference is how long we have seen it busy.
+    const limitMinutes = stallMinutes(process.env);
+    const live = tmux.listSessions();
+    const stuck = [];
+    const seen = [];
+    for (const session of config.sessions.filter((s) => !s.node)) {
+      if (!live.has(session.tmuxName)) {
+        // a session that is not running cannot be stuck; forgetting the clock
+        // matters, or the next start inherits a stale "busy 3h"
+        clearBusy(config.path, session.name);
+        continue;
+      }
+      let busy = false;
+      try {
+        busy = tmux.isAgentBusy(session.tmuxName);
+      } catch {
+        busy = false;
+      }
+      if (!busy) {
+        clearBusy(config.path, session.name);
+        continue;
+      }
+      const since = busySinceOf(config.path, session.name) ?? markBusy(config.path, session.name);
+      const minutes = Math.max(0, Math.round((Date.now() - Date.parse(since)) / 60000));
+      seen.push({ name: session.name, minutes });
+      if (minutes >= limitMinutes) stuck.push({ name: session.name, minutes });
+    }
+    const longest = seen.reduce((most, entry) => Math.max(most, entry.minutes), 0);
+    add(
+      "stalls",
+      stuck.length === 0,
+      stuck.length
+        ? `${stuck.map((e) => `${e.name} busy ${e.minutes}m`).join(", ")} — look: pp logs <name> (PP_STALL_MINUTES=${limitMinutes})`
+        : seen.length
+          ? `no agent stuck (longest turn ${longest}m, limit ${limitMinutes}m)`
+          : "no agent working right now",
     );
   }
   const autostart = autostartState();

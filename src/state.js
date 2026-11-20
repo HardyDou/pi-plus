@@ -38,7 +38,10 @@ function bucket(state, configPath) {
 /** Record that the user stopped this session by hand. */
 export function markStopped(configPath, name, env = process.env, reason = "down") {
   const state = readAll(env);
-  bucket(state, configPath)[name] = { stopped: true, at: new Date().toISOString(), reason };
+  const entries = bucket(state, configPath);
+  // merge, do not replace: the same entry also tracks how long the agent has
+  // been busy, and stopping something must not forget that
+  entries[name] = { ...(entries[name] ?? {}), stopped: true, at: new Date().toISOString(), reason };
   writeAll(state, env);
 }
 
@@ -46,8 +49,12 @@ export function markStopped(configPath, name, env = process.env, reason = "down"
 export function clearStopped(configPath, name, env = process.env) {
   const state = readAll(env);
   const entries = bucket(state, configPath);
-  if (!(name in entries)) return false;
-  delete entries[name];
+  const entry = entries[name];
+  if (!entry?.stopped) return false;
+  delete entry.stopped;
+  delete entry.at;
+  delete entry.reason;
+  if (Object.keys(entry).length === 0) delete entries[name];
   if (Object.keys(entries).length === 0) delete state[configPath];
   writeAll(state, env);
   return true;
@@ -63,4 +70,34 @@ export function stoppedSessions(configPath, env = process.env) {
   return Object.entries(entries)
     .filter(([, v]) => v?.stopped)
     .map(([name, v]) => ({ name, at: v.at, reason: v.reason }));
+}
+
+/**
+ * A pi session that has been "working" since yesterday is not working, it is
+ * stuck (a tool call waiting on a socket, a prompt nobody answered). We only
+ * know how long when we remember the first time we saw it busy, so the first
+ * sighting is recorded here and the next `pp doctor` can say "busy 3h".
+ */
+export function markBusy(configPath, name, env = process.env, at = new Date().toISOString()) {
+  const state = readAll(env);
+  const entries = bucket(state, configPath);
+  entries[name] = { ...(entries[name] ?? {}), busySince: at };
+  writeAll(state, env);
+  return at;
+}
+
+export function busySinceOf(configPath, name, env = process.env) {
+  return readAll(env)[configPath]?.[name]?.busySince ?? null;
+}
+
+export function clearBusy(configPath, name, env = process.env) {
+  const state = readAll(env);
+  const entries = bucket(state, configPath);
+  const entry = entries[name];
+  if (!entry || entry.busySince === undefined) return false;
+  delete entry.busySince;
+  if (Object.keys(entry).length === 0) delete entries[name];
+  if (Object.keys(entries).length === 0) delete state[configPath];
+  writeAll(state, env);
+  return true;
 }

@@ -12,6 +12,28 @@ CLI 和 pi 扩展是**两份安装**：`pp` 走 `npm i -g pi-farm`，`/pp-*` 走
 
    （`--registry` 不能省——内网镜像通常滞后，会报 `notarget`。）
 3. 装完在 pi 里 `/reload`（或重启 pi），再 `/pp-status` 看 `pp` 与 `pp cli` 两行的版本。
+## `pp doctor` 说某个 agent「busy 3h」
+
+这不是 pp 的判断，是它观察到的事实：那个会话的输入框下方一直挂着 pi 的
+`⠋ Working` 状态行，而 pp 第一次看到它是 3 小时前。
+
+pi 的一轮对话可以很长，但**几个小时不动通常是卡住了**——等一个不会回来的工具调用、
+一个没人回答的确认、或者网络挂住的请求。这时：
+
+```bash
+pp logs <name>          # 看它最后在干什么
+pp logs <name> -f       # 跟着看还有没有新输出
+```
+
+实在没救就 `pp restart <name>`（那一轮的上下文会丢，pi 会按原 session 名 resume）。
+如果它其实是在正常地跑长任务，把阈值调大：
+
+```bash
+PP_STALL_MINUTES=180 pp doctor
+```
+
+阈值默认 45 分钟。会话停了/安静了，pp 会自动把计时清零，下次启动不会继承旧的"卡住"时间。
+
 
 ## `pp status` 说 `N unmanaged` / `N down`
 

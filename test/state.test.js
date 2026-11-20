@@ -3,7 +3,16 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { clearStopped, isStopped, markStopped, statePath, stoppedSessions } from "../src/state.js";
+import {
+  busySinceOf,
+  clearBusy,
+  clearStopped,
+  isStopped,
+  markBusy,
+  markStopped,
+  statePath,
+  stoppedSessions,
+} from "../src/state.js";
 
 const envWith = () => ({ HOME: mkdtempSync(join(tmpdir(), "pi-plus-state-")) });
 
@@ -33,4 +42,28 @@ test("state file lives under XDG_STATE_HOME and survives corrupt data", () => {
   const xdg = { ...env, XDG_STATE_HOME: join(env.HOME, "xdg") };
   assert.equal(statePath(xdg), join(env.HOME, "xdg", "pi-plus", "state.json"));
   assert.equal(isStopped("/cfg/a.yml", "backend", xdg), false);
+});
+
+test("busy clocks and manual stops share one entry without eating each other", () => {
+  const env = envWith();
+  const cfg = "/cfg/a.yml";
+  assert.equal(busySinceOf(cfg, "api", env), null);
+
+  const at = markBusy(cfg, "api", env);
+  assert.equal(busySinceOf(cfg, "api", env), at);
+
+  // stopping a session must not forget how long its agent has been busy
+  markStopped(cfg, "api", env);
+  assert.equal(isStopped(cfg, "api", env), true);
+  assert.equal(busySinceOf(cfg, "api", env), at, "markStopped merges instead of replacing");
+
+  // and starting it again must not forget either
+  clearStopped(cfg, "api", env);
+  assert.equal(isStopped(cfg, "api", env), false);
+  assert.equal(busySinceOf(cfg, "api", env), at, "clearStopped only removes the stop fields");
+
+  // when the agent goes quiet the clock goes away
+  assert.equal(clearBusy(cfg, "api", env), true);
+  assert.equal(busySinceOf(cfg, "api", env), null);
+  assert.equal(clearBusy(cfg, "api", env), false, "clearing twice is not an error");
 });
