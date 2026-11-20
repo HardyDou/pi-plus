@@ -136,6 +136,15 @@ Without a terminal (a script, an autostart job) it refuses unless `--force` is
 given. Comments elsewhere in the file survive — only the deleted block is
 rewritten, so the diff stays small.
 
+### `pp status` 的尾行
+
+```
+2/3 running  1 down  1 unmanaged (stray-x) — pp adopt  config: ~/.pi/plus.yml
+```
+
+`down` = 配置里有、现在没在跑（`pp up` 能修）；`unmanaged` = 在跑、但配置里没有（`pp adopt` 能收）。
+两数都为 0 时这行只显示 `N/N running`。`pp doctor` 里同一条信息叫 `drift`。
+
 ### `pp adopt [name|#...] [--all]`
 
 把机器上**已经在跑、但不在配置里**的 tmux 会话反向登记进 `plus.yml`：

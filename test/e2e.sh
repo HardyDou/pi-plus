@@ -521,6 +521,8 @@ check "adopt records the session" 0 'adopted 1'                 bash -c "cd $E2E
 check "adopt wrote a runnable entry" 0 'stray-x'                bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $ADOPTCFG --socket $SOCK ls | grep running | grep stray-x"
 check "adopt refuses a restart policy it does not know" 2 'must be one of' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ADOPTCFG --socket $SOCK adopt keeper --restart sometimes"
 check "adopt is idempotent" 0 'already in the config'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $ADOPTCFG --socket $SOCK adopt stray-x"
+check "ls counts what is up but unmanaged" 0 'unmanaged'     bash -c "cd $E2E && $ROOT/bin/pp.js -c $ADOPTCFG --socket $SOCK ls"
+check "doctor points at the drift"  1 'not in config'            bash -c "cd $E2E && $ROOT/bin/pp.js -c $ADOPTCFG --socket $SOCK doctor"
 check "attach to a remote session is built for ssh" 0 'attach-session .*far-x' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach far-x --dry-run"
 check "node add writes the config"   0 'added node'              bash -c "cp $NODECFG $E2E/add.yml && cd $E2E && $ROOT/bin/pp.js -c $E2E/add.yml node add prod --host 10.0.0.11 --user deploy --identity ~/.ssh/id_ed25519"
 check "node add keeps the sessions"  0 ''                        bash -c "grep -q 'name: far-x' $E2E/add.yml"

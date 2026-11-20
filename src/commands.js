@@ -1710,8 +1710,21 @@ function cmdStatus(config, options, ui) {
   if (!options.quiet) {
     const running = shown.filter((r) => r.state === "running" || r.state === "attached").length;
     const unreachableNodes = [...unreachable];
+    // The two numbers an operator looks for: what should be up and is not, and
+    // what is up and nobody wrote down.
+    const down = rows.filter((r) => r.state === "off" || r.state === "stopped" || r.state === "dead").length;
+    const configured = new Set(config.sessions.map((session) => `${session.node ?? ""}:${session.tmuxName}`));
+    const unmanaged = [];
+    for (const [key, map] of liveCache) {
+      const nodeName = key === "local" ? "" : key;
+      for (const name of map.keys()) if (!configured.has(`${nodeName}:${name}`)) unmanaged.push(name);
+    }
     ui.out(
       `\n${running}/${shown.length} running` +
+        (down ? `  ${ui.paint("yellow", `${down} down`)}` : "") +
+        (unmanaged.length
+          ? `  ${ui.paint("yellow", `${unmanaged.length} unmanaged`)} ${ui.paint("dim", `(${unmanaged.slice(0, 3).join(", ")}${unmanaged.length > 3 ? ", …" : ""}) — pp adopt`)}`
+          : "") +
         (config.nodes?.length ? `  ${ui.paint("dim", `${config.nodes.length} node${config.nodes.length === 1 ? "" : "s"}`)}` : "") +
         (unreachableNodes.length ? `  ${ui.paint("red", `unreachable: ${unreachableNodes.join(", ")}`)}` : "") +
         `  ${ui.paint("dim", `config: ${config.path}`)}`,
@@ -2780,6 +2793,22 @@ function cmdDoctor(config, options, ui) {
       "nodes",
       true,
       `${config.nodes.length} registered (${[...used].join(", ") || "none"} carrying sessions) — one-shot tour: pp doctor --nodes`,
+    );
+  }
+  if (config) {
+    // Does the config still describe this machine? Two drifts matter: parked
+    // sessions that should be up, and live ones nobody wrote down.
+    const live = tmux.listSessions();
+    const local = config.sessions.filter((session) => !session.node);
+    const mine = new Set(local.map((session) => session.tmuxName));
+    const parked = local.filter((session) => !live.has(session.tmuxName) && session.restart !== "no").map((session) => session.name);
+    const strays = [...live.keys()].filter((name) => !mine.has(name));
+    add(
+      "drift",
+      parked.length === 0 && strays.length === 0,
+      [parked.length ? `off: ${parked.join(", ")} — pp up` : null, strays.length ? `not in config: ${strays.join(", ")} — pp adopt` : null]
+        .filter(Boolean)
+        .join(" · ") || "nothing off, nothing unmanaged",
     );
   }
   const autostart = autostartState();

@@ -13,6 +13,13 @@ CLI 和 pi 扩展是**两份安装**：`pp` 走 `npm i -g pi-farm`，`/pp-*` 走
    （`--registry` 不能省——内网镜像通常滞后，会报 `notarget`。）
 3. 装完在 pi 里 `/reload`（或重启 pi），再 `/pp-status` 看 `pp` 与 `pp cli` 两行的版本。
 
+## `pp status` 说 `N unmanaged` / `N down`
+
+- **`down`**：配置里有、现在没在跑。`pp up` 起来；若是你手动停的（`pp down`），它记在
+  `$XDG_STATE_HOME/pi-plus/state.json` 里，重启不会自己回来。
+- **`unmanaged`**：在跑、但配置里没有。`pp adopt --all` 收编，或 `pp down <name>` 停掉。
+- 两个数归零，说明"配置描述的就是机器现状"。`pp doctor` 里同一条检查叫 `drift`。
+
 ## 定时任务的提示词只被填进输入框，没有发出去
 
 根因是 **pi 在一轮对话跑完之前不收输入**：它把打进编辑器的东西当成"待发送草稿"存着，等这一轮结束
