@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
+import { decodeFields } from "../src/tmux.js";
+
 import {
   authSummary,
   normalizeNode,
@@ -228,4 +230,20 @@ test("an unreachable node fails with something a human can act on", () => {
     assert.match(err.message, /ssh/);
     return true;
   });
+});
+
+test("a remote tmux that escapes the separator still parses", () => {
+  // tmux 3.4 on a server turns the 0x1f byte in `-F` output into the four
+  // characters \037, which used to make the whole line come back as one name
+  // and every remote session look stopped.
+  const line = "t114-check\\037%0\\037448207\\037bash\\0370\\037/tmp\\0371\\0370";
+  const [name, , pid, command, dead, path] = decodeFields(line).split("\u001f");
+  assert.equal(name, "t114-check");
+  assert.equal(pid, "448207");
+  assert.equal(command, "bash");
+  assert.equal(dead, "0");
+  assert.equal(path, "/tmp");
+  // and a modern tmux that passes the byte through is unchanged
+  const modern = ["web", "%1", "99", "pi", "0", "/srv", "2", "1"].join("\u001f");
+  assert.equal(decodeFields(modern), modern);
 });

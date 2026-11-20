@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { accessSync, constants, statSync } from "node:fs";
 import { delimiter, isAbsolute, join } from "node:path";
+import { shellQuote } from "./config.js";
 
 /**
  * tmux has two target syntaxes: `=name` for sessions (exact match) and
@@ -21,6 +22,15 @@ export class TmuxError extends Error {
 import { sshInvocation } from "./nodes.js";
 
 const FIELD_SEP = "\u001f";
+
+/**
+ * tmux 3.6 hands the separator byte through untouched; tmux 3.4 (common on
+ * servers) escapes control bytes in `-F` output, so the line arrives with the
+ * four literal characters `\037` instead of 0x1f. Undo that before parsing.
+ */
+export function decodeFields(stdout) {
+  return String(stdout).split("\\037").join(FIELD_SEP);
+}
 
 /** Sleep without a dependency (Atomics on a throwaway buffer blocks exactly). */
 export function sleep(ms) {
@@ -133,14 +143,23 @@ export class Tmux {
   args(args) {
     const inner = ["tmux", ...this.tmuxArgs(args)];
     if (!this.remote) return inner;
-    const inv = sshInvocation(this.remote.node, ["tmux"], { env: this.env, batch: true });
-    return [inv.command, ...inv.argv, ...this.tmuxArgs(args)];
+    const inv = sshInvocation(this.remote.node, [this.wire(args)], { env: this.env, batch: true });
+    return [inv.command, ...inv.argv];
+  }
+
+  /**
+   * The command as it has to travel over ssh: one string, every token quoted.
+   * ssh joins its arguments with spaces and lets the remote shell re-split
+   * them, so `send-keys -l -- "echo hi"` would otherwise arrive as two keys.
+   */
+  wire(args) {
+    return ["tmux", ...this.tmuxArgs(args)].map((part) => shellQuote(String(part))).join(" ");
   }
 
   /** The command to spawn plus the environment it needs (sshpass sets SSHPASS). */
   spawnFor(args, { tty = false, batch = true } = {}) {
     if (!this.remote) return { command: "tmux", argv: this.tmuxArgs(args), env: this.env };
-    const inv = sshInvocation(this.remote.node, ["tmux", ...this.tmuxArgs(args)], {
+    const inv = sshInvocation(this.remote.node, [this.wire(args)], {
       env: this.env,
       batch,
       tty,
@@ -192,9 +211,21 @@ export class Tmux {
   }
 
   /** Can we talk to this tmux at all? One cheap round trip. */
+  /**
+   * Is the machine reachable? Ask ssh, not tmux: a server with no tmux session
+   * running is perfectly reachable, and reporting it as down sends people
+   * chasing the wrong thing.
+   */
   reachable() {
-    const result = this.run(["display-message", "-p", "-"], { allowFailure: true, readOnly: true });
-    return result.status === 0;
+    if (!this.remote) return true;
+    const inv = sshInvocation(this.remote.node, ["true"], { env: this.env, batch: true });
+    const res = spawnSync(inv.command, inv.argv, {
+      encoding: "utf8",
+      env: { ...this.env, ...inv.env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    // ssh reserves 255 for its own failures (DNS, auth, timeout, no route).
+    return !res.error && res.status !== 255;
   }
 
   sessionExists(name) {
@@ -223,7 +254,7 @@ export class Tmux {
     );
     const sessions = new Map();
     if (res.status !== 0) return sessions;
-    for (const line of res.stdout.split("\n")) {
+    for (const line of decodeFields(res.stdout).split("\n")) {
       if (!line.trim()) continue;
       const [name, paneId, pid, command, dead, path, created, attached] = line.split(FIELD_SEP);
       const entry = sessions.get(name) ?? {
@@ -250,7 +281,7 @@ export class Tmux {
       .split("\n")
       .filter((line) => line.trim())
       .map((line) => {
-        const [name, session, activity] = line.split(FIELD_SEP);
+        const [name, session, activity] = decodeFields(line).split(FIELD_SEP);
         return { name, session, activity: Number(activity) || 0 };
       });
   }
