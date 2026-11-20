@@ -49,7 +49,23 @@ function parseArgs(argv) {
         case "--json": options.json = true; break;
         case "--dry-run": options.dryRun = true; break;
         case "--drift": options.drift = true; break;
+        case "--wait": {
+          // `pp up --wait 30` blocks until the sessions are actually up; the
+          // value is optional so `pp up --wait` means the usual 15 seconds
+          const next = inline !== undefined ? inline : args[0];
+          if (next !== undefined && /^\d+$/.test(next)) {
+            if (inline === undefined) args.shift();
+            options.wait = Number(next);
+          } else if (inline !== undefined) {
+            fail(`--wait takes a number of seconds, not "${inline}"`);
+          } else {
+            options.wait = 15;
+          }
+          break;
+        }
         case "--heal": options.heal = true; break;
+        case "--sweep": options.sweep = true; break;
+        case "--to": options.to = takeValue(flag, inline); break;
         case "--remote": options.remote = true; break;
         case "--force": options.force = true; break;
         case "--once": options.once = true; break;

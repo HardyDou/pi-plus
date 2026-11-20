@@ -395,6 +395,38 @@ HEAL_ID=$(cd "$E2E" && "$ROOT/bin/pp.js" -c "$CFG" cron ls --json | grep -B3 '"a
 check "heal restarts a dead session"  0 'delivered'              bash -c "tmux -L $SOCK kill-session -t e-onfail 2>/dev/null; cd $E2E && $ROOT/bin/pp.js -c $CFG cron run $HEAL_ID"
 check "heal brought it back"          0 'e-onfail'               bash -c "tmux -L $SOCK ls -F '#{session_name}'"
 
+# --sweep: the fleet reports itself into a session, and says nothing when fine
+SWEEPCFG="$E2E/sweep.yml"
+cat > "$SWEEPCFG" <<YAML
+version: 1
+tmux:
+  socket: $SOCK-sweep
+sessions:
+  - name: sw-echo
+    cwd: /tmp
+    agent: cat
+  - name: sw-off
+    cwd: /tmp
+  - name: sw-once
+    cwd: /tmp
+    restart: "no"
+YAML
+(cd "$E2E" && "$ROOT/bin/pp.js" -c "$SWEEPCFG" --socket "$SOCK-sweep" up sw-echo >/dev/null 2>&1)
+check "cron add --sweep needs a destination" 1 'needs a destination' bash -c "cd $E2E && $ROOT/bin/pp.js -c $SWEEPCFG --socket $SOCK-sweep cron add --sweep --every 5m"
+check "cron add --sweep rejects --session"   1 'use --to'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $SWEEPCFG --socket $SOCK-sweep cron add --sweep --session sw-echo --to sw-echo --every 5m"
+check "cron add --sweep rejects a prompt"    1 'no prompt'         bash -c "cd $E2E && $ROOT/bin/pp.js -c $SWEEPCFG --socket $SOCK-sweep cron add --sweep --to sw-echo --every 5m 'hi'"
+check "cron add --sweep needs a live destination" 1 'unknown destination' bash -c "cd $E2E && $ROOT/bin/pp.js -c $SWEEPCFG --socket $SOCK-sweep cron add --sweep --to nowhere --every 5m"
+check "cron add --sweep schedules a job"     0 'session sw-echo'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $SWEEPCFG --socket $SOCK-sweep cron add --sweep --to sw-echo --every 5m"
+check "cron ls marks the sweep target"       0 'fleet . sw-echo'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $SWEEPCFG --socket $SOCK-sweep cron ls"
+SWEEP_ID=$(cd "$E2E" && "$ROOT/bin/pp.js" -c "$SWEEPCFG" --socket "$SOCK-sweep" cron ls --json | grep -B3 '"action": "sweep"' | grep -o '"id": "[0-9a-f]*"' | head -1 | cut -d'"' -f4)
+check "sweep reports what is off"           0 '1 problem'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $SWEEPCFG --socket $SOCK-sweep cron run $SWEEP_ID"
+check "the report lands in the session"     0 'fleet health'     bash -c "tmux -L $SOCK-sweep capture-pane -p -t '=sw-echo:'"
+check "the report names the session"        0 'off: sw-off'      bash -c "tmux -L $SOCK-sweep capture-pane -p -t '=sw-echo:'"
+check "a healthy fleet is silence"          0 'all quiet'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $SWEEPCFG --socket $SOCK-sweep up sw-off >/dev/null 2>&1; $ROOT/bin/pp.js -c $SWEEPCFG --socket $SOCK-sweep cron run $SWEEP_ID"
+tmux -L "$SOCK-sweep" kill-session -t sw-echo 2>/dev/null || true
+tmux -L "$SOCK-sweep" kill-session -t sw-off 2>/dev/null || true
+tmux -L "$SOCK-sweep" kill-server 2>/dev/null || true
+
 # -- stalls: a pi turn that never ends is the one thing `ps` cannot tell you
 STALLCFG="$E2E/stall.yml"
 cat > "$STALLCFG" <<YAML

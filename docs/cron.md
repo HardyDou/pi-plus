@@ -169,6 +169,39 @@ pi 扩展注册了一个**模型可见的工具** `schedule`，所以可以直�
 工具和 CLI 写同一个 `cron.json`，`pp cron ls`/`rm` 都能管。为什么是工具而不是斜杠命令：
 斜杠命令只有用户能敲，模型看不见；工具描述进系统提示，模型每轮自己挑。
 
+## 让机群自己汇报：`--sweep`
+
+`--heal` 会自己修，但有些事情它修不了：某个会话没起来、某个 agent 卡了两小时、
+有会话在跑却没写进配置。这些事需要**有人看一眼**，而"有人"平时不会主动看。
+
+`--sweep` 就是那只看一眼的眼睛。它每到时间跑一次运行期检查，**只有出问题才说话**——
+把一句话打进某个会话，让那个 agent（或人）看到并处理：
+
+```bash
+pp cron add --sweep --to ops --every 30m
+```
+
+出问题时，`ops` 会话的输入框里会出现：
+
+```
+fleet health (pp cron 41cf3e): 2 problems — off: risk-02 (pp up risk-02); stuck: mango-release-01 busy 95m (pp logs mango-release-01)
+```
+
+每个问题后面都带着**下一步该敲的命令**，所以接手的 agent 不用猜。
+一切都好时它什么都不发（`all quiet` 只写进 `cron.log`），不会刷屏。
+
+它检查四件事（都在本机，不 ssh 出去）：
+
+| 检查 | 含义 | 怎么修 |
+| --- | --- | --- |
+| `off:` | 该跑却没跑（`restart: no`、手工停掉的、drain 中的机器都跳过） | `pp up <name>` |
+| `unmanaged:` | 在跑但配置里没有 | `pp adopt <name>` |
+| `stuck:` | 忙碌超过 `PP_STALL_MINUTES`（默认 45 分） | `pp logs <name>` |
+| `tmux is not running here` | 连 tmux server 都没有 | `pp up` 或 `pp doctor` |
+
+目标会话正忙时它会让路（`deferred: … is working`），下一轮再来——不会把报告塞进
+一个正在思考的 agent 里。
+
 ## 常见问题
 
 | 现象 | 原因 / 处理 |

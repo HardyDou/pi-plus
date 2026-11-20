@@ -3693,6 +3693,98 @@ function deliverToEverySession(tmux, job) {
  * construction: `up --drift` only starts what is missing and it respects a
  * session somebody stopped on purpose, so this can run every few minutes.
  */
+/**
+ * Runtime health, as a short list of sentences a human (or an agent) can act on.
+ * Deliberately not the whole of `pp doctor`: autostart units and extension
+ * versions do not change at 3am, sessions dying and agents hanging do.
+ */
+export function fleetProblems(config, options) {
+  const problems = [];
+  if (!config) return problems;
+  const local = config.sessions.filter((session) => !session.node);
+  let live = new Map();
+  const handle = makeTmux(config, options);
+  try {
+    live = handle.listSessions();
+  } catch {
+    return [{ kind: "tmux", text: "tmux is not answering — nothing could be checked" }];
+  }
+  if (!live.size && local.length) {
+    // an empty answer can also mean "there is no server at all", which an empty
+    // listing happily disguises as "everything is off"
+    const server = (() => {
+      try {
+        return handle.hasServer();
+      } catch {
+        return false;
+      }
+    })();
+    if (!server) return [{ kind: "tmux", text: "tmux is not running here — nothing could be checked" }];
+  }
+  const mine = new Set(local.map((session) => session.tmuxName));
+  for (const session of local) {
+    if (live.has(session.tmuxName)) continue;
+    if (session.restart === "no" || isStopped(config.path, session.name) || drainOf(config, session)) continue;
+    problems.push({ kind: "off", name: session.name, text: `off: ${session.name} (pp up ${session.name})` });
+  }
+  for (const name of live.keys()) {
+    if (!mine.has(name)) problems.push({ kind: "unmanaged", name, text: `unmanaged: ${name} (pp adopt ${name})` });
+  }
+  const limit = stallMinutes(options?.env ?? process.env);
+  const tmux = handle;
+  for (const session of local) {
+    if (!live.has(session.tmuxName)) continue;
+    let busy = false;
+    try {
+      busy = tmux.isAgentBusy(session.tmuxName);
+    } catch {
+      busy = false;
+    }
+    if (!busy) continue;
+    const since = busySinceOf(config.path, session.name);
+    if (!since) continue;
+    const minutes = Math.max(0, Math.round((Date.now() - Date.parse(since)) / 60000));
+    if (minutes >= limit) {
+      problems.push({ kind: "stuck", name: session.name, text: `stuck: ${session.name} busy ${minutes}m (pp logs ${session.name})` });
+    }
+  }
+  return problems;
+}
+
+/** One line, short enough that a 1000-character paste marker never kicks in. */
+export function formatSweepLine(problems, { id = null, most = 4 } = {}) {
+  const head = `fleet health${id ? ` (pp cron ${id})` : ""}: ${problems.length} problem${problems.length === 1 ? "" : "s"}`;
+  const shown = problems.slice(0, most).map((problem) => problem.text);
+  const rest = problems.length - shown.length;
+  return `${head} — ${shown.join("; ")}${rest > 0 ? `; and ${rest} more (pp status)` : ""}`;
+}
+
+/**
+ * `pp cron add --sweep --to <session>`: the fleet reports itself, but only when
+ * something is wrong. Silence is the healthy state; that is the whole point.
+ */
+function sweepFleet(job, options) {
+  let config = null;
+  try {
+    config = loadConfig({ configPath: job.configPath ?? undefined, cwd: process.cwd() });
+  } catch (error) {
+    return { status: `failed: ${error.message}` };
+  }
+  if (!config) return { status: "failed: no config to sweep" };
+  const problems = fleetProblems(config, options);
+  if (!problems.length) return { status: "delivered", text: "all quiet" };
+  const tmux = makeTmux(config, options);
+  if (tmux.isAgentBusy(job.session)) {
+    return { status: `deferred: ${job.session} is working — the next tick will deliver` };
+  }
+  const line = formatSweepLine(problems, { id: job.id });
+  const sent = tmux.sendText(job.session, line);
+  if (!sent.submitted) {
+    return { status: `failed: typed into ${job.session} but Enter never took it`, screen: sent.screen };
+  }
+  return { status: "delivered", text: `${problems.length} problem${problems.length === 1 ? "" : "s"} → ${job.session}` };
+}
+
 function healDrift(job, options) {
   let config = null;
   try {
@@ -3765,6 +3857,7 @@ function healDrift(job, options) {
 
 function deliverJob(job, options) {
   if (job.action === "heal") return healDrift(job, options);
+  if (job.action === "sweep") return sweepFleet(job, options);
   if (job.action === "command") {
     const result = spawnSync("sh", ["-c", job.command], { encoding: "utf8" });
     if (result.error) return { status: `failed: ${result.error.message}` };
@@ -3843,7 +3936,9 @@ function printCronJobs(jobs, ui, now = new Date()) {
   const headers = ["ID", "TARGET", "SCHEDULE", "NEXT", "RUNS", "LAST"];
   // a command job has no session at all, so this has to survive null
   const target = (session, action) =>
-    action === "heal"
+    action === "sweep"
+      ? `fleet → ${session ?? "-"}`
+      : action === "heal"
       ? "drift (up --drift)"
       : action === "command"
         ? "$ (localhost)"
@@ -3866,10 +3961,18 @@ async function cmdCronAdd(config, options, ui) {
   const text = options.names.join(" ").trim();
   const command = options.command;
   const healing = Boolean(options.heal);
+  const sweeping = Boolean(options.sweep);
+  if (healing && sweeping) throw new CronError("--heal and --sweep are different jobs — add them one at a time");
   if (healing) {
     if (options.session || options.all) throw new CronError("--heal needs no session — it starts whatever is missing");
     if (command) throw new CronError("--heal takes no command — it runs: pp up --drift");
     if (text) throw new CronError("--heal takes no prompt — it runs: pp up --drift");
+  } else if (sweeping) {
+    if (options.all) throw new CronError("--sweep reports into one session — pass --to <session>");
+    if (command) throw new CronError("--sweep takes no command — it checks the fleet and reports");
+    if (text) throw new CronError("--sweep takes no prompt — it writes its own report");
+    if (options.session) throw new CronError("--sweep reports into one session — use --to <session>, not --session");
+    if (!options.to) throw new CronError("--sweep needs a destination: --to <session> (where the report is typed)");
   } else {
     if (!text && !command) throw new CronError('nothing to say at that time — pass the prompt: pp cron add --at ... "check the build"');
     if (text && command) throw new CronError("give either a prompt or --command, not both");
@@ -3882,6 +3985,23 @@ async function cmdCronAdd(config, options, ui) {
   let configPath = config?.path ?? null;
   if (healing) {
     session = null;
+  } else if (sweeping) {
+    const wanted = options.to;
+    const resolved = config ? resolveSessionRef(config, wanted) : null;
+    if (resolved) {
+      session = resolved.tmuxName;
+    } else {
+      let live = new Map();
+      try {
+        live = makeTmux(config, options).listSessions();
+      } catch {
+        live = new Map();
+      }
+      if (!live.has(wanted)) {
+        throw new CronError(`unknown destination "${wanted}" — not in ${config?.path ?? "the config"} and not running in tmux`);
+      }
+      session = wanted;
+    }
   } else if (options.all) {
     if (options.session) throw new CronError("give either --session <name|#> or --all, not both");
     if (command) throw new CronError("--all takes a prompt — a command runs once, not per session");
@@ -3922,8 +4042,8 @@ async function cmdCronAdd(config, options, ui) {
   const jobs = readJobs();
   const job = {
     id: newJobId(jobs),
-    action: healing ? "heal" : command ? "command" : "prompt",
-    ...(healing ? {} : command ? { command } : { prompt: text, session, socket }),
+    action: healing ? "heal" : sweeping ? "sweep" : command ? "command" : "prompt",
+    ...(healing ? {} : sweeping ? { session, socket } : command ? { command } : { prompt: text, session, socket }),
     schedule,
     catchUp: options.catchUp ? parseDuration(options.catchUp, { what: "--catch-up" }) : DEFAULT_CATCH_UP_SECONDS,
     startSession: Boolean(options.start),
