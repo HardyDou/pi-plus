@@ -1640,6 +1640,21 @@ function cmdStatus(config, options, ui) {
     return map;
   };
 
+  // who is attached, per machine: fetched once, like the session list
+  const clientCache = new Map();
+  const clientsFor = (nodeName) => {
+    const key = nodeName ?? "";
+    if (clientCache.has(key)) return clientCache.get(key);
+    let list = [];
+    try {
+      list = makeTmux(config, options, { node: nodeName }).listClients();
+    } catch {
+      list = [];
+    }
+    clientCache.set(key, list);
+    return list;
+  };
+
   const SORT_KEYS = new Set(["config", "idle", "name"]);
   const sortKey = options.sort ?? "config";
   if (!SORT_KEYS.has(sortKey)) {
@@ -1683,6 +1698,11 @@ function cmdStatus(config, options, ui) {
       idleSeconds,
       idle: idleSeconds === null ? "" : shortAge(idleSeconds),
       remotePiName: session.remotePiName ?? "",
+      // "who is looking at this" — the question before `pp down` on a shared box
+      client: (() => {
+        const client = clientsFor(session.node).find((entry) => entry.session === session.tmuxName);
+        return client ? `${client.user || "?"}@${client.tty || client.name}` : "";
+      })(),
     };
   });
 
@@ -1716,9 +1736,14 @@ function cmdStatus(config, options, ui) {
   }
 
   const showNode = (config.nodes?.length ?? 0) > 0;
-  const headers = showNode
-    ? ["#", "NAME", "NODE", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]
-    : ["#", "NAME", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"];
+  // the CLIENT column only earns its width when somebody is actually attached
+  const showClient = rows.some((row) => row.client);
+  const headers = [
+    ...(showNode
+      ? ["#", "NAME", "NODE", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]
+      : ["#", "NAME", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]),
+    ...(showClient ? ["CLIENT"] : []),
+  ];
   const table = shown.map((r) => [
     String(r.index),
     r.name,
@@ -1737,6 +1762,7 @@ function cmdStatus(config, options, ui) {
           ? `${r.piSessionName} (new)`
           : "(new)",
     r.remotePiName,
+    ...(showClient ? [r.client || "-"] : []),
   ]);
   const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
   const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
@@ -1751,6 +1777,10 @@ function cmdStatus(config, options, ui) {
     const color = row.state === "running" ? "green" : row.state === "attached" ? "cyan" : row.state === "dead" || row.state === "unreachable" ? "red" : "dim";
     colored[stateAt] = ui.paint(color, colored[stateAt]);
     const idleAt = stateAt + 1;
+    if (showClient && row.client) {
+      const at = widths.length - 1;
+      colored[at] = ui.paint(row.client.startsWith(`${process.env.USER ?? "?"}@`) ? "dim" : "cyan", colored[at]);
+    }
     if (row.idleSeconds !== null && row.idleSeconds >= staleSeconds()) {
       colored[idleAt] = ui.paint("yellow", colored[idleAt]);
     } else if (row.idle) {

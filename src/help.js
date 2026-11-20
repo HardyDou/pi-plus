@@ -215,6 +215,9 @@ export const COMMANDS = [
       "someone stopped it on purpose (remembered for unless-stopped and",
       "on-failure; `pp up <name>` undoes it). The json carries the same thing as",
       "`reason`: hand, never, policy.",
+      "",
+      "When somebody is attached, a CLIENT column appears with `user@tty`: that",
+      "is the check before `pp down` turns into a conversation with a colleague.",
     ].join("\n"),
     options: [
       "--json           JSON: { sessions, drift } (drift = down/stray counts)",

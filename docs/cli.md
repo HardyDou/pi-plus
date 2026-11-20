@@ -150,6 +150,11 @@ rewritten, so the diff stays small.
 `3/4` = 你为这台机器列了 4 个会话、3 个在跑；`+1` = 它上面还有一个没写进配置的会话。
 两个符号分别对应 `pp up` 和 `pp adopt`。
 
+### `pp status` 的 `CLIENT` 列
+
+有客户端连着会话时，表格末尾会多一列 `CLIENT`，形如 `user@/dev/pts/23`。杀会话之前先看这一列 ——
+"别人正看着这个会话"和"没人管"是两件不同的事。
+
 ### `pp status`：`off` 和 `off (hand)` 不一样
 
 `off` 表示"该在但没在"（`pp up --drift` 补），`off (hand)` 表示"有人特意停的"（`restart: unless-stopped`/`on-failure`

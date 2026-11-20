@@ -278,7 +278,13 @@ export class Tmux {
   /** Map of attached clients: [{ name, session, activity }]. */
   listClients() {
     const res = this.run(
-      ["list-clients", "-F", ["#{client_name}", "#{client_session}", "#{client_activity}"].join(FIELD_SEP)],
+      // who is attached matters before killing anything: tty plus the user
+      // that owns it is what "someone else is looking at this" looks like
+      [
+        "list-clients",
+        "-F",
+        ["#{client_name}", "#{client_session}", "#{client_activity}", "#{client_user}", "#{client_tty}"].join(FIELD_SEP),
+      ],
       { allowFailure: true, readOnly: true },
     );
     if (res.status !== 0) return [];
@@ -286,8 +292,8 @@ export class Tmux {
       .split("\n")
       .filter((line) => line.trim())
       .map((line) => {
-        const [name, session, activity] = decodeFields(line).split(FIELD_SEP);
-        return { name, session, activity: Number(activity) || 0 };
+        const [name, session, activity, user, tty] = decodeFields(line).split(FIELD_SEP);
+        return { name, session, activity: Number(activity) || 0, user: user || "", tty: tty || "" };
       });
   }
 
