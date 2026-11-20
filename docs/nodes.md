@@ -149,6 +149,14 @@ pp node exec --all --quiet -- 'test -f /etc/cron.d/backup'   # 只关心失败�
 ```
 
 `--` 之后的整串作为**一条**远端命令行交给远端 shell，管道、通配符、引号都按你在那边敲的行为执行。
+
+默认逐台跑（输出顺序稳定、不会同时把机群压出负载毛刺）；`--parallel` 同时跑全部选中机器：
+
+```bash
+pp node exec --all --parallel -- 'df -h / | tail -1'
+```
+
+六台机器、每条命令耗时 1 秒时：逐台 7.9s → `--parallel` 1.2s。输出仍按节点名字顺序打印，不会互相插队。
 任一台非零退出，`pp` 自身返回 1（`--json` 时每台一条记录）。`--timeout` 默认 60 秒，超时按失败计。
 
 `pp node test --json` 的字段是稳定的，可以直接当监控契约：

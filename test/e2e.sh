@@ -483,6 +483,8 @@ check "node ls --tag filters"        0 '^far '                   bash -c "cd $E2
 check "node ls --tag with no match says so" 0 'no node matches'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/tag.yml node ls --tag ghost"
 check "node exec --tag picks machines" 0 'tag-marker'            bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $E2E/tag.yml node exec --tag prod -- 'echo tag-marker'"
 check "ls --tag rejects an unknown tag" 2 'tagged'               bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/tag.yml --socket $SOCK ls --tag ghost"
+check "node exec --parallel runs on every machine" 0 'parallel-b' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $E2E/tag.yml node exec --all --parallel -- 'echo parallel-a; echo parallel-b'"
+check "node exec --parallel still reports failures" 1 'exit 4'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $E2E/tag.yml node exec --all --parallel -- 'exit 4'"
 check "node help page"               0 'sshpass'                 bash -c "cd $E2E && $ROOT/bin/pp.js help node"
 check "node appears in the overview" 0 'node \(nodes\)'          bash -c "cd $E2E && $ROOT/bin/pp.js help"
 

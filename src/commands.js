@@ -39,6 +39,7 @@ import {
   removeNodeFromFile,
   renderNodeBlock,
   runOnNode,
+  runOnNodeAsync,
   sshInvocation,
   tightenConfigMode,
   upsertNodeInFile,
@@ -1160,7 +1161,7 @@ function cmdNodeSsh(config, options, ui) {
  * hands the remote shell one command line, so anything else would lose the
  * quoting the user typed (`pp node exec db -- docker ps --format {{.Names}}`).
  */
-function cmdNodeExec(config, options, ui) {
+async function cmdNodeExec(config, options, ui) {
   const command = options.rest ?? [];
   // names holds the tokens before `--` *and* the payload after it.
   const refs = options.all || options.tags?.length
@@ -1180,18 +1181,18 @@ function cmdNodeExec(config, options, ui) {
   }
   const remote = command.join(" ");
   const timeout = Math.max(1, Number(options.timeout ?? 60)) * 1000;
-  const results = [];
-  for (const ref of refs) {
+
+  // One machine at a time by default (readable output, no thundering herd);
+  // --parallel fires them all at once for a big fleet.
+  const runOne = async (ref) => {
     const node = findNode(config, ref);
-    if (!node) {
-      results.push({ node: ref, ok: false, status: null, ms: 0, stdout: "", stderr: `no node "${ref}"` });
-      continue;
-    }
+    if (!node) return { node: ref, ok: false, status: null, ms: 0, stdout: "", stderr: `no node "${ref}"` };
     const started = Date.now();
-    let result;
     try {
-      const res = runOnNode(node, [remote], { timeout });
-      result = {
+      const res = options.parallel
+        ? await runOnNodeAsync(node, [remote], { timeout })
+        : runOnNode(node, [remote], { timeout });
+      return {
         node: node.name,
         target: nodeTarget(node),
         ok: res.status === 0 && !res.timedOut,
@@ -1201,7 +1202,7 @@ function cmdNodeExec(config, options, ui) {
         stderr: res.timedOut ? `${res.stderr}${res.stderr ? "\n" : ""}timed out after ${timeout / 1000}s` : res.stderr,
       };
     } catch (err) {
-      result = {
+      return {
         node: node.name,
         target: nodeTarget(node),
         ok: false,
@@ -1211,7 +1212,13 @@ function cmdNodeExec(config, options, ui) {
         stderr: err.message,
       };
     }
-    results.push(result);
+  };
+
+  const results = options.parallel
+    ? await Promise.all(refs.map((ref) => runOne(ref)))
+    : await refs.reduce(async (previous, ref) => [...(await previous), await runOne(ref)], Promise.resolve([]));
+
+  for (const result of results) {
     if (ui.json) continue;
     if (options.quiet && result.ok) continue;
     const head = result.ok

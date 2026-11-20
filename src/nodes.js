@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -226,6 +226,59 @@ export function runOnNode(node, remoteCommand, { env = process.env, batch = true
     stderr: res.stderr ?? "",
     timedOut: Boolean(res.error && res.error.code === "ETIMEDOUT") || res.signal === "SIGTERM",
   };
+}
+
+/**
+ * Same as runOnNode, but without blocking the event loop — the fleet case
+ * runs every machine at once instead of one after another.
+ */
+export function runOnNodeAsync(node, remoteCommand, { env = process.env, batch = true, timeout = 20000 } = {}) {
+  const inv = sshInvocation(node, [], { env, batch });
+  const argv = [...inv.argv, ...remoteCommand.map(String)];
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(inv.command, argv, { env: { ...env, ...inv.env }, stdio: ["ignore", "pipe", "pipe"] });
+    } catch (err) {
+      resolve({ status: null, stdout: "", stderr: err.message, timedOut: false, error: err });
+      return;
+    }
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (result) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(result);
+    };
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // already gone
+      }
+      finish({ status: null, stdout, stderr, timedOut: true });
+    }, timeout);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk;
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (err) => {
+      const message =
+        err.code === "ENOENT"
+          ? inv.command === "sshpass"
+            ? `node "${node.name}" uses a password, which needs sshpass`
+            : "ssh is not installed (or not on PATH)"
+          : err.message;
+      finish({ status: null, stdout, stderr: `${stderr}${message}`, timedOut: false, error: err });
+    });
+    child.on("close", (status) => {
+      finish({ status: status ?? 1, stdout, stderr, timedOut: false });
+    });
+  });
 }
 
 /** Parse the `key=value` lines PROBE_SCRIPT prints. */
