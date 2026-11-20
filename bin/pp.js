@@ -93,6 +93,11 @@ function parseArgs(argv) {
         case "--password-env": options.passwordEnv = takeValue(flag, inline); break;
         case "--note": options.note = takeValue(flag, inline); break;
         case "--node": options.node = takeValue(flag, inline); break;
+        case "--limit": options.lines = Number(takeValue(flag, inline)); break;
+        case "--action": options.action = takeValue(flag, inline); break;
+        case "--since": options.since = takeValue(flag, inline); break;
+        case "--prune": options.prune = takeValue(flag, inline); break;
+        case "--file": options.file = takeValue(flag, inline); break;
         case "--tag": {
           // repeatable: --tag prod --tag db means "on prod *and* db machines"
           const value = takeValue(flag, inline);

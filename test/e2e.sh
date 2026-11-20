@@ -92,6 +92,22 @@ YAML
 PF() { pp --socket "$SOCK" "$@"; }
 PFc() { pp --socket "$SOCK" -c "$CFG" "$@"; }
 
+section "audit"
+export PP_AUDIT_FILE="$E2E/audit.log"
+"$ROOT/bin/pp.js" -c "$CFG" --socket "$SOCK" down e-no >/dev/null 2>&1 || true
+"$ROOT/bin/pp.js" -c "$CFG" --socket "$SOCK" up e-no >/dev/null 2>&1
+check "audit records a stop"            0 'down.*e-no'      bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK audit --action down"
+check "audit records a start"           0 'up.*e-no'        bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK audit --action up"
+check "audit filters by target"         0 'e-no'             bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK audit e-no --limit 5"
+check "audit prints one line per entry" 0 'restart.*e-no'    bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK restart e-no >/dev/null && $ROOT/bin/pp.js -c $CFG --socket $SOCK audit --limit 1"
+check "a restart is one entry, not two" 0 ''                bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK audit --action up --limit 5 | grep -c restart || true"
+check "audit says who did it"           0 'actor'            bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK audit --json --limit 2"
+check "audit --prune keeps recent"      0 'pruned'           bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK audit --prune 30d"
+check "an empty trail says so"          0 'nothing recorded' bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK audit --file $E2E/none.log"
+check "a dry run is not a change"       1 ''                 bash -c "PP_AUDIT_FILE=$E2E/dry.log $ROOT/bin/pp.js -c $CFG --socket $SOCK --dry-run down e-no >/dev/null; test -f $E2E/dry.log"
+unset PP_AUDIT_FILE
+"$ROOT/bin/pp.js" -c "$CFG" --socket "$SOCK" down e-no >/dev/null 2>&1 || true
+
 section "help"
 check "help overview"            0 'Commands:'                 pp help
 check "help up"                  0 '\-\-reconcile'             pp help up

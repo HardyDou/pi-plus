@@ -352,6 +352,15 @@ which -a pp            # 可能还有旧的 ~/.local/bin/pp 符号链接
 npm ls -g --depth=0 | grep pi-farm
 ```
 
+## 审计类（`pp audit`）
+
+| 现象 | 原因与处理 |
+| --- | --- |
+| `pp audit` 说 `nothing recorded` | 只记录"改动"：`up`/`down`/`restart`/`rm`/`send`/`cron add|rm`/`node add|rm`。`--dry-run`、`status`、`ls`、`check` 都不会写。文件默认 `$XDG_STATE_HOME/pi-plus/audit.log`，可用 `--file` 指定别的。 |
+| 想看是谁在凌晨停的 | `pp audit --action down --since 12h`；每条的 `actor` 是 `user@host#pid`，cron 触发的是同一个用户但 pid 不同。 |
+| 文件涨得太大 | 超过 2 MB 自动轮转到 `audit.log.1`；主动裁剪用 `pp audit --prune 90d`。 |
+| 想知道那条命令为什么失败 | 失败时命令自己会非零退出并报错，审计只记"做了什么"，不记 stderr —— 失败细节看终端输出或 `pp logs`。 |
+
 ## 配置类
 
 ### `unknown key "pi_sesion" (ignored)` 之类的警告

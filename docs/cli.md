@@ -62,6 +62,30 @@ pp <command> [names...] [options]
 
 ## 命令
 
+### `pp audit [target]`
+
+```bash
+pp audit                            # 最近 30 条改动，最新在最后
+pp audit risk-01                    # 只这一个会话
+pp audit --action down --since 12h  # 昨晚谁停了东西
+pp audit --json --limit 200         # 交给 jq 汇总
+pp audit --prune 90d                # 只留一个季度
+```
+
+一行一条：`<多久前> <动作> <目标> [on 机器] — <细节> (结果)`。append-only 写在
+`$XDG_STATE_HOME/pi-plus/audit.log`（超过 2 MB 轮转成 `audit.log.1`）。`actor` 是
+`user@host#pid`，所以定时任务投递和人在终端敲的命令能区分开；`--dry-run` 与只读
+命令（`ls`/`status`/`check`）不写。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--limit N` | 显示最近 N 条（默认 30） |
+| `--action VERB` | `up`/`down`/`restart`/`rm`/`send`/`cron.add`/`cron.rm`/`node.add`/`node.rm` |
+| `--since 2h` | 只看这段时间之后（`30m`、`6h`、`3d`） |
+| `--prune 30d` | 删掉更早的条目并报告留下多少 |
+| `--file PATH` | 读另一份轨迹 |
+| `--json` | 输出对象数组 |
+
 ### `pp up [name|#...]`
 
 后台创建/启动（别名 `start`）。不带名字 = 所有 `restart != no` 的会话。

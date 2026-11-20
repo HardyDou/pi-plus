@@ -13,6 +13,7 @@ import {
   removeSessionFromFile,
   shellQuote,
 } from "./config.js";
+import { agoText, auditPath, pruneAudit, readAudit, recordAudit } from "./audit.js";
 import { clearPanel, findPanelPane, loadPanel, panelAlive, savePanel } from "./panel.js";
 import { readRemotePiConfig, remotePiConfigPath, writeRemotePiName } from "./remote-pi.js";
 import {
@@ -325,6 +326,15 @@ export function tmuxSafeName(raw) {
 }
 
 /** Build an ad-hoc (config-less) session for `pp new`. */
+/**
+ * One line in the audit trail. Never fails the command it describes, and never
+ * records a dry run — a plan is not a change.
+ */
+function note(action, target, { detail = null, result = null, node = null, dryRun = false, skip = false } = {}) {
+  if (dryRun || skip) return;
+  recordAudit({ action, target, detail, result, node });
+}
+
 function adHocSession({ name, cwd, agent, log, remotePiName, remotePiMode, node = null }) {
   const argv = splitCommand(agent);
   const pi = basename(argv[0] ?? "") === "pi";
@@ -545,6 +555,12 @@ async function cmdUp(config, options, ui) {
     );
     if (started && !options.dryRun) ui.info(`Attach with: pp attach ${sessions[0]?.name ?? "<name>"}`);
   }
+  note("up", sessions.map((session) => session.name).join(","), {
+    detail: `${started} started, ${skipped} already running${failures.length ? `, ${failures.length} failed` : ""}`,
+    result: failures.length ? "partial" : "ok",
+    dryRun: options.dryRun,
+    skip: Boolean(options.skipAudit),
+  });
   if (failures.length) process.exitCode = 1;
 }
 
@@ -576,6 +592,11 @@ function cmdDown(config, options, ui) {
   }
   if (ui.json) ui.out(JSON.stringify({ killed, missing, blocked: blocked.length }, null, 2));
   else if (!options.quiet) ui.info(`\n${killed} stopped, ${missing} not running.${blocked.length ? ` ${blocked.length} blocked by a guard.` : ""}`);
+  note("down", sessions.map((session) => session.name).join(","), {
+    detail: `${killed} stopped, ${missing} not running${blocked.length ? `, ${blocked.length} guarded` : ""}`,
+    result: options.force ? "force" : "ok",
+    dryRun: options.dryRun,
+  });
 }
 
 /** Ask a yes/no question on the terminal (only used when stdin is a TTY). */
@@ -827,6 +848,11 @@ async function cmdRm(config, options, ui) {
     ui.info(`${ui.paint("red", label)} ${session.tmuxName}  ${ui.paint("dim", `(${bits.join(", ")})`)}`);
   }
 
+  note("rm", target.map((row) => row.session.name).join(","), {
+    detail: `${killed} killed, ${removed} config entr${removed === 1 ? "y" : "ies"} deleted`,
+    result: options.force ? "force" : "ok",
+    dryRun: options.dryRun,
+  });
   if (ui.json) {
     ui.out(JSON.stringify({ killed, removed, sessions: target.map((row) => row.session.name) }, null, 2));
     return;
@@ -843,8 +869,10 @@ async function cmdRestart(config, options, ui) {
     const tmux = makeTmux(config, options, session);
     if (tmux.sessionExists(session.tmuxName)) tmux.kill(session.tmuxName);
   }
+  note("restart", sessions.map((session) => session.name).join(","), { detail: `${sessions.length} restarted`, result: "ok" });
   options.force = true;
-  await cmdUp(config, { ...options, names: sessions.map((s) => s.name) }, ui);
+  // the restart itself is the interesting entry; the up it performs is noise
+  await cmdUp(config, { ...options, names: sessions.map((s) => s.name), skipAudit: true }, ui);
 }
 
 /* ------------------------------------------------------------------ nodes */
@@ -1103,6 +1131,7 @@ async function cmdNodeAdd(config, options, ui) {
         `On a shared box prefer --password-env <VAR> or --identity <key>`,
     );
   }
+  note(`node.${action === "updated" ? "update" : "add"}`, node.name, { detail: `${nodeTarget(node)}:${node.port} (${authSummary(node)})`, result: "ok" });
   {
     ui.info(`${action === "updated" ? "updated" : "added"} node ${ui.paint("cyan", node.name)} → ${nodeTarget(node)}:${node.port} (${authSummary(node)})`);
   }
@@ -1125,6 +1154,7 @@ function cmdNodeRm(config, options, ui) {
     ui.error(`could not find "${node.name}" in ${config.path}`);
     process.exit(1);
   }
+  note("node.rm", node.name, { detail: `${used.length} session(s) now point at a missing node`, result: options.force ? "force" : "ok" });
   ui.info(`removed node ${node.name}${used.length ? ui.paint("dim", ` (${used.length} session(s) now point at a missing node)`) : ""}`);
 }
 
@@ -1864,6 +1894,7 @@ function cmdSend(config, options, ui) {
     process.exit(1);
   }
   tmux.sendText(session.tmuxName, text, { enter: !options.noEnter });
+  note("send", session.name, { node: session.node ?? null, detail: text.length > 120 ? `${text.slice(0, 117)}…` : text, result: options.noEnter ? "typed" : "sent" });
   ui.info(`sent to ${session.name}`);
 }
 
@@ -2877,6 +2908,10 @@ async function cmdCronAdd(config, options, ui) {
     refreshCronLog(options, ui);
     return;
   }
+  note("cron.add", job.id, {
+    detail: `${describeSchedule(schedule)} → ${job.action === "command" ? `$ ${command}` : session}`,
+    result: "ok",
+  });
   ui.info(`${ui.paint("green", "scheduled")} ${job.id}  ${describeSchedule(schedule)}  →  ${job.action === "command" ? `$ ${command}` : `session ${session}`}`);
   ui.info(ui.paint("dim", `first run: ${due ? due.toLocaleString() : "never"}   cancel with: pp cron rm ${job.id}`));
   if (!options.start && job.action === "prompt" && session !== ALL_SESSIONS) {
@@ -2886,6 +2921,64 @@ async function cmdCronAdd(config, options, ui) {
     ui.info(ui.paint("dim", `every session running at that moment gets it; a busy agent is skipped and retried on the next tick`));
   }
   refreshCronLog(options, ui);
+}
+
+/**
+ * `pp audit` — what changed on this machine, newest last.
+ *
+ * The first question after an incident is "did anyone touch it?", and the first
+ * answer anyone believes is one they can read without a database.
+ */
+function cmdAudit(config, options, ui) {
+  const file = options.file ? resolve(expandPath(options.file)) : auditPath();
+  if (options.prune) {
+    let seconds;
+    try {
+      seconds = parseDuration(options.prune, { what: "--prune" });
+    } catch (err) {
+      ui.error(err.message);
+      process.exit(2);
+    }
+    const cutoff = new Date(Date.now() - seconds * 1000);
+    const { kept, dropped } = pruneAudit({ olderThan: cutoff, file });
+    if (ui.json) ui.out(JSON.stringify({ kept, dropped, cutoff: cutoff.toISOString() }, null, 2));
+    else ui.info(`pruned ${dropped} entr${dropped === 1 ? "y" : "ies"} older than ${formatDuration(seconds)} (kept ${kept})`);
+    return;
+  }
+
+  let since = null;
+  if (options.since) {
+    let seconds;
+    try {
+      seconds = parseDuration(options.since, { what: "--since" });
+    } catch (err) {
+      ui.error(err.message);
+      process.exit(2);
+    }
+    since = new Date(Date.now() - seconds * 1000);
+  }
+  const target = options.names[0] ?? null;
+  const entries = readAudit({ limit: options.lines ?? 30, action: options.action ?? null, target, since, file });
+
+  if (ui.json) {
+    ui.out(JSON.stringify(entries, null, 2));
+    return;
+  }
+  if (!entries.length) {
+    ui.info(ui.paint("dim", `nothing recorded${target ? ` for ${target}` : ""}${options.action ? ` (action ${options.action})` : ""} — the trail starts with the next change`));
+    ui.info(ui.paint("dim", `file: ${file}`));
+    return;
+  }
+  ui.info(ui.paint("dim", `${file}  (${entries.length} entr${entries.length === 1 ? "y" : "ies"})`));
+  const now = new Date();
+  for (const entry of entries) {
+    const cold = /^(rm|down|node\.rm)$/.test(entry.action);
+    const bits = [agoText(entry.ts, now).padEnd(8), ui.paint(cold ? "red" : "cyan", String(entry.action ?? "?").padEnd(12)), entry.target ?? "-"];
+    if (entry.node) bits.push(ui.paint("dim", `on ${entry.node}`));
+    if (entry.detail) bits.push(`— ${entry.detail}`);
+    if (entry.result) bits.push(ui.paint("dim", `(${entry.result})`));
+    ui.out(bits.join(" "));
+  }
 }
 
 async function cmdCronList(config, options, ui) {
@@ -2919,6 +3012,7 @@ async function cmdCronRemove(config, options, ui) {
     }
     removeJob(id);
     removed += 1;
+    note("cron.rm", id, { detail: describeSchedule(job.schedule), result: "ok" });
     ui.info(`removed ${id}  ${ui.paint("dim", `(${describeSchedule(job.schedule)})`)}`);
   }
   if (!options.dryRun && removed && !options.quiet) ui.info(ui.paint("dim", `${removed} job(s) removed`));
@@ -3178,6 +3272,10 @@ export async function runCommand(command, options) {
         config = null;
       }
       return cmdNode(config, options, ui);
+    }
+    case "audit": {
+      const config = tryLoadConfig(options);
+      return cmdAudit(config, options, ui);
     }
     case "cron": {
       let config = null;
