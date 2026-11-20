@@ -101,6 +101,7 @@ import {
 import {
   blockStatus as crondBlockStatus,
   CrondError,
+  hasBlock as crondHasBlock,
   installBlock as installCrondBlock,
   readCrontab,
   renderBlock as renderCrondBlock,
@@ -1668,6 +1669,9 @@ function cmdStatus(config, options, ui) {
       node: session.node ?? "",
       tmux: session.tmuxName,
       state: state === "stopped" && (session.restart === "no" || isStopped(config.path, session.name)) ? "off" : state,
+      // why it is not running matters at 3am: "someone stopped it on purpose"
+      // and "it never came up" need different answers from the operator
+      reason: state === "stopped" ? (isStopped(config.path, session.name) ? "hand" : session.restart === "no" ? "policy" : "never") : "",
       restart: session.restart,
       pid,
       command,
@@ -1719,7 +1723,7 @@ function cmdStatus(config, options, ui) {
     String(r.index),
     r.name,
     ...(showNode ? [r.node || "-"] : []),
-    r.state,
+    r.state === "off" && r.reason === "hand" ? "off (hand)" : r.state,
     r.idle || "-",
     r.restart,
     r.pid,
@@ -1742,7 +1746,7 @@ function cmdStatus(config, options, ui) {
     const stateAt = showNode ? 3 : 2;
     colored[0] = ui.paint("dim", colored[0]);
     if (showNode) colored[2] = ui.paint(row.node ? "cyan" : "dim", colored[2]);
-    if (row.state === "off") colored[stateAt] = ui.paint("dim", "off");
+    if (row.state === "off") colored[stateAt] = ui.paint("dim", colored[stateAt]);
     if (row.state === "unreachable") colored[stateAt] = ui.paint("red", "unreachable");
     const color = row.state === "running" ? "green" : row.state === "attached" ? "cyan" : row.state === "dead" || row.state === "unreachable" ? "red" : "dim";
     colored[stateAt] = ui.paint(color, colored[stateAt]);
@@ -1773,6 +1777,9 @@ function cmdStatus(config, options, ui) {
           ? `  ${ui.paint("yellow", `${unmanaged.length} unmanaged`)} ${ui.paint("dim", `(${unmanaged.slice(0, 3).join(", ")}${unmanaged.length > 3 ? ", …" : ""}) — pp adopt`)}`
           : "") +
         (config.nodes?.length ? `  ${ui.paint("dim", `${config.nodes.length} node${config.nodes.length === 1 ? "" : "s"}`)}` : "") +
+        (rows.some((r) => r.reason === "hand")
+          ? `  ${ui.paint("dim", "(hand) = stopped on purpose; pp up <name> brings it back")}`
+          : "") +
         (unreachableNodes.length ? `  ${ui.paint("red", `unreachable: ${unreachableNodes.join(", ")}`)}` : "") +
         `  ${ui.paint("dim", `config: ${config.path}`)}`,
     );
@@ -3013,6 +3020,25 @@ function cmdDoctor(config, options, ui) {
   add("pi extension", Boolean(extension) && extension.version === own, describeExtension(extension, own));
   const names = inspectCommandNames({ target: scriptPath(options) });
   add("command name", names.ok, describeCommandNames(names));
+  // The scheduler is the quietest thing to break: jobs simply stop firing and
+  // nothing says so. One line here is the difference between noticing and not.
+  {
+    const jobs = readJobs();
+    let ticked = false;
+    try {
+      ticked = crondHasBlock(readCrontab());
+    } catch {
+      ticked = false;
+    }
+    const lastTick = jobs.reduce((newest, job) => Math.max(newest, Date.parse(job.lastRun ?? "") || 0), 0);
+    const ageMinutes = lastTick ? Math.round((Date.now() - lastTick) / 60000) : null;
+    const detail = !jobs.length
+      ? "no jobs — pp cron add --every 10m \"…\""
+      : `${jobs.length} job${jobs.length === 1 ? "" : "s"}, tick ${ticked ? "installed" : "not installed"}` +
+        (ageMinutes === null ? "" : `, last fired ${ageMinutes}m ago`);
+    const healthy = !jobs.length || (ticked && (ageMinutes === null || ageMinutes < 60));
+    add("cron", healthy, detail);
+  }
   add("config", Boolean(config), config?.path ?? "not found");
   if (config?.nodes?.length) {
     // Registering a machine is a promise; say whether ssh can keep it, but do

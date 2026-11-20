@@ -42,6 +42,13 @@ CLI 和 pi 扩展是**两份安装**：`pp` 走 `npm i -g pi-farm`，`/pp-*` 走
 如果一个会话的 `⠋ Working` 几个小时都不消失，那不是 `pp` 的问题：看 `pp attach <session>` 里
 卡住的那一步（常见是某个工具调用没返回）。
 
+## `pp status` 里 `off` 和 `off (hand)` 有什么不同
+
+`off` = 该在但没在（`pp up --drift` 补起来）。`off (hand)` = 有人特意停的：
+`restart: unless-stopped` / `on-failure` 的会话被手工 `pp down` 过，pp 记着这件事，
+所以自启和 `--drift` 都不会擅自把它拉起来。要它回来就 `pp up <name>`（会清掉那个记号）。
+`--json` 里对应 `"reason": "hand" | "never" | "policy"`。
+
 ## 面板底部出现 `3 off · 1 unmanaged`
 
 那两个数字就是 `pp status` 尾行那对儿的缩写：`off` 是配置里该在却没起的会话（`pp up --drift` 补齐），

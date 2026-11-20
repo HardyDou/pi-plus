@@ -150,6 +150,12 @@ rewritten, so the diff stays small.
 `3/4` = 你为这台机器列了 4 个会话、3 个在跑；`+1` = 它上面还有一个没写进配置的会话。
 两个符号分别对应 `pp up` 和 `pp adopt`。
 
+### `pp status`：`off` 和 `off (hand)` 不一样
+
+`off` 表示"该在但没在"（`pp up --drift` 补），`off (hand)` 表示"有人特意停的"（`restart: unless-stopped`/`on-failure`
+会记住手工 stop，`pp up <name>` 才会重新拉起）。`--json` 里对应 `"reason": "hand" | "never" | "policy"`。
+半夜排查时这两个的答案完全不同，所以状态栏里分开写。
+
 ### `pp status --json`
 
 ```json
