@@ -32,6 +32,7 @@ pi-plus.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --n
 - **谁在等我**：`pp todo` 列出「哪个会话卡在问题上」，`pp todo attach 2` 直接进去；pi 弹提示或跑完停在问句时自动登记。
 - **能查账**：`pp audit` 是每次改动的流水（谁、什么时候、把哪个会话停了/起了/发了什么），`--since 12h --action down` 就是"昨晚谁动的"。
 - **多机器一张表**：`pp node add` 登记一台 ssh 能到的机器，会话写 `node: prod-01` 就跑到那台机器上——远端不用装 pp，`pp ls`/`tui`/`cron`/`todo` 一视同仁；机器的 `base_path`/`defaults` 让会话条目只剩两行。
+- **机群体检**：`pp doctor --nodes` 并行 ssh 一遍，每台一行给出连通性、负载、uptime、会话数、磁盘、内存。
 
 ## 安装
 

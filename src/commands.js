@@ -115,7 +115,7 @@ import {
   todoRow,
   TodoError,
 } from "./todo.js";
-import { computeLayout, createTui, parseLeftOption, renderFrame } from "./tui.js";
+import { computeLayout, createTui, parseLeftOption, renderFrame, stripAnsi } from "./tui.js";
 
 const COLORS = {
   reset: "\u001b[0m",
@@ -2455,7 +2455,90 @@ function describeExtension(installed, own) {
   return `pi-farm@${installed.version} in ${installed.dir}`;
 }
 
+async function doctorNodes(config, options, ui) {
+  const nodes = taggedNodes(config, options);
+  if (!nodes.length) {
+    const hint = options.node || options.tags?.length
+      ? "no machine matched that filter — see: pp node ls"
+      : "no machines registered — see: pp node add --help";
+    ui.error(hint);
+    process.exitCode = 1;
+    return;
+  }
+  const results = await Promise.all(
+    nodes.map(async (node) => {
+      const started = Date.now();
+      try {
+        const res = await runOnNodeAsync(node, [PROBE_SCRIPT], { timeout: 15000 });
+        const ms = Date.now() - started;
+        if (res.status !== 0) {
+          return { node, ok: false, ms, error: (res.stderr || res.stdout || `ssh exited ${res.status}`).trim().split("\n")[0] };
+        }
+        return { node, ok: true, ms, probe: parseProbe(res.stdout) };
+      } catch (error) {
+        return { node, ok: false, ms: Date.now() - started, error: error.message };
+      }
+    }),
+  );
+
+  const usable = results.filter((r) => r.ok);
+  const carrying = usable.filter((r) => Number(r.probe?.sessions ?? 0) > 0).length;
+  const slowest = usable.length ? Math.max(...usable.map((r) => r.ms)) : 0;
+
+  if (ui.json) {
+    ui.out(
+      JSON.stringify(
+        results.map((r) => ({
+          name: r.node.name,
+          target: nodeTarget(r.node),
+          ok: r.ok,
+          ms: r.ms,
+          error: r.ok ? null : r.error,
+          ...(r.ok ? { probe: r.probe } : {}),
+        })),
+        null,
+        2,
+      ),
+    );
+    if (!usable.length || results.some((r) => !r.ok)) process.exitCode = 1;
+    return;
+  }
+
+  // /proc/uptime is seconds and /proc/loadavg is three numbers: say what an
+  // operator can read at a glance, not what the kernel happened to print
+  const upText = (seconds) => {
+    const value = Number(seconds);
+    if (!Number.isFinite(value) || value <= 0) return "-";
+    return value >= 86400 ? `${Math.floor(value / 86400)}d` : `${Math.floor(value / 3600)}h`;
+  };
+  const rows = results.map((r) => [
+    `${r.ok ? ui.paint("green", "✓") : ui.paint("red", "✗")} ${r.node.name}`,
+    nodeTarget(r.node),
+    r.ok ? `${r.ms}ms` : ui.paint("red", "down"),
+    r.ok ? (r.probe?.tmux && r.probe.tmux !== "-" ? r.probe.tmux.replace(/^tmux\s+/, "") : "-") : "-",
+    r.ok ? String(r.probe?.load ?? "-").split(/\s+/)[0] : "-",
+    r.ok ? upText(r.probe?.up) : "-",
+    r.ok ? String(r.probe?.sessions ?? "-") : "-",
+    r.ok ? r.probe?.disk ?? "-" : "-",
+    r.ok ? r.probe?.mem ?? "-" : "-",
+  ]);
+  const headers = ["MACHINE", "TARGET", "PING", "TMUX", "LOAD", "UP", "SESSIONS", "DISK", "MEM"];
+  const widths = headers.map((h, i) => Math.max(h.length, ...rows.map((row) => stripAnsi(row[i]).length)));
+  const pad = (value, width) => value + " ".repeat(Math.max(0, width - stripAnsi(value).length));
+  ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
+  for (const row of rows) ui.out(row.map((cell, i) => pad(cell, widths[i])).join("  ").trimEnd());
+
+  for (const bad of results.filter((r) => !r.ok)) ui.out(ui.paint("dim", `  ${bad.node.name}: ${bad.error}`));
+  ui.out(
+    `\n${usable.length}/${results.length} reachable` +
+      (usable.length ? `  ${carrying} carrying sessions  slowest ${slowest}ms` : ""),
+  );
+  if (results.some((r) => !r.ok)) process.exitCode = 1;
+}
+
 function cmdDoctor(config, options, ui) {
+  // the machine park, not this machine: a different question, a different table
+  if (options.nodes) return doctorNodes(config, options, ui);
   const tmux = makeTmux(config, options);
   const checks = [];
   const add = (label, ok, detail) => checks.push({ label, ok, detail });
@@ -2486,7 +2569,7 @@ function cmdDoctor(config, options, ui) {
     add(
       "nodes",
       true,
-      `${config.nodes.length} registered (${[...used].join(", ") || "none"} carrying sessions) — check one with: pp node test <name>`,
+      `${config.nodes.length} registered (${[...used].join(", ") || "none"} carrying sessions) — one-shot tour: pp doctor --nodes`,
     );
   }
   const autostart = autostartState();

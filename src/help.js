@@ -593,9 +593,16 @@ export const COMMANDS = [
     details: [
       "Checks node, tmux, pi, the config file, the remote-pi plugin and the",
       "autostart unit, and tells you what is missing. Exits 1 when a check fails.",
+      "",
+      "With --nodes it checks the machines instead of this one: one ssh per node",
+      "(in parallel), printing ping, tmux version, load, uptime, session count,",
+      "disk and memory, so \"which box is about to fall over\" is one command.",
     ].join("\n"),
-    options: ["--json           JSON output"],
-    examples: ["pp doctor"],
+    options: [
+      "--json           JSON output",
+      "--nodes          health of every machine in `nodes:` (--node/--tag filter)",
+    ],
+    examples: ["pp doctor", "pp doctor --nodes", "pp doctor --nodes --tag prod"],
     see: ["check", "install"],
   },
   {

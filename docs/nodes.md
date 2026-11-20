@@ -271,6 +271,25 @@ pp ls --node t114            # 只看这台机器上的会话
 
 不带名字时 `--node` 只影响"批量"命令（`up`/`down`/`restart`/`ls`/`send`），单会话命令本来就已经定位到具体机器了。
 
+### 机群体检：一次看清整排机器
+
+```bash
+$ pp doctor --nodes
+MACHINE    TARGET              PING   TMUX  LOAD  UP  SESSIONS  DISK  MEM
+✓ edge240  user@192.168.5.240  154ms  3.4   0.00  49d  0         33%   20%
+✓ t114     user@192.168.5.114  363ms  3.4   0.76  49d  0         63%   29%
+✗ p202     user@192.168.5.202  down   -     -     -   -         -     -
+  p202: ssh: connect to host 192.168.5.202 port 22: Connection refused
+
+2/3 reachable  0 carrying sessions  slowest 363ms
+```
+
+一次 ssh 打一台（并行发出），回答的是"哪台机器不对劲"，而不是"我连不连得上"：
+负载、uptime、磁盘、内存、会话数都在一行里。`--node <名>` / `--tag <标签>` 收窄范围，
+`--json` 里每台机器带完整 `probe`，失败的那台退出码为 1（适合放进巡检脚本）。
+
+`pp node test <名>` 仍然是单台的详细探测（逐项打印），两者的区别是"体检表"和"化验单"。
+
 ## 远端会话是怎么跑起来的
 
 - 所有 tmux 调用都变成 `ssh <node> tmux -L <socket> …`；`${TMUX}`、`-L socket`、

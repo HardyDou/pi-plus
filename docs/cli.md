@@ -406,7 +406,18 @@ pp todo ls --all --json
 
 ### `pp doctor`
 
-环境体检：node / tmux / tmux server / pi / 配置文件 / 自启状态 / WSL 提示。任何一项失败 → 退出 1。JSON：`{ "checks": [{name, ok, detail}], "warnings": [] }`。
+环境体检：node / tmux / tmux server / pi 扩展版本 / 配置文件 / 节点注册 / 自启状态 / WSL 提示。
+任何一项失败 → 退出 1。JSON：`{ "checks": [{name, ok, detail}], "warnings": [] }`。
+
+`--nodes` 换成给**机群**体检：每台机器一次 ssh（并行发出），给出连通性、tmux 版本、负载、
+uptime、会话数、磁盘、内存，适合"哪台快满了"这种问题。可用 `--node <名>` / `--tag <标签>` 收窄，
+`--json` 里每台机器带完整 `probe`。
+
+```bash
+pp doctor              # 这台机器
+pp doctor --nodes      # 整个机群
+pp doctor --nodes --tag prod
+```
 
 ### `pp init`
 
