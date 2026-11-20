@@ -107,10 +107,36 @@ sessions:
 | `pp node add <name> …` | 新增；同名视为编辑，会报告改了哪些字段 |
 | `pp node rm <name>` | 删除；还有会话指向它时**拒绝**，`--force` 才硬删（会留下悬空引用） |
 | `pp node test <name>` | 一次 ssh 往返，报告机器体检结果（`--all` 测全部） |
-| `pp node exec <name>… -- <cmd>` | 在机器上跑一条命令，不占会话；`--all` 全机群，`--timeout <秒>` 限时，`--json` 机读 |
+| `pp node exec <name>… -- <cmd>` | 在机器上跑一条命令，不占会话；`--all`/`--tag` 选机群，`--timeout <秒>` 限时，`--json` 机读 |
 | `pp node ssh <name>` | 照着登记的参数开一个交互式 ssh 会话 |
 
 `pp node add --dry-run` 只打印将要写入的 YAML 块，不动文件。
+
+### 用 tag 把机群分组
+
+```yaml
+nodes:
+  - name: p201
+    host: 192.168.5.201
+    user: infra-nginx
+    identity: ~/.ssh/id_ed25519_ops
+    tags: [prod, baohan]
+  - name: b111
+    host: 192.168.5.111
+    user: dev-mysql
+    tags: [dev, mysql]
+```
+
+```bash
+pp node add p201 --from-ssh-config p201 --tag prod        # 加标签（可重复，累加不覆盖）
+pp node ls --tag prod                                     # 只看这类机器
+pp node exec --tag prod -- 'systemctl is-active nginx'    # 只在这类机器上跑
+pp up --tag prod                                          # 只拉起这类机器上的会话
+pp restart --tag mysql                                    # 只重启这类机器上的会话
+```
+
+多个 `--tag` 是**都要满足**（`--tag prod --tag db` = 既 prod 又 db）。`--tag` 与 `--node` 可以叠加，
+等价于"这台机器且带这些标签"。
 
 ### 用 `pp node exec` 做巡检（不开会话）
 

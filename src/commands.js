@@ -175,15 +175,35 @@ function requireConfig(options, ui) {
   return config;
 }
 
+/** The nodes a `--tag` / `--node` selector picks out, or all of them. */
+function taggedNodes(config, options = {}) {
+  let nodes = config.nodes ?? [];
+  if (options.node) nodes = nodes.filter((node) => node.name === options.node);
+  const tags = options.tags ?? [];
+  if (tags.length) nodes = nodes.filter((node) => tags.every((tag) => (node.tags ?? []).includes(tag)));
+  return nodes;
+}
+
 function selectSessions(config, names, ui, { all = false, options = null } = {}) {
   // `--node <name>` narrows any batch command to one machine, so a broken host
   // can be restarted without touching the other 40 sessions.
   const onlyNode = options?.node;
+  const onlyTags = options?.tags ?? [];
   if (onlyNode !== undefined && !(config.nodes ?? []).some((node) => node.name === onlyNode)) {
     ui.error(`no node "${onlyNode}" — see pp node ls`);
     process.exit(2);
   }
-  const onNode = (list) => (onlyNode === undefined ? list : list.filter((s) => (s.node ?? null) === onlyNode));
+  for (const tag of onlyTags) {
+    if (!(config.nodes ?? []).some((node) => (node.tags ?? []).includes(tag))) {
+      ui.error(`no node is tagged "${tag}" — see pp node ls`);
+      process.exit(2);
+    }
+  }
+  const allowed =
+    onlyNode === undefined && onlyTags.length === 0
+      ? null
+      : new Set(taggedNodes(config, { node: onlyNode, tags: onlyTags }).map((n) => n.name));
+  const onNode = (list) => (allowed === null ? list : list.filter((s) => s.node && allowed.has(s.node)));
   if (!names || names.length === 0) {
     if (all) return onNode(config.sessions);
     // Compose-style: `restart: no` is never part of a bare `up`/`restart`, and
@@ -818,7 +838,8 @@ function nodeOrDie(config, ref, ui) {
 }
 
 function printNodes(config, options, ui) {
-  const nodes = config?.nodes ?? [];
+  const filtered = Boolean(options.node) || Boolean(options.tags?.length);
+  const nodes = filtered ? taggedNodes(config, options) : (config?.nodes ?? []);
   const counts = new Map();
   for (const session of config?.sessions ?? []) {
     if (session.node) counts.set(session.node, (counts.get(session.node) ?? 0) + 1);
@@ -837,6 +858,7 @@ function printNodes(config, options, ui) {
           password_env: node.passwordEnv,
           has_password: Boolean(node.password),
           sessions: counts.get(node.name) ?? 0,
+          tags: node.tags ?? [],
           note: node.note,
         })),
         null,
@@ -845,19 +867,24 @@ function printNodes(config, options, ui) {
     );
     return;
   }
+  if (!nodes.length && filtered) {
+    ui.info(`no node matches ${[options.node ? `--node ${options.node}` : "", options.tags?.length ? `--tag ${options.tags.join(" --tag ")}` : ""].filter(Boolean).join(" ")}`);
+    return;
+  }
   if (!nodes.length) {
     ui.info("no nodes yet. A session can run on another machine once you register it:");
     ui.info("  pp node add prod-01 --host 10.0.0.11 --user deploy --identity ~/.ssh/id_ed25519");
     ui.info("  pp node test prod-01");
     return;
   }
-  const headers = ["NODE", "TARGET", "PORT", "AUTH", "SESSIONS", "NOTE"];
+  const headers = ["NODE", "TARGET", "PORT", "AUTH", "SESSIONS", "TAGS", "NOTE"];
   const table = nodes.map((node) => [
     node.name,
     nodeTarget(node),
     String(node.port),
     authSummary(node),
     String(counts.get(node.name) ?? 0),
+    (node.tags ?? []).join(","),
     node.note || "",
   ]);
   const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
@@ -970,6 +997,9 @@ async function cmdNodeAdd(config, options, ui) {
   if (options.password) spec.password = options.password;
   if (options.passwordEnv) spec.password_env = options.passwordEnv;
   if (options.note) spec.note = options.note;
+  // Tags are additive on an edit: `--tag x` keeps the tags already on the node.
+  const previous = (config.nodes ?? []).find((n) => n.name === name);
+  if (options.tags?.length) spec.tags = [...new Set([...(previous?.tags ?? []), ...options.tags])];
 
   if (!spec.host && process.stdin.isTTY && !ui.json) {
     ui.info(ui.paint("dim", `registering the machine "${name}" — answer four questions (Enter accepts the default)`));
@@ -997,7 +1027,7 @@ async function cmdNodeAdd(config, options, ui) {
   const existing = (config.nodes ?? []).find((n) => n.name === node.name);
   if (existing && !options.force) {
     // Re-adding is the documented way to edit a node, but say what changed.
-    const changed = ["host", "port", "user", "identity", "password", "note"].filter(
+    const changed = ["host", "port", "user", "identity", "password", "note", "tags"].filter(
       (key) => String(existing[key] ?? "") !== String(node[key] ?? ""),
     );
     if (!changed.length) {
@@ -1047,8 +1077,8 @@ function cmdNodeRm(config, options, ui) {
 }
 
 function cmdNodeTest(config, options, ui) {
-  const refs = options.all
-    ? (config?.nodes ?? []).map((n) => n.name)
+  const refs = options.all || options.tags?.length
+    ? taggedNodes(config, options).map((node) => node.name)
     : options.names.slice(1);
   if (!refs.length) {
     ui.error("usage: pp node test <name>... | --all");
@@ -1133,10 +1163,14 @@ function cmdNodeSsh(config, options, ui) {
 function cmdNodeExec(config, options, ui) {
   const command = options.rest ?? [];
   // names holds the tokens before `--` *and* the payload after it.
-  const refs = options.all
-    ? (config?.nodes ?? []).map((node) => node.name)
+  const refs = options.all || options.tags?.length
+    ? taggedNodes(config, options).map((node) => node.name)
     : options.names.slice(1, options.names.length - (options.rest?.length ?? 0));
   if (!refs.length) {
+    if (options.tags?.length || options.node) {
+      ui.error(`no node matches ${[options.node ? `--node ${options.node}` : "", ...(options.tags ?? []).map((t) => `--tag ${t}`)].filter(Boolean).join(" ")}`);
+      process.exit(1);
+    }
     ui.error("usage: pp node exec <name>... | --all -- <command>");
     process.exit(2);
   }

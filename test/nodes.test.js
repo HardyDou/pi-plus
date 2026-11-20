@@ -247,3 +247,20 @@ test("a remote tmux that escapes the separator still parses", () => {
   const modern = ["web", "%1", "99", "pi", "0", "/srv", "2", "1"].join("\u001f");
   assert.equal(decodeFields(modern), modern);
 });
+
+test("tags are labels, not names: parsed, deduped, rendered", () => {
+  const node = normalizeNode(
+    { name: "p201", host: "10.0.0.1", tags: ["prod", "db", "prod"] },
+    0,
+    "<t>",
+  );
+  assert.deepEqual(node.tags, ["prod", "db"]);
+  // a comma string is what people type in YAML by accident; accept it
+  assert.deepEqual(normalizeNode({ name: "b", host: "h", tags: "dev, mysql" }, 0, "<t>").tags, ["dev", "mysql"]);
+  // and a tag that would break the table is refused rather than printed
+  assert.throws(() => normalizeNode({ name: "b", host: "h", tags: ["ok", "no spaces"] }, 0, "<t>"), /must start with a letter or digit/);
+  // nothing declared means no tag key in the file, so a plain node stays plain
+  assert.equal(normalizeNode({ name: "b", host: "h" }, 0, "<t>").tags.length, 0);
+  assert.match(renderNodeBlock(node), /^ {4}tags: \[prod, db\]$/m);
+  assert.doesNotMatch(renderNodeBlock(normalizeNode({ name: "b", host: "h" }, 0, "<t>")), /tags:/);
+});

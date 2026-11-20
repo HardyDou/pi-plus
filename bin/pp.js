@@ -93,6 +93,12 @@ function parseArgs(argv) {
         case "--password-env": options.passwordEnv = takeValue(flag, inline); break;
         case "--note": options.note = takeValue(flag, inline); break;
         case "--node": options.node = takeValue(flag, inline); break;
+        case "--tag": {
+          // repeatable: --tag prod --tag db means "on prod *and* db machines"
+          const value = takeValue(flag, inline);
+          (options.tags ??= []).push(value);
+          break;
+        }
         case "--timeout": options.timeout = Number(takeValue(flag, inline)); break;
         case "--from-ssh-config": options.fromSshConfig = takeValue(flag, inline); break;
         case "--wait": options.wait = Number(takeValue(flag, inline)) || 5000; break;

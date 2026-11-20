@@ -21,10 +21,12 @@ export const NODE_KEYS = new Set([
   "password",
   "password_env",
   "note",
+  "tags",
 ]);
 
 export const DEFAULT_PORT = 22;
 const NODE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const TAG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export class NodeError extends Error {
   constructor(message) {
@@ -97,8 +99,24 @@ export function normalizeNode(raw, index, configPath = "<config>", warnings = []
     warnings.push(`${configPath}: node "${name}": both identity and password are set; ssh will try the key first`);
   }
 
+  // Tags are how a fleet stays searchable: `tags: [prod, db]` lets
+  // `pp up --tag db` touch exactly the database machines.
+  const tags = [];
+  if (raw.tags != null) {
+    const list = Array.isArray(raw.tags) ? raw.tags : String(raw.tags).split(/[,]/);
+    for (const entry of list) {
+      const tag = String(entry).trim();
+      if (!tag) continue;
+      if (!TAG_RE.test(tag)) {
+        throw new NodeError(`${where}: tag "${tag}" must start with a letter or digit and use only letters, digits, ".", "_" or "-"`);
+      }
+      if (!tags.includes(tag)) tags.push(tag);
+    }
+  }
+
   return {
     name,
+    tags,
     host: target.host,
     port: target.port ?? DEFAULT_PORT,
     user: target.user,
@@ -281,6 +299,7 @@ export function renderNodeBlock(node) {
   if (node.password) lines.push(`    password: ${yamlScalar(node.password)}`);
   if (node.passwordEnv) lines.push(`    password_env: ${yamlScalar(node.passwordEnv)}`);
   if (node.note) lines.push(`    note: ${yamlScalar(node.note)}`);
+  if (node.tags?.length) lines.push(`    tags: [${node.tags.join(", ")}]`);
   return lines.join("\n");
 }
 

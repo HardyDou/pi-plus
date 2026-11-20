@@ -259,6 +259,7 @@ pp node ssh prod-01         # 按登记的参数开交互式 ssh
 | `--from-ssh-config <alias>` | 抄 `~/.ssh/config` 里某个 Host 的 HostName/Port/User/IdentityFile |
 | `--note <text>` | 备注，`pp node ls` 显示 |
 | `--all` | `test`/`exec`：对所有节点 |
+| `--tag <name>` | 给节点打标签（可重复，累加）；`ls`/`test`/`exec`/`up`/`down`/`restart` 用它选机器 |
 | `--timeout <秒>` | `exec`：单机超时（默认 60），超时按失败计 |
 | `--force` | `rm`：即使有会话在用它也删（会留下悬空引用） |
 | `--dry-run` | `add`：只打印将写入的 YAML 块 |

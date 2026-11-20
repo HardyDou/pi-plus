@@ -477,6 +477,12 @@ check "node exec --quiet hides success" 0 '^$'                  bash -c "cd $E2E
 check "ls --node filters"            0 'far-x'                  bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls --node far"
 check "ls --node hides other nodes"  0 '^$'                     bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/add.yml --socket $SOCK ls --node far | grep -v 'no sessions' || true"
 check "ls --node rejects an unknown node" 2 'no node'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls --node nope"
+check "node add stores a tag"        0 ''          bash -c "cd $E2E && printf 'version: 1\nnodes:\n  - name: far\n    host: 127.0.0.1\n    user: nobody\nsessions:\n  - name: far-x\n    node: far\n    cwd: /tmp\n' > $E2E/tag.yml && $ROOT/bin/pp.js -c $E2E/tag.yml node add far --host 127.0.0.1 --user nobody --tag prod >/dev/null && grep -q 'tags: \[prod\]' $E2E/tag.yml"
+check "node add --tag accumulates"   0 ''      bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/tag.yml node add far --host 127.0.0.1 --user nobody --tag db >/dev/null && grep -q 'tags: \[prod, db\]' $E2E/tag.yml"
+check "node ls --tag filters"        0 '^far '                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/tag.yml node ls --tag db | grep -E '^far '"
+check "node ls --tag with no match says so" 0 'no node matches'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/tag.yml node ls --tag ghost"
+check "node exec --tag picks machines" 0 'tag-marker'            bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $E2E/tag.yml node exec --tag prod -- 'echo tag-marker'"
+check "ls --tag rejects an unknown tag" 2 'tagged'               bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/tag.yml --socket $SOCK ls --tag ghost"
 check "node help page"               0 'sshpass'                 bash -c "cd $E2E && $ROOT/bin/pp.js help node"
 check "node appears in the overview" 0 'node \(nodes\)'          bash -c "cd $E2E && $ROOT/bin/pp.js help"
 
