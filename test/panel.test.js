@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 
-import { clearPanel, findPanelPane, loadPanel, panelStatePath, savePanel } from "../src/panel.js";
+import { clearPanel, findPanelPane, loadPanel, panelAlive, panelStatePath, savePanel } from "../src/panel.js";
 
 function sandbox() {
   const dir = mkdtempSync(join(tmpdir(), "pp-panel-"));
@@ -67,4 +67,23 @@ test("findPanelPane matches by pane id, not by session name", () => {
   });
   assert.equal(findPanelPane(list, { session: "work", window: "2", pane: "%9" }), null, "a dead pane is not found");
   assert.equal(findPanelPane(list, null), null);
+});
+
+test("a panel outside tmux is remembered and checked by pid", async () => {
+  const env = { XDG_STATE_HOME: mkdtempSync(join(tmpdir(), "pp-panel-")) };
+  const saved = savePanel({ outside: true, pid: 4321 }, env);
+  assert.equal(saved.outside, true);
+  assert.equal(saved.pid, 4321);
+  const loaded = loadPanel(env);
+  assert.equal(loaded.outside, true);
+  assert.equal(loaded.pid, 4321);
+  assert.equal(loaded.session, "", "no session: it is not a tmux pane");
+
+  assert.equal(panelAlive(loaded, { kill: () => true }), true);
+  const gone = Object.assign(new Error("no such process"), { code: "ESRCH" });
+  assert.equal(panelAlive(loaded, { kill: () => { throw gone; } }), false, "a dead pid means the panel is gone");
+  const denied = Object.assign(new Error("not permitted"), { code: "EPERM" });
+  assert.equal(panelAlive(loaded, { kill: () => { throw denied; } }), true, "EPERM still means it exists");
+  assert.equal(panelAlive({ pid: 0 }), true, "without a pid the pane check decides");
+  rmSync(env.XDG_STATE_HOME, { recursive: true, force: true });
 });

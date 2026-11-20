@@ -24,6 +24,10 @@ export function savePanel(panel, env = process.env) {
     session: String(panel.session ?? ""),
     window: String(panel.window ?? "0"),
     pane: String(panel.pane ?? ""),
+    // `pp tui` also runs in a plain terminal (outside tmux, e.g. over ssh):
+    // then "back to the panel" means detaching, not switching clients
+    outside: Boolean(panel.outside),
+    pid: Number(panel.pid) || 0,
     at: new Date().toISOString(),
   };
   writeFileSync(file, `${JSON.stringify(record, null, 2)}\n`);
@@ -34,11 +38,15 @@ export function loadPanel(env = process.env) {
   try {
     const text = readFileSync(panelStatePath(env), "utf8");
     const data = JSON.parse(text);
-    if (!data || typeof data.session !== "string" || data.session === "") return null;
+    if (!data || typeof data !== "object") return null;
+    const outside = Boolean(data.outside);
+    if (!outside && (typeof data.session !== "string" || data.session === "")) return null;
     return {
-      session: data.session,
+      session: typeof data.session === "string" ? data.session : "",
       window: String(data.window ?? "0"),
       pane: String(data.pane ?? ""),
+      outside,
+      pid: Number(data.pid) || 0,
       at: typeof data.at === "string" ? data.at : "",
     };
   } catch {
@@ -52,6 +60,20 @@ export function clearPanel(env = process.env) {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Is the panel process still there? A panel started in a plain terminal has no
+ * pane to look for, so its pid is the only liveness check available.
+ */
+export function panelAlive(panel, { kill = process.kill } = {}) {
+  if (!panel || !panel.pid) return true; // nothing recorded: let the pane check decide
+  try {
+    kill(panel.pid, 0);
+    return true;
+  } catch (err) {
+    return err?.code === "EPERM";
   }
 }
 

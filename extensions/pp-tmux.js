@@ -24,7 +24,7 @@ import { promisify } from "node:util";
 import { Box, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
-import { clearPanel, findPanelPane, loadPanel } from "../src/panel.js";
+import { clearPanel, findPanelPane, loadPanel, panelAlive } from "../src/panel.js";
 import { addTodo, closeSessionTodos, filterTodos, looksLikeQuestion, readTodos, settledMode } from "../src/todo.js";
 
 import {
@@ -278,6 +278,22 @@ export default function ppTmux(pi) {
       const panel = loadPanel();
       if (!panel) {
         ctx.ui.notify("no panel remembered — start one with: pp tui", "warning");
+        return;
+      }
+      if (!panelAlive(panel)) {
+        clearPanel();
+        ctx.ui.notify("the panel is gone — start a new one with: pp tui", "warning");
+        return;
+      }
+      if (panel.outside) {
+        // the panel is a plain terminal outside tmux: detaching is what brings it back
+        const session = await currentSession();
+        const clients = await readClients().catch(() => []);
+        const client = pickClient(clients, session);
+        if (client) await tmux(["detach-client", "-t", client]);
+        else await tmux(["detach-client", "-s", session]);
+        pi.appendEntry("pp-back", { at: new Date().toISOString(), outside: true, session, client });
+        if (ctx.hasUI) ctx.ui.notify(`detached from ${session} — the panel is back in your terminal`, "info");
         return;
       }
       const panes = await tmux(["list-panes", "-a", "-F", "#{pane_id} #{session_name} #{window_index}"]).catch(

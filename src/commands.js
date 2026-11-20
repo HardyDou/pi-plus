@@ -13,7 +13,7 @@ import {
   removeSessionFromFile,
   shellQuote,
 } from "./config.js";
-import { clearPanel, findPanelPane, loadPanel, savePanel } from "./panel.js";
+import { clearPanel, findPanelPane, loadPanel, panelAlive, savePanel } from "./panel.js";
 import { readRemotePiConfig, remotePiConfigPath, writeRemotePiName } from "./remote-pi.js";
 import {
   addAlias,
@@ -953,8 +953,12 @@ async function cmdTui(config, options, ui) {
     const [session, window, pane] = String(probe.stdout ?? "").trim().split("\t");
     if (session) {
       panelSession = session;
-      savePanel({ session, window, pane });
+      savePanel({ session, window, pane, pid: process.pid });
     }
+  } else {
+    // no tmux around us: the panel lives in this terminal, and `pp back` has to
+    // detach the client instead of switching it to a pane that does not exist
+    savePanel({ outside: true, pid: process.pid });
   }
 
   let tui = null;
@@ -1097,6 +1101,38 @@ async function cmdTuiDiag(config, options, ui) {
  * "Ctrl-b s and find the window". If the panel died in the meantime the record is
  * dropped and you are told, rather than being switched to a stranger's window.
  */
+/**
+ * The panel is a plain terminal outside tmux (ssh, iTerm2, …). There is no pane
+ * to switch to, so "back to the panel" means dropping this client — the outer
+ * terminal then shows the panel again.
+ */
+function backToOutsidePanel(tmux, panel, options, ui) {
+  const where = panel.pid ? ` (pid ${panel.pid})` : "";
+  if (options.dryRun) {
+    ui.info(`[dry-run] tmux detach-client   # the panel${where} is outside tmux`);
+    return 0;
+  }
+  if (!process.env.TMUX) {
+    ui.info(`the panel${where} is running in another terminal — nothing to switch to here`);
+    return 0;
+  }
+  const me = String(
+    tmux.run(["display-message", "-p", "#{session_name}"], { allowFailure: true, readOnly: true }).stdout ?? "",
+  ).trim();
+  const clients = tmux.listClients?.() ?? [];
+  const attached = clients.filter((client) => client.session === me).sort((a, b) => b.activity - a.activity);
+  const client = attached[0]?.name ?? "";
+  const res = client
+    ? tmux.run(["detach-client", "-t", client], { allowFailure: true })
+    : tmux.run(["detach-client", "-s", me], { allowFailure: true });
+  if ((res.status ?? 1) !== 0) {
+    ui.error(String(res.stderr ?? "").trim() || "could not detach");
+    process.exit(1);
+  }
+  ui.info(`detached from ${me || "this session"} — the panel is back in your terminal${where}`);
+  return 0;
+}
+
 async function cmdBack(config, options, ui) {
   const tmux = makeTmux(config, options);
   const panel = loadPanel();
@@ -1104,6 +1140,12 @@ async function cmdBack(config, options, ui) {
     ui.error("no panel remembered — start one with: pp tui");
     process.exit(1);
   }
+  if (!panelAlive(panel)) {
+    clearPanel();
+    ui.error("the panel is gone — start a new one with: pp tui");
+    process.exit(1);
+  }
+  if (panel.outside) return backToOutsidePanel(tmux, panel, options, ui);
   const list = tmux.run(["list-panes", "-a", "-F", "#{pane_id} #{session_name} #{window_index}"], {
     allowFailure: true,
     readOnly: true,
