@@ -168,6 +168,8 @@ nodes:
     host: 10.0.0.11
     user: deploy
     identity: ~/.ssh/id_ed25519
+    tags: [prod, web]                # pp up --tag prod / pp node exec --tag web -- …
+    guarded: true                    # pp down / pp rm 跳过它，除非 --force
   - name: textbook
     host: textbook.example.com
     password_env: TEXTBOOK_PASS      # 密码不落盘；变量没设置会直接报错

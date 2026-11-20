@@ -262,6 +262,7 @@ pp node ssh prod-01         # 按登记的参数开交互式 ssh
 | `--tag <name>` | 给节点打标签（可重复，累加）；`ls`/`test`/`exec`/`up`/`down`/`restart` 用它选机器 |
 | `--timeout <秒>` | `exec`：单机超时（默认 60），超时按失败计 |
 | `--parallel` | `exec`：所有选中机器同时跑（输出仍按顺序打印） |
+| `--guard` / `--no-guard` | 给机器加锁/解锁：加锁后 `pp down`/`pp rm` 跳过它的会话，除非 `--force` |
 | `--force` | `rm`：即使有会话在用它也删（会留下悬空引用） |
 | `--dry-run` | `add`：只打印将写入的 YAML 块 |
 | `--json` | 机器可读输出（`ls`/`show`/`test`/`exec`） |

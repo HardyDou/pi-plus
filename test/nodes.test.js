@@ -264,3 +264,12 @@ test("tags are labels, not names: parsed, deduped, rendered", () => {
   assert.match(renderNodeBlock(node), /^ {4}tags: \[prod, db\]$/m);
   assert.doesNotMatch(renderNodeBlock(normalizeNode({ name: "b", host: "h" }, 0, "<t>")), /tags:/);
 });
+
+test("a guarded machine says so, and survives an edit", () => {
+  const node = normalizeNode({ name: "p201", host: "h", guarded: true, tags: ["prod"] }, 0, "<t>");
+  assert.equal(node.guarded, true);
+  assert.match(renderNodeBlock(node), /^ {4}guarded: true$/m);
+  // default is not guarded, and no key is written for it
+  assert.equal(normalizeNode({ name: "b", host: "h" }, 0, "<t>").guarded, false);
+  assert.doesNotMatch(renderNodeBlock(normalizeNode({ name: "b", host: "h" }, 0, "<t>")), /guarded/);
+});

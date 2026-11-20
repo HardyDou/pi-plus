@@ -488,6 +488,16 @@ check "node exec --parallel still reports failures" 1 'exit 4'  bash -c "cd $E2E
 check "node help page"               0 'sshpass'                 bash -c "cd $E2E && $ROOT/bin/pp.js help node"
 check "node appears in the overview" 0 'node \(nodes\)'          bash -c "cd $E2E && $ROOT/bin/pp.js help"
 
+# guarded machines: stopping something must be deliberate
+GUARDCFG="$E2E/guard.yml"
+sed 's/    note: reaches us through the shim/    note: reaches us through the shim\n    guarded: true/' "$NODECFG" > "$GUARDCFG"
+check "node ls marks a guarded machine" 0 '!far '            bash -c "cd $E2E && $ROOT/bin/pp.js -c $GUARDCFG node ls | grep -E '^!'"
+check "a guard is visible in node show" 0 'need --force'     bash -c "cd $E2E && $ROOT/bin/pp.js -c $GUARDCFG node show far"
+check "down skips a guarded session"   0 'guarded machine'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $GUARDCFG --socket $SOCK down far-x"
+check "the guarded session survived"   0 'far-x'             bash -c "tmux -L $SOCK list-sessions -F '#{session_name}'"
+check "down --force stops a guarded session" 0 '1 stopped'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $GUARDCFG --socket $SOCK down far-x --force"
+check "and it is really gone"          1 ''                  bash -c "tmux -L $SOCK has-session -t far-x"
+
 tmux -L "$SOCK" kill-session -t far-x 2>/dev/null || true
 
 section "packaging"

@@ -22,6 +22,7 @@ export const NODE_KEYS = new Set([
   "password_env",
   "note",
   "tags",
+  "guarded",
 ]);
 
 export const DEFAULT_PORT = 22;
@@ -114,9 +115,14 @@ export function normalizeNode(raw, index, configPath = "<config>", warnings = []
     }
   }
 
+  // A guarded machine is one where stopping something should take a second
+  // thought: `pp down`/`pp rm` refuse until you say --force.
+  const guarded = raw.guarded === true || raw.guarded === "true" || raw.guarded === "yes";
+
   return {
     name,
     tags,
+    guarded,
     host: target.host,
     port: target.port ?? DEFAULT_PORT,
     user: target.user,
@@ -353,6 +359,7 @@ export function renderNodeBlock(node) {
   if (node.passwordEnv) lines.push(`    password_env: ${yamlScalar(node.passwordEnv)}`);
   if (node.note) lines.push(`    note: ${yamlScalar(node.note)}`);
   if (node.tags?.length) lines.push(`    tags: [${node.tags.join(", ")}]`);
+  if (node.guarded) lines.push(`    guarded: true`);
   return lines.join("\n");
 }
 

@@ -138,6 +138,28 @@ pp restart --tag mysql                                    # 只重启这类机�
 多个 `--tag` 是**都要满足**（`--tag prod --tag db` = 既 prod 又 db）。`--tag` 与 `--node` 可以叠加，
 等价于"这台机器且带这些标签"。
 
+### 生产机器加一把锁：`guarded: true`
+
+```yaml
+nodes:
+  - name: p201
+    host: 192.168.5.201
+    user: infra-nginx
+    tags: [prod, baohan]
+    guarded: true
+```
+
+```bash
+pp node add p201 --from-ssh-config p201 --guard      # 加锁
+pp node add p201 --from-ssh-config p201 --no-guard   # 解锁（其它字段原样保留）
+pp down p201-web            # 跳过并提示；会话不动
+pp down p201-web --force    # 真的停
+pp rm p201-web              # 确认时会把"guarded machine"写进问句
+```
+
+`pp node ls` 里被锁的机器名字前面带 `!`，表格下方有图例；`pp node show` 会单独一行写清楚。
+锁只影响"停"和"删"两类操作，`up`/`restart`/`send`/`attach`/`logs` 不受影响 —— 它是给深夜手滑用的，不是给你添堵的。
+
 ### 用 `pp node exec` 做巡检（不开会话）
 
 ```bash

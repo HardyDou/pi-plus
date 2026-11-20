@@ -176,6 +176,12 @@ function requireConfig(options, ui) {
   return config;
 }
 
+/** Is this session protected by its machine's `guarded: true`? */
+function guardOf(config, session) {
+  if (!session?.node) return false;
+  return Boolean((config.nodes ?? []).find((node) => node.name === session.node)?.guarded);
+}
+
 /** The nodes a `--tag` / `--node` selector picks out, or all of them. */
 function taggedNodes(config, options = {}) {
   let nodes = config.nodes ?? [];
@@ -526,7 +532,13 @@ async function cmdUp(config, options, ui) {
 
 function cmdDown(config, options, ui) {
   // Stopping is always safe: a bare "down" stops everything, enabled or not.
-  const sessions = selectSessions(config, options.names, ui, { all: true, options });
+  const picked = selectSessions(config, options.names, ui, { all: true, options });
+  // `guarded: true` on the machine: stopping its sessions is deliberate work.
+  const blocked = options.force || options.reconcile ? [] : picked.filter((session) => guardOf(config, session));
+  const sessions = options.force || options.reconcile ? picked : picked.filter((session) => !guardOf(config, session));
+  for (const session of blocked) {
+    ui.warn(`${session.tmuxName} runs on a guarded machine — stop it with: pp down ${session.tmuxName} --force`);
+  }
   let killed = 0;
   let missing = 0;
   for (const session of sessions) {
@@ -544,8 +556,8 @@ function cmdDown(config, options, ui) {
     killed++;
     ui.info(`${ui.paint("red", "stopped")} ${session.tmuxName}`);
   }
-  if (ui.json) ui.out(JSON.stringify({ killed, missing }, null, 2));
-  else if (!options.quiet) ui.info(`\n${killed} stopped, ${missing} not running.`);
+  if (ui.json) ui.out(JSON.stringify({ killed, missing, blocked: blocked.length }, null, 2));
+  else if (!options.quiet) ui.info(`\n${killed} stopped, ${missing} not running.${blocked.length ? ` ${blocked.length} blocked by a guard.` : ""}`);
 }
 
 /** Ask a yes/no question on the terminal (only used when stdin is a TTY). */
@@ -767,8 +779,10 @@ async function cmdRm(config, options, ui) {
       process.exitCode = 2;
       return;
     }
+    const guarded = target.filter((row) => guardOf(config, row.session)).map((row) => row.session.tmuxName);
+    const warning = guarded.length ? ` (guarded machine: ${guarded.join(", ")})` : "";
     const ok = await confirmOnTerminal(
-      `delete ${names}? the tmux session and its entry in ${config.path} both go away [y/N] `,
+      `delete ${names}? the tmux session and its entry in ${config.path} both go away${warning} [y/N] `,
     );
     if (!ok) {
       ui.info("cancelled");
@@ -860,6 +874,7 @@ function printNodes(config, options, ui) {
           has_password: Boolean(node.password),
           sessions: counts.get(node.name) ?? 0,
           tags: node.tags ?? [],
+          guarded: Boolean(node.guarded),
           note: node.note,
         })),
         null,
@@ -880,7 +895,7 @@ function printNodes(config, options, ui) {
   }
   const headers = ["NODE", "TARGET", "PORT", "AUTH", "SESSIONS", "TAGS", "NOTE"];
   const table = nodes.map((node) => [
-    node.name,
+    node.guarded ? `!${node.name}` : node.name,
     nodeTarget(node),
     String(node.port),
     authSummary(node),
@@ -901,6 +916,9 @@ function printNodes(config, options, ui) {
     ui.out(cells.map((cell, idx) => pad(cell, widths[idx])).join("  ").trimEnd());
   });
   if (!options.quiet) {
+    if (nodes.some((node) => node.guarded)) {
+      ui.out(ui.paint("dim", "\n! = guarded: pp down / pp rm skip its sessions unless you pass --force"));
+    }
     ui.out(`\n${nodes.length} node${nodes.length === 1 ? "" : "s"}  ${ui.paint("dim", `config: ${config.path}`)}`);
     const orphan = nodes.length && !counts.size ? "  (no session uses one yet: add `node: <name>` to a session)" : "";
     if (orphan) ui.out(ui.paint("dim", orphan.trim()));
@@ -935,6 +953,8 @@ function showNode(config, options, ui) {
     ["auth", authSummary(node)],
     ["identity", node.identity ?? ui.paint("dim", "-")],
     ["password", node.password ? ui.paint("yellow", "set (in the config file)") : node.passwordEnv ? ui.paint("dim", `from $${node.passwordEnv}`) : ui.paint("dim", "-")],
+    ["tags", node.tags?.length ? node.tags.join(", ") : ui.paint("dim", "-")],
+    ["guarded", node.guarded ? ui.paint("yellow", "yes — pp down / pp rm need --force") : ui.paint("dim", "no")],
     ["note", node.note || ui.paint("dim", "-")],
     ["sessions", used.length ? used.map((s) => `${s.name}${s.node === node.name ? "" : ""}`).join(", ") : ui.paint("dim", "none")],
   ];
@@ -998,9 +1018,22 @@ async function cmdNodeAdd(config, options, ui) {
   if (options.password) spec.password = options.password;
   if (options.passwordEnv) spec.password_env = options.passwordEnv;
   if (options.note) spec.note = options.note;
-  // Tags are additive on an edit: `--tag x` keeps the tags already on the node.
+  if (options.guard) spec.guarded = true;
+  if (options.noGuard) spec.guarded = false;
+  // Re-adding a node is the documented way to edit it, so everything the
+  // command line did not mention has to survive the rewrite.
   const previous = (config.nodes ?? []).find((n) => n.name === name);
-  if (options.tags?.length) spec.tags = [...new Set([...(previous?.tags ?? []), ...options.tags])];
+  if (previous) {
+    const tags = options.tags?.length ? [...new Set([...(previous.tags ?? []), ...options.tags])] : previous.tags;
+    if (tags?.length) spec.tags = tags;
+    if (spec.note === undefined && previous.note) spec.note = previous.note;
+    if (spec.guarded === undefined && previous.guarded) spec.guarded = true;
+    if (spec.identity === undefined && previous.identity) spec.identity = previous.identity;
+    if (spec.password === undefined && previous.password) spec.password = previous.password;
+    if (spec.password_env === undefined && previous.passwordEnv) spec.password_env = previous.passwordEnv;
+  } else if (options.tags?.length) {
+    spec.tags = options.tags;
+  }
 
   if (!spec.host && process.stdin.isTTY && !ui.json) {
     ui.info(ui.paint("dim", `registering the machine "${name}" — answer four questions (Enter accepts the default)`));

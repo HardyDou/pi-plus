@@ -101,6 +101,8 @@ function parseArgs(argv) {
         }
         case "--timeout": options.timeout = Number(takeValue(flag, inline)); break;
         case "--parallel": options.parallel = true; break;
+        case "--guard": options.guard = true; break;
+        case "--no-guard": options.noGuard = true; break;
         case "--from-ssh-config": options.fromSshConfig = takeValue(flag, inline); break;
         case "--wait": options.wait = Number(takeValue(flag, inline)) || 5000; break;
         case "--no-wait": options.noWait = true; break;
