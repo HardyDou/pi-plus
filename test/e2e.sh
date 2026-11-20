@@ -18,6 +18,7 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 E2E=/tmp/e2e-pifarm
 SOCK=pfe2e
 export XDG_STATE_HOME=$E2E/state
+export PP_AUDIT_FILE=$E2E/state/pi-plus/audit.log   # the suite must not write to the real trail
 CFG=$E2E/plus.yml
 PASS=0; FAIL=0; FAILED_NAMES=()
 
@@ -93,7 +94,6 @@ PF() { pp --socket "$SOCK" "$@"; }
 PFc() { pp --socket "$SOCK" -c "$CFG" "$@"; }
 
 section "audit"
-export PP_AUDIT_FILE="$E2E/audit.log"
 "$ROOT/bin/pp.js" -c "$CFG" --socket "$SOCK" down e-no >/dev/null 2>&1 || true
 "$ROOT/bin/pp.js" -c "$CFG" --socket "$SOCK" up e-no >/dev/null 2>&1
 check "audit records a stop"            0 'down.*e-no'      bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK audit --action down"
@@ -105,7 +105,7 @@ check "audit says who did it"           0 'actor'            bash -c "$ROOT/bin/
 check "audit --prune keeps recent"      0 'pruned'           bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK audit --prune 30d"
 check "an empty trail says so"          0 'nothing recorded' bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK audit --file $E2E/none.log"
 check "a dry run is not a change"       1 ''                 bash -c "PP_AUDIT_FILE=$E2E/dry.log $ROOT/bin/pp.js -c $CFG --socket $SOCK --dry-run down e-no >/dev/null; test -f $E2E/dry.log"
-unset PP_AUDIT_FILE
+export PP_AUDIT_FILE=$E2E/state/pi-plus/audit.log
 "$ROOT/bin/pp.js" -c "$CFG" --socket "$SOCK" down e-no >/dev/null 2>&1 || true
 
 section "help"
