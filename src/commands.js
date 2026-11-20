@@ -1535,9 +1535,13 @@ async function cmdCronAdd(config, options, ui) {
         } else {
           // a session that is simply running (started by hand or by `pp new`)
           // is a fine target too: all the tick needs is a name that exists.
-          const tmuxForCheck = makeTmux(config, options);
-          const live = await tmuxForCheck.listSessions().catch(() => []);
-          if (!live.some((entry) => entry.name === wanted)) {
+          let live = new Map();
+          try {
+            live = makeTmux(config, options).listSessions();
+          } catch {
+            live = new Map();
+          }
+          if (!live.has(wanted)) {
             throw new CronError(`unknown session "${wanted}" — not in ${config.path} and not running in tmux (pp ls lists both)`);
           }
           session = wanted;

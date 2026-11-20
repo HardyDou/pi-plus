@@ -359,6 +359,9 @@ check "cron status json"          0 '"installed"'              bash -c "cd $E2E 
 check "cron install --print"      0 '@reboot.*cron tick'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron install --print | tr '\n' ' ' | grep -o '@reboot.*cron tick'"
 check "cron rm removes job"       0 'removed [0-9a-f]'                  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $CMD_ID"
 check "cron help page"            0 'crontab expression'       bash -c "cd $E2E && $ROOT/bin/pp.js help cron"
+# a session that is only running in tmux (not in the config) is a valid target
+check "cron targets a running session" 0 'scheduled [0-9a-f]'   bash -c "cd $E2E && tmux -L $SOCK new-session -d -s adhoc-$SOCK -c /tmp 'bash' && $ROOT/bin/pp.js -c $CFG cron add --session adhoc-$SOCK --in 5m 'echo adhoc'"
+check "cron rejects a session that is nowhere" 1 'not in .* and not running' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session nope-$SOCK --in 5m 'x'"
 
 section "packaging"
 check "npm test green"           0 'fail 0'                   bash -c "cd $ROOT && npm test 2>&1 | tail -20"
