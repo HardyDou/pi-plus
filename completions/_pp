@@ -24,6 +24,8 @@ _pp() {
     'mesh:remote-pi mesh (ls/send/resolve/inbox)'
     'cron:schedule prompts and commands (once/every/crontab)'
     'todo:sessions waiting for a decision from you'
+    'node:machines reached over ssh (ls/show/add/rm/test/ssh)'
+    'nodes:alias for node'
     'check:validate the config'
     'doctor:environment diagnostics'
     'init:write an example config'

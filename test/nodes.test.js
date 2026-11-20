@@ -1,0 +1,231 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+import {
+  authSummary,
+  normalizeNode,
+  normalizeNodes,
+  nodePassword,
+  NodeError,
+  parseProbe,
+  parseSshConfig,
+  removeNodeFromFile,
+  renderNodeBlock,
+  runOnNode,
+  splitTarget,
+  sshInvocation,
+  upsertNodeInFile,
+} from "../src/nodes.js";
+
+function sandbox() {
+  const dir = mkdtempSync(join(tmpdir(), "pp-nodes-"));
+  return { dir, done: () => rmSync(dir, { recursive: true, force: true }) };
+}
+
+test("a node only needs a name and a host", () => {
+  const warnings = [];
+  const node = normalizeNode({ name: "prod-01", host: "10.0.0.11" }, 0, "/tmp/x.yml", warnings);
+  assert.equal(node.name, "prod-01");
+  assert.equal(node.host, "10.0.0.11");
+  assert.equal(node.port, 22, "default port");
+  assert.equal(node.user, null, "no default user");
+  assert.deepEqual(warnings, []);
+});
+
+test("user@host:port is split apart", () => {
+  assert.deepEqual(splitTarget("deploy@10.0.0.11:2222"), { user: "deploy", host: "10.0.0.11", port: 2222 });
+  assert.deepEqual(splitTarget("ssh://deploy@box:2222"), { user: "deploy", host: "box", port: 2222 });
+  assert.deepEqual(splitTarget("box"), { user: null, host: "box", port: null });
+  assert.deepEqual(splitTarget("box", "deploy", 2200), { user: "deploy", host: "box", port: 2200 });
+});
+
+test("bad names, ports and auth combinations are refused", () => {
+  const bad = (spec, pattern) => {
+    assert.throws(() => normalizeNode(spec, 0, "/tmp/x.yml", []), (err) => {
+      assert.ok(err instanceof NodeError, `expected NodeError for ${JSON.stringify(spec)}`);
+      assert.match(err.message, pattern);
+      return true;
+    });
+  };
+  bad({ host: "box" }, /name/);
+  bad({ name: "prod 01", host: "box" }, /name/);
+  bad({ name: "prod", host: "" }, /host/);
+  bad({ name: "prod", host: "box", port: 0 }, /port/);
+  bad({ name: "prod", host: "box", port: 70000 }, /port/);
+  bad({ name: "prod", host: "box", password: "x", password_env: "PASS" }, /password_env/);
+  bad({ name: "prod", host: "box", password_env: "1nope" }, /password_env/);
+});
+
+test("duplicate node names are refused, unknown keys are warned about", () => {
+  const warnings = [];
+  assert.throws(
+    () => normalizeNodes([{ name: "a", host: "h1" }, { name: "a", host: "h2" }], { configPath: "/tmp/x.yml", warnings }),
+    /duplicate node name "a"/,
+  );
+  const nodes = normalizeNodes([{ name: "a", host: "h1", sshpass: "x" }], { configPath: "/tmp/x.yml", warnings });
+  assert.equal(nodes.length, 1);
+  assert.match(warnings.join("\n"), /unknown key "sshpass"/);
+});
+
+test("ssh is invoked without a password in argv", () => {
+  const node = normalizeNode({ name: "prod", host: "10.0.0.11", user: "deploy", port: 2222 }, 0, "/tmp/x.yml", []);
+  const plain = sshInvocation(node, ["tmux", "ls"], { batch: true });
+  assert.equal(plain.command, "ssh");
+  assert.deepEqual(plain.argv, ["-p", "2222", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes", "deploy@10.0.0.11", "tmux", "ls"]);
+  assert.deepEqual(plain.env, {}, "no secret to pass");
+
+  const withPass = normalizeNode({ ...node, password: "s3cret" }, 0, "/tmp/x.yml", []);
+  const pass = sshInvocation(withPass, ["tmux", "ls"], {});
+  assert.equal(pass.command, "sshpass");
+  assert.equal(pass.argv[0], "-e", "password comes from SSHPASS, not argv");
+  assert.equal(pass.argv.includes("s3cret"), false);
+  assert.equal(pass.env.SSHPASS, "s3cret");
+  assert.match(pass.argv.join(" "), /ssh .*deploy@10\.0\.0\.11 tmux ls/);
+  assert.equal(sshInvocation(node, ["ls"], { batch: false }).argv.includes("BatchMode=yes"), false, "interactive ssh stays interactive");
+});
+
+test("a password can come from the environment instead", () => {
+  const node = normalizeNode({ name: "prod", host: "box", password_env: "PP_PROD_PASS" }, 0, "/tmp/x.yml", []);
+  assert.equal(nodePassword(node, {}), null);
+  assert.equal(nodePassword(node, { PP_PROD_PASS: "hunter2" }), "hunter2");
+  assert.throws(() => sshInvocation(node, ["tmux", "ls"], { env: {} }), /PP_PROD_PASS is not set/);
+  assert.equal(authSummary(node, {}), "env:PP_PROD_PASS ✗");
+  assert.equal(authSummary(node, { PP_PROD_PASS: "x" }), "env:PP_PROD_PASS ✓");
+});
+
+test("identity paths are expanded and flagged in the summary", () => {
+  const node = normalizeNode({ name: "prod", host: "box", identity: "~/.ssh/id_ed25519" }, 0, "/tmp/x.yml", []);
+  assert.equal(node.identity, join(process.env.HOME ?? "", ".ssh/id_ed25519"));
+  assert.equal(authSummary(node, {}), "key:~/.ssh/id_ed25519");
+  const inv = sshInvocation(node, ["true"], {});
+  assert.deepEqual(inv.argv.slice(0, 2), ["-i", join(process.env.HOME ?? "", ".ssh/id_ed25519")]);
+});
+
+test("~/.ssh/config aliases become nodes", () => {
+  const text = [
+    "Host prod-01 textbook",
+    "  HostName 10.0.0.11",
+    "  User deploy",
+    "  Port 2222",
+    "  IdentityFile ~/.ssh/id_prod",
+    "",
+    "Host *",
+    "  ServerAliveInterval 30",
+  ].join("\n");
+  const entries = parseSshConfig(text);
+  assert.deepEqual(entries, [
+    { name: "prod-01", host: "10.0.0.11", port: 2222, user: "deploy", identity: join(process.env.HOME ?? "", ".ssh/id_prod") },
+    { name: "textbook", host: "10.0.0.11", port: 2222, user: "deploy", identity: join(process.env.HOME ?? "", ".ssh/id_prod") },
+  ]);
+});
+
+test("the probe output is parsed into facts", () => {
+  const probe = parseProbe("host=box\nos=Linux 6.8\narch=x86_64\ntmux=3.4\nnode=v22.11.0\npi=v0.7.0\npp=0.13.0\nup=3 days\nload=0.42 0.51 0.60\nsessions=4\n");
+  assert.equal(probe.host, "box");
+  assert.equal(probe.sessions, "4");
+  assert.equal(probe.missing, undefined);
+  assert.equal(parseProbe("host=box\n").tmux, undefined);
+});
+
+test("adding a node keeps the rest of the file byte for byte", () => {
+  const box = sandbox();
+  try {
+    const path = join(box.dir, "plus.yml");
+    const before = [
+      "# my farm",
+      "version: 1",
+      "",
+      "sessions:",
+      "  - name: web",
+      "    cwd: /srv/web",
+      "",
+      "tmux:",
+      "  socket: pp",
+      "",
+    ].join("\n");
+    writeFileSync(path, before);
+    const node = normalizeNode({ name: "prod", host: "10.0.0.11", user: "deploy" }, 0, path, []);
+    assert.equal(upsertNodeInFile(path, node), "added");
+    const after = readFileSync(path, "utf8");
+    assert.match(after, /^nodes:\n {2}- name: prod\n/m, "nodes section exists");
+    assert.ok(after.indexOf("nodes:") < after.indexOf("sessions:"), "nodes come before sessions");
+    // every original line survives, in order (nodes are inserted before sessions)
+    let cursor = 0;
+    for (const line of before.split("\n")) {
+      const at = after.indexOf(line, cursor);
+      assert.notEqual(at, -1, `line survived: ${JSON.stringify(line)}`);
+      cursor = at;
+    }
+
+    // editing an existing node replaces it instead of appending a second copy
+    const edited = normalizeNode({ name: "prod", host: "10.0.0.12" }, 0, path, []);
+    assert.equal(upsertNodeInFile(path, edited), "updated");
+    const text = readFileSync(path, "utf8");
+    assert.equal(text.match(/- name: prod/g).length, 1);
+    assert.match(text, /host: 10\.0\.0\.12/);
+  } finally {
+    box.done();
+  }
+});
+
+test("removing a node leaves the sessions after it intact", () => {
+  // regression: the section used to end at EOF, so removing the last node wiped
+  // everything below `nodes:` — sessions included
+  const box = sandbox();
+  try {
+    const path = join(box.dir, "plus.yml");
+    writeFileSync(
+      path,
+      [
+        "version: 1",
+        "",
+        "nodes:",
+        "  - name: prod",
+        "    host: 10.0.0.11",
+        "",
+        "sessions:",
+        "  - name: web",
+        "    cwd: /srv/web",
+        "",
+      ].join("\n"),
+    );
+    const node = normalizeNode({ name: "prod", host: "10.0.0.11" }, 0, path, []);
+    assert.equal(removeNodeFromFile(path, node.name), true);
+    const text = readFileSync(path, "utf8");
+    assert.match(text, /^sessions:\n {2}- name: web$/m, "the sessions section survives");
+    assert.equal(/- name: prod/.test(text), false);
+    assert.equal(removeNodeFromFile(path, "prod"), false, "already gone");
+  } finally {
+    box.done();
+  }
+});
+
+test("a password in the config tightens its permissions and is masked in the summary", () => {
+  const box = sandbox();
+  try {
+    const path = join(box.dir, "plus.yml");
+    writeFileSync(path, "version: 1\n");
+    const node = normalizeNode({ name: "prod", host: "box", password: "s3cret" }, 0, path, []);
+    upsertNodeInFile(path, node);
+    const mode = statSync(path).mode & 0o777;
+    assert.equal(mode, 0o600, "config holding a password is 0600");
+    const text = readFileSync(path, "utf8");
+    assert.match(text, /password: s3cret/);
+    assert.equal(authSummary(node, {}), "password");
+    assert.equal(renderNodeBlock(node).includes("password_env"), false);
+  } finally {
+    box.done();
+  }
+});
+
+test("an unreachable node fails with something a human can act on", () => {
+  const node = normalizeNode({ name: "gone", host: "192.0.2.1", port: 22 }, 0, "/tmp/x.yml", []);
+  const env = { PATH: "/nonexistent-bin" }; // no ssh binary at all
+  assert.throws(() => runOnNode(node, ["true"], { env, timeout: 1000 }), (err) => {
+    assert.match(err.message, /ssh/);
+    return true;
+  });
+});

@@ -30,10 +30,22 @@ defaults:                  # 可选：所有 session 的默认值（键同 sessi
   env:
     TZ: Asia/Shanghai
 
+nodes:                     # 可选：别的机器，session 可以用 node: 指过去
+  - name: prod-01
+    host: 10.0.0.11
+    user: deploy
+    identity: ~/.ssh/id_ed25519
+
 sessions:                  # 必填，非空列表
   - name: backend
     cwd: ~/code/backend
+  - name: prod-api
+    node: prod-01          # 这个会话在 prod-01 上跑
+    cwd: /srv/api
 ```
+
+`nodes:` 的字段（`name`/`host` 必填，`port`/`user`/`identity`/`password`/`password_env`/`note` 可选）
+和远端会话怎么跑，见 [nodes.md](nodes.md)。
 
 ## session 字段
 
@@ -54,6 +66,7 @@ sessions:                  # 必填，非空列表
 | `log` | string / true | 无 | 用 `pipe-pane` 把输出落到文件；`true` 表示 `<cwd>/.pi-plus.log`。目录会自动创建 |
 | `remain_on_exit` | bool | `false` | tmux 的 `remain-on-exit`（退出后保留 pane 以便看日志）。`restart: no` 自动开启 |
 | `restart` | `no`/`always`/`on-failure`/`unless-stopped` | `always` | 拉起策略，见下节 |
+| `node` | string | 无 | 在哪个 `nodes:` 节点上跑（不写就是本机）。所有 tmux 操作变成 `ssh <node> tmux …`，远端不需要装 pp |
 
 未知键不会让命令失败，但会作为警告出现（`unknown key "xxx" (ignored)`），方便发现拼写错误。
 

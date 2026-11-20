@@ -18,6 +18,8 @@ export class TmuxError extends Error {
   }
 }
 
+import { sshInvocation } from "./nodes.js";
+
 const FIELD_SEP = "\u001f";
 
 /** Sleep without a dependency (Atomics on a throwaway buffer blocks exactly). */
@@ -106,15 +108,44 @@ export function resolveExecutable(command, env = process.env) {
 }
 
 export class Tmux {
-  constructor({ socket = null, dryRun = false, verbose = false, env = process.env } = {}) {
+  /**
+   * `remote` turns this into "tmux on another machine": pass `{ node }` and
+   * every call becomes `ssh <node> tmux <args>`, with the ssh options (port,
+   * identity, password via sshpass) coming from the node itself.
+   */
+  constructor({ socket = null, dryRun = false, verbose = false, env = process.env, remote = null } = {}) {
     this.socket = socket;
     this.dryRun = dryRun;
     this.verbose = verbose;
     this.env = env;
+    this.remote = remote;
   }
 
-  args(args) {
+  get label() {
+    return this.remote ? `tmux@${this.remote.node.name}` : "tmux";
+  }
+
+  tmuxArgs(args) {
     return this.socket ? ["-L", this.socket, ...args] : [...args];
+  }
+
+  /** The command line, for dry-run/verbose display. */
+  args(args) {
+    const inner = ["tmux", ...this.tmuxArgs(args)];
+    if (!this.remote) return inner;
+    const inv = sshInvocation(this.remote.node, ["tmux"], { env: this.env, batch: true });
+    return [inv.command, ...inv.argv, ...this.tmuxArgs(args)];
+  }
+
+  /** The command to spawn plus the environment it needs (sshpass sets SSHPASS). */
+  spawnFor(args, { tty = false, batch = true } = {}) {
+    if (!this.remote) return { command: "tmux", argv: this.tmuxArgs(args), env: this.env };
+    const inv = sshInvocation(this.remote.node, ["tmux", ...this.tmuxArgs(args)], {
+      env: this.env,
+      batch,
+      tty,
+    });
+    return { command: inv.command, argv: inv.argv, env: { ...this.env, ...inv.env } };
   }
 
   /**
@@ -123,18 +154,26 @@ export class Tmux {
    */
   run(args, { allowFailure = false, capture = true, readOnly = false } = {}) {
     const full = this.args(args);
+    const shown = full.join(" ");
     if (this.dryRun && !readOnly) {
-      if (this.verbose) process.stderr.write(`[dry-run] tmux ${full.join(" ")}\n`);
+      if (this.verbose) process.stderr.write(`[dry-run] ${shown}\n`);
       return { status: 0, stdout: "", stderr: "" };
     }
-    if (this.verbose) process.stderr.write(`+ tmux ${full.join(" ")}\n`);
-    const res = spawnSync("tmux", full, {
+    if (this.verbose) process.stderr.write(`+ ${shown}\n`);
+    const spawnSpec = this.spawnFor(args);
+    const res = spawnSync(spawnSpec.command, spawnSpec.argv, {
       encoding: "utf8",
-      env: this.env,
+      env: spawnSpec.env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     if (res.error && res.error.code === "ENOENT") {
-      throw new TmuxError("tmux is not installed (or not on PATH)");
+      throw new TmuxError(
+        spawnSpec.command === "sshpass"
+          ? `node "${this.remote?.node.name}": a password node needs sshpass (apt install sshpass) or use identity:`
+          : this.remote
+            ? "ssh is not installed (or not on PATH)"
+            : "tmux is not installed (or not on PATH)",
+      );
     }
     const out = {
       status: res.status ?? 1,
@@ -143,13 +182,19 @@ export class Tmux {
     };
     if (!allowFailure && out.status !== 0) {
       const detail = (out.stderr || out.stdout || "").trim();
-      throw new TmuxError(`tmux ${args[0]} failed${detail ? `: ${detail}` : ""}`);
+      throw new TmuxError(`${this.label} ${args[0]} failed${detail ? `: ${detail}` : ""}`);
     }
     return out;
   }
 
   hasServer() {
     return this.run(["list-sessions"], { allowFailure: true, readOnly: true }).status === 0;
+  }
+
+  /** Can we talk to this tmux at all? One cheap round trip. */
+  reachable() {
+    const result = this.run(["display-message", "-p", "-"], { allowFailure: true, readOnly: true });
+    return result.status === 0;
   }
 
   sessionExists(name) {
@@ -306,11 +351,19 @@ export class Tmux {
 
   /** Attach in the foreground; returns tmux's exit code. */
   attach(name) {
-    const res = spawnSync("tmux", this.args(["attach-session", "-t", `=${name}`]), {
-      stdio: "inherit",
-      env: this.env,
-    });
-    if (res.error && res.error.code === "ENOENT") throw new TmuxError("tmux is not installed (or not on PATH)");
+    // Remote attach needs a remote tty: `ssh -t host tmux attach-session -t =name`.
+    const spec = this.spawnFor(["attach-session", "-t", `=${name}`], { tty: Boolean(this.remote), batch: false });
+    const res = spawnSync(spec.command, spec.argv, { stdio: "inherit", env: spec.env });
+    if (res.error && res.error.code === "ENOENT") {
+      throw new TmuxError(
+        spec.command === "sshpass"
+          ? "attaching with a password needs sshpass installed"
+          : this.remote
+            ? "ssh is not installed (or not on PATH)"
+            : "tmux is not installed (or not on PATH)",
+      );
+    }
     return res.status ?? 1;
   }
+
 }

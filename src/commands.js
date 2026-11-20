@@ -28,6 +28,22 @@ import {
 } from "./aliases.js";
 import { resolveExecutable, Tmux } from "./tmux.js";
 import {
+  authSummary,
+  DEFAULT_PORT,
+  nodeTarget,
+  normalizeNode,
+  NodeError,
+  parseProbe,
+  parseSshConfig,
+  PROBE_SCRIPT,
+  removeNodeFromFile,
+  renderNodeBlock,
+  runOnNode,
+  sshInvocation,
+  tightenConfigMode,
+  upsertNodeInFile,
+} from "./nodes.js";
+import {
   installAutostart,
   uninstallAutostart,
   autostartKind,
@@ -181,28 +197,50 @@ function selectSessions(config, names, ui, { all = false, options = null } = {})
   return picked;
 }
 
-function makeTmux(config, options) {
+/** The node a session runs on (or null when it is local). */
+function nodeForSession(config, session) {
+  const name = typeof session === "string" ? session : session?.node;
+  if (!name) return null;
+  return (config?.nodes ?? []).find((node) => node.name === name) ?? null;
+}
+
+/** Sessions that point at one node. */
+function sessionsOnNode(config, name) {
+  return (config?.sessions ?? []).filter((session) => session.node === name);
+}
+
+/**
+ * A tmux handle for `session`: local, or `ssh <node> tmux …` when the session
+ * lives on a registered machine. Everything else in this file keeps working
+ * unchanged, which is the point.
+ */
+function makeTmux(config, options, session = null) {
+  const node = nodeForSession(config, session);
   return new Tmux({
     socket: options.socket ?? config?.tmuxSocket ?? null,
     dryRun: options.dryRun,
     verbose: options.verbose,
+    remote: node ? { node } : null,
   });
 }
 
 function launchSpec(session, tmux) {
   const argv = buildSessionArgv(session);
-  argv[0] = resolveExecutable(argv[0]);
+  const remote = Boolean(session.node);
+  // On a node the agent lives there: resolving the binary against this machine
+  // would rewrite `pi` into /home/me/.nvm/.../pi, which does not exist remotely.
+  if (!remote) argv[0] = resolveExecutable(argv[0]);
   const env = { ...session.env };
   if (session.remotePiName && session.remotePiMode === "env") {
-    env.REMOTE_PI_DIRECT_CONFIG = JSON.stringify({
-      ...readRemotePiConfig(session.cwd),
-      agent_name: session.remotePiName,
-    });
+    const base = remote ? {} : readRemotePiConfig(session.cwd);
+    env.REMOTE_PI_DIRECT_CONFIG = JSON.stringify({ ...base, agent_name: session.remotePiName });
   }
   return { argv, env };
 }
 
 function prepareSession(session, { dryRun = false } = {}) {
+  const remote = Boolean(session.node);
+  if (remote) return; // cwd, log dir and remote-pi config live on the node itself
   if (!existsSync(session.cwd) || !statSync(session.cwd).isDirectory()) {
     throw new Error(`session "${session.name}": cwd does not exist: ${session.cwd}`);
   }
@@ -372,8 +410,12 @@ export function saveNewSession(configPath, session, ui) {
 
 async function cmdUp(config, options, ui) {
   const sessions = selectSessions(config, options.names, ui, { options });
-  const tmux = makeTmux(config, options);
-  const live = tmux.listSessions();
+  const liveCache = new Map();
+  const liveFor = (session) => {
+    const key = session.node ?? "";
+    if (!liveCache.has(key)) liveCache.set(key, makeTmux(config, options, session).listSessions());
+    return liveCache.get(key);
+  };
   // A session named on the command line is an explicit request: restart it even
   // when its policy is "no" and its pane is dead.
   const explicit = new Set(options.names ?? []);
@@ -383,7 +425,8 @@ async function cmdUp(config, options, ui) {
 
   for (const session of sessions) {
     try {
-      const entry = live.get(session.tmuxName);
+      const tmux = makeTmux(config, options, session);
+      const entry = liveFor(session).get(session.tmuxName);
       if (entry) {
         const dead = entry.panes.every((p) => p.dead);
         if (!dead && !options.force) {
@@ -453,10 +496,10 @@ async function cmdUp(config, options, ui) {
 function cmdDown(config, options, ui) {
   // Stopping is always safe: a bare "down" stops everything, enabled or not.
   const sessions = selectSessions(config, options.names, ui, { all: true });
-  const tmux = makeTmux(config, options);
   let killed = 0;
   let missing = 0;
   for (const session of sessions) {
+    const tmux = makeTmux(config, options, session);
     if (!tmux.sessionExists(session.tmuxName)) {
       missing++;
       ui.info(`${ui.paint("dim", "absent")}  ${session.tmuxName}`);
@@ -582,7 +625,8 @@ async function cmdTodoAttach(config, refs, options, ui) {
   if (known) {
     return cmdAttach(config, { ...options, names: [known.name] }, ui);
   }
-  const tmux = makeTmux(config, options);
+  const owner = (config?.sessions ?? []).find((item) => item.tmuxName === name || item.name === name);
+  const tmux = makeTmux(config, options, owner);
   if (!tmux.sessionExists(name)) {
     ui.error(`session "${name}" is not running (starting it is up to the config that owns it)`);
     process.exit(1);
@@ -675,12 +719,15 @@ async function cmdRm(config, options, ui) {
     return;
   }
 
-  const tmux = makeTmux(config, options);
-  const live = tmux.listSessions();
-  const target = sessions.map((session) => ({
-    session,
-    running: live.has(session.tmuxName),
-  }));
+  const target = sessions.map((session) => {
+    let running = false;
+    try {
+      running = makeTmux(config, options, session).sessionExists(session.tmuxName);
+    } catch {
+      running = false; // an unreachable node is reported as "no tmux session"
+    }
+    return { session, running };
+  });
   const names = target.map((row) => row.session.tmuxName).join(", ");
 
   if (!options.force && !options.dryRun) {
@@ -703,7 +750,7 @@ async function cmdRm(config, options, ui) {
   for (const { session, running } of target) {
     const label = options.dryRun ? "would remove" : "removed";
     if (running && !options.dryRun) {
-      tmux.kill(session.tmuxName);
+      makeTmux(config, options, session).kill(session.tmuxName);
       killed += 1;
     }
     clearStopped(config.path, session.name);
@@ -729,24 +776,388 @@ async function cmdRm(config, options, ui) {
 
 async function cmdRestart(config, options, ui) {
   const sessions = selectSessions(config, options.names, ui, { options });
-  const tmux = makeTmux(config, options);
   for (const session of sessions) {
+    const tmux = makeTmux(config, options, session);
     if (tmux.sessionExists(session.tmuxName)) tmux.kill(session.tmuxName);
   }
   options.force = true;
   await cmdUp(config, { ...options, names: sessions.map((s) => s.name) }, ui);
 }
 
+/* ------------------------------------------------------------------ nodes */
+
+function findNode(config, ref) {
+  const name = String(ref ?? "").trim();
+  if (!name) return null;
+  return (config?.nodes ?? []).find((n) => n.name === name) ?? null;
+}
+
+function nodeOrDie(config, ref, ui) {
+  const name = String(ref ?? "").trim();
+  if (!name) {
+    ui.error("which node? usage: pp node <ls|show|add|rm|test|ssh> [name]");
+    process.exit(2);
+  }
+  const node = findNode(config, name);
+  if (!node) {
+    const known = (config?.nodes ?? []).map((n) => n.name);
+    ui.error(`no node "${name}"${known.length ? ` (known: ${known.join(", ")})` : " — add one: pp node add " + name + " --host <ip>"}`);
+    process.exit(2);
+  }
+  return node;
+}
+
+function printNodes(config, options, ui) {
+  const nodes = config?.nodes ?? [];
+  const counts = new Map();
+  for (const session of config?.sessions ?? []) {
+    if (session.node) counts.set(session.node, (counts.get(session.node) ?? 0) + 1);
+  }
+  if (ui.json) {
+    ui.out(
+      JSON.stringify(
+        nodes.map((node) => ({
+          name: node.name,
+          host: node.host,
+          port: node.port,
+          user: node.user,
+          target: nodeTarget(node),
+          auth: authSummary(node),
+          identity: node.identity,
+          password_env: node.passwordEnv,
+          has_password: Boolean(node.password),
+          sessions: counts.get(node.name) ?? 0,
+          note: node.note,
+        })),
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (!nodes.length) {
+    ui.info("no nodes yet. A session can run on another machine once you register it:");
+    ui.info("  pp node add prod-01 --host 10.0.0.11 --user deploy --identity ~/.ssh/id_ed25519");
+    ui.info("  pp node test prod-01");
+    return;
+  }
+  const headers = ["NODE", "TARGET", "PORT", "AUTH", "SESSIONS", "NOTE"];
+  const table = nodes.map((node) => [
+    node.name,
+    nodeTarget(node),
+    String(node.port),
+    authSummary(node),
+    String(counts.get(node.name) ?? 0),
+    node.note || "",
+  ]);
+  const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
+  const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
+  ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
+  table.forEach((row, i) => {
+    const cells = [...row];
+    cells[0] = ui.paint("cyan", cells[0]);
+    const auth = nodes[i] && authSummary(nodes[i]);
+    if (auth.endsWith("✗")) cells[3] = ui.paint("red", cells[3]);
+    else if (auth === "agent") cells[3] = ui.paint("dim", cells[3]);
+    cells[4] = ui.paint("dim", cells[4]);
+    ui.out(cells.map((cell, idx) => pad(cell, widths[idx])).join("  ").trimEnd());
+  });
+  if (!options.quiet) {
+    ui.out(`\n${nodes.length} node${nodes.length === 1 ? "" : "s"}  ${ui.paint("dim", `config: ${config.path}`)}`);
+    const orphan = nodes.length && !counts.size ? "  (no session uses one yet: add `node: <name>` to a session)" : "";
+    if (orphan) ui.out(ui.paint("dim", orphan.trim()));
+  }
+}
+
+function showNode(config, options, ui) {
+  const node = nodeOrDie(config, options.names[1], ui);
+  const used = sessionsOnNode(config, node.name);
+  if (ui.json) {
+    ui.out(
+      JSON.stringify(
+        {
+          ...node,
+          password: node.password ? "********" : null,
+          target: nodeTarget(node),
+          auth: authSummary(node),
+          sessions: used.map((s) => s.name),
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  const rows = [
+    ["name", node.name],
+    ["target", `${nodeTarget(node)}:${node.port}`],
+    ["host", node.host],
+    ["port", String(node.port)],
+    ["user", node.user ?? ui.paint("dim", "(ssh default)")],
+    ["auth", authSummary(node)],
+    ["identity", node.identity ?? ui.paint("dim", "-")],
+    ["password", node.password ? ui.paint("yellow", "set (in the config file)") : node.passwordEnv ? ui.paint("dim", `from $${node.passwordEnv}`) : ui.paint("dim", "-")],
+    ["note", node.note || ui.paint("dim", "-")],
+    ["sessions", used.length ? used.map((s) => `${s.name}${s.node === node.name ? "" : ""}`).join(", ") : ui.paint("dim", "none")],
+  ];
+  const width = Math.max(...rows.map(([k]) => k.length));
+  for (const [key, value] of rows) ui.out(`${ui.paint("dim", key.padEnd(width))}  ${value}`);
+  if (!options.quiet) ui.out(`\n${ui.paint("dim", `config: ${config.path}`)}`);
+}
+
+async function promptOnTerminal(question, fallback = "") {
+  const { createInterface } = await import("node:readline/promises");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const suffix = fallback ? ui0Dim(` [${fallback}]`) : "";
+    const answer = (await rl.question(`${question}${suffix}: `)).trim();
+    return answer || fallback;
+  } finally {
+    rl.close();
+  }
+}
+
+function ui0Dim(text) {
+  return process.stdout.isTTY && !process.env.NO_COLOR ? `\u001b[2m${text}\u001b[0m` : text;
+}
+
+async function cmdNodeAdd(config, options, ui) {
+  if (!config?.path) {
+    ui.error("no config file to write to — run `pp init` first");
+    process.exit(2);
+  }
+  const name = options.names[1];
+  if (!name) {
+    ui.error(
+      "usage: pp node add <name> --host <ip|dns> [--port 22] [--user deploy]\n" +
+        "                        [--identity ~/.ssh/id_ed25519 | --password | --password-env VAR]\n" +
+        "                        [--note \"what this box is\"] [--from-ssh-config <alias>]",
+    );
+    process.exit(2);
+  }
+
+  let spec = { name };
+  if (options.fromSshConfig) {
+    const path = join(homedir(), ".ssh", "config");
+    if (!existsSync(path)) {
+      ui.error(`no ${path} to read`);
+      process.exit(2);
+    }
+    const entries = parseSshConfig(readFileSync(path, "utf8"));
+    const entry = entries.find((e) => e.name === options.fromSshConfig);
+    if (!entry) {
+      ui.error(
+        `no Host "${options.fromSshConfig}" in ${path}${entries.length ? ` (known: ${entries.map((e) => e.name).join(", ")})` : ""}`,
+      );
+      process.exit(2);
+    }
+    spec = { name, host: entry.host, port: entry.port, user: entry.user ?? undefined, identity: entry.identity ?? undefined };
+  }
+  if (options.host) spec.host = options.host;
+  if (options.port) spec.port = options.port;
+  if (options.user) spec.user = options.user;
+  if (options.identity) spec.identity = options.identity;
+  if (options.password) spec.password = options.password;
+  if (options.passwordEnv) spec.password_env = options.passwordEnv;
+  if (options.note) spec.note = options.note;
+
+  if (!spec.host && process.stdin.isTTY && !ui.json) {
+    ui.info(ui.paint("dim", `registering the machine "${name}" — answer four questions (Enter accepts the default)`));
+    spec.host = await promptOnTerminal("ip or dns name");
+    spec.port = await promptOnTerminal("ssh port", "22");
+    spec.user = await promptOnTerminal("ssh user", process.env.USER ?? "");
+    const auth = await promptOnTerminal("auth: key path, \"password\" or $VAR", "~/.ssh/id_ed25519");
+    if (auth === "password") spec.password = await promptOnTerminal("password (stored in the config, file will be 0600)");
+    else if (/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(auth)) spec.password_env = auth.slice(1);
+    else if (auth) spec.identity = auth;
+  }
+  if (!spec.host) {
+    ui.error(`missing --host for node "${name}" (ip or dns name of the machine)`);
+    process.exit(2);
+  }
+
+  const warnings = [];
+  let node;
+  try {
+    node = normalizeNode(spec, (config.nodes ?? []).length, config.path, warnings);
+  } catch (err) {
+    ui.error(err.message);
+    process.exit(2);
+  }
+  const existing = (config.nodes ?? []).find((n) => n.name === node.name);
+  if (existing && !options.force) {
+    // Re-adding is the documented way to edit a node, but say what changed.
+    const changed = ["host", "port", "user", "identity", "password", "note"].filter(
+      (key) => String(existing[key] ?? "") !== String(node[key] ?? ""),
+    );
+    if (!changed.length) {
+      ui.info(`${node.name} is unchanged (${nodeTarget(node)}:${node.port}, ${authSummary(node)})`);
+      return;
+    }
+    ui.info(`updating ${node.name}: ${changed.join(", ")}`);
+  }
+  for (const warning of warnings) ui.warn(warning);
+
+  if (options.dryRun) {
+    ui.info(`[dry-run] would write node ${node.name} to ${config.path}`);
+    for (const line of renderNodeBlock(node).split("\n")) ui.info(ui.paint("dim", line));
+    return;
+  }
+  const action = upsertNodeInFile(config.path, node);
+  if (node.password) {
+    tightenConfigMode(config.path);
+    ui.warn(
+      `the password is stored in ${config.path} (mode 600). ` +
+        `On a shared box prefer --password-env <VAR> or --identity <key>`,
+    );
+  }
+  {
+    ui.info(`${action === "updated" ? "updated" : "added"} node ${ui.paint("cyan", node.name)} → ${nodeTarget(node)}:${node.port} (${authSummary(node)})`);
+  }
+  if (!options.quiet) ui.info(`Next: pp node test ${node.name}`);
+}
+
+function cmdNodeRm(config, options, ui) {
+  const node = nodeOrDie(config, options.names[1], ui);
+  const used = sessionsOnNode(config, node.name);
+  if (used.length && !options.force) {
+    ui.error(
+      `${used.length} session${used.length === 1 ? "" : "s"} still run on "${node.name}": ` +
+        used.map((s) => s.name).join(", ") +
+        `\nrepoint them (node: <other>) or pass --force to leave them dangling`,
+    );
+    process.exit(1);
+  }
+  const removed = removeNodeFromFile(config.path, node.name);
+  if (!removed) {
+    ui.error(`could not find "${node.name}" in ${config.path}`);
+    process.exit(1);
+  }
+  ui.info(`removed node ${node.name}${used.length ? ui.paint("dim", ` (${used.length} session(s) now point at a missing node)`) : ""}`);
+}
+
+function cmdNodeTest(config, options, ui) {
+  const refs = options.all
+    ? (config?.nodes ?? []).map((n) => n.name)
+    : options.names.slice(1);
+  if (!refs.length) {
+    ui.error("usage: pp node test <name>... | --all");
+    process.exit(2);
+  }
+  let failed = 0;
+  for (const ref of refs) {
+    const node = findNode(config, ref);
+    if (!node) {
+      failed++;
+      ui.error(`no node "${ref}"`);
+      continue;
+    }
+    const started = Date.now();
+    let probe;
+    try {
+      const res = runOnNode(node, [PROBE_SCRIPT]);
+      if (res.timedOut) throw new NodeError("ssh timed out");
+      if (res.status !== 0) {
+        const detail = (res.stderr || res.stdout).trim().split("\n").filter(Boolean).slice(-1)[0] || `ssh exited ${res.status}`;
+        throw new NodeError(detail);
+      }
+      probe = parseProbe(res.stdout);
+    } catch (err) {
+      failed++;
+      ui.error(`${node.name} (${nodeTarget(node)}): ${err.message}`);
+      continue;
+    }
+    const ms = Date.now() - started;
+    const dot = (value) => (value && value !== "-" ? value : ui.paint("red", "missing"));
+    if (ui.json) {
+      ui.out(JSON.stringify({ node: node.name, ok: true, ms, ...probe }, null, 2));
+      continue;
+    }
+    ui.out(
+      `${ui.paint("green", "ok")}   ${ui.paint("cyan", node.name.padEnd(12))} ${nodeTarget(node)}:${node.port}  ${ui.paint("dim", `${ms}ms`)}`,
+    );
+    ui.out(`     ${ui.paint("dim", "host")}   ${probe.host ?? "?"}  ${ui.paint("dim", "os")} ${probe.os ?? "?"}`);
+    ui.out(
+      `     ${ui.paint("dim", "tmux")}   ${dot(probe.tmux)}   ${ui.paint("dim", "node")} ${dot(probe.node)}   ` +
+        `${ui.paint("dim", "pi")} ${dot(probe.pi)}   ${ui.paint("dim", "pp")} ${probe.pp && probe.pp !== "-" ? probe.pp : ui.paint("dim", "not installed")}`,
+    );
+    ui.out(
+      `     ${ui.paint("dim", "sessions")} ${probe.sessions ?? "?"}   ${ui.paint("dim", "load")} ${probe.load ?? "?"}   ${ui.paint("dim", "up")} ${probe.up && probe.up !== "-" ? `${Math.floor(Number(probe.up) / 3600)}h` : "?"}`,
+    );
+    if (!probe.tmux || probe.tmux === "-") {
+      ui.warn(`${node.name} has no tmux — sessions cannot run there until it is installed (apt install tmux)`);
+    }
+    if (!probe.pi || probe.pi === "-") {
+      ui.warn(`${node.name} has no pi on PATH for that user — agent sessions there will fail to start`);
+    }
+  }
+  if (failed) process.exitCode = 1;
+}
+
+function cmdNodeSsh(config, options, ui) {
+  const node = nodeOrDie(config, options.names[1], ui);
+  const inv = sshInvocation(node, [], { tty: true, batch: false });
+  if (options.dryRun) {
+    ui.info(`[dry-run] ${inv.command} ${inv.argv.join(" ")}`);
+    return;
+  }
+  const res = spawnSync(inv.command, inv.argv, { stdio: "inherit", env: { ...process.env, ...inv.env } });
+  if (res.error && res.error.code === "ENOENT") {
+    ui.error(
+      inv.command === "sshpass"
+        ? `node "${node.name}" uses a password: install sshpass (apt install sshpass) or switch to --identity`
+        : "ssh is not installed (or not on PATH)",
+    );
+    process.exit(1);
+  }
+  process.exit(res.status ?? 0);
+}
+
+async function cmdNode(config, options, ui) {
+  const sub = (options.names[0] ?? "ls").toLowerCase();
+  if (["ls", "list", "status"].includes(sub)) {
+    if (!config) {
+      ui.info("no config file yet — run `pp init` to create one, then `pp node add`");
+      return;
+    }
+    return printNodes(config, options, ui);
+  }
+  if (["show", "info", "describe"].includes(sub)) return showNode(config, options, ui);
+  if (["add", "set", "upsert"].includes(sub)) return cmdNodeAdd(config, options, ui);
+  if (["rm", "remove", "delete"].includes(sub)) return cmdNodeRm(config, options, ui);
+  if (["test", "ping", "probe", "check"].includes(sub)) return cmdNodeTest(config, options, ui);
+  if (["ssh", "shell", "connect"].includes(sub)) return cmdNodeSsh(config, options, ui);
+  ui.error(`unknown node command "${sub}" — try: pp node ls | show | add | rm | test | ssh`);
+  process.exit(2);
+}
+
 function cmdStatus(config, options, ui) {
   // status lists every configured session, whatever its restart policy.
   const sessions = selectSessions(config, options.names, ui, { all: true });
-  const tmux = makeTmux(config, options);
-  const live = tmux.listSessions();
+  // One tmux query per machine, not one per session: a node is expensive to
+  // reach and every session on it shares the answer.
+  const liveCache = new Map();
+  const unreachable = new Set();
+  const liveFor = (nodeName) => {
+    const key = nodeName ?? "";
+    if (liveCache.has(key)) return liveCache.get(key);
+    let map = new Map();
+    try {
+      const handle = makeTmux(config, options, { node: nodeName });
+      // A machine we cannot reach is not "all sessions stopped" — say so.
+      if (nodeName && !handle.reachable()) unreachable.add(nodeName);
+      else map = handle.listSessions();
+    } catch {
+      if (nodeName) unreachable.add(nodeName);
+    }
+    liveCache.set(key, map);
+    return map;
+  };
 
   const rows = sessions.map((session) => {
-    const entry = live.get(session.tmuxName);
+    const entry = liveFor(session.node).get(session.tmuxName);
     const pane = entry?.panes[0];
-    let state = "stopped";
+    let state = session.node && unreachable.has(session.node) ? "unreachable" : "stopped";
     let pid = "";
     let command = "";
     if (entry && pane) {
@@ -759,6 +1170,7 @@ function cmdStatus(config, options, ui) {
     return {
       index: config.sessions.indexOf(session) + 1,
       name: session.name,
+      node: session.node ?? "",
       tmux: session.tmuxName,
       state: state === "stopped" && (session.restart === "no" || isStopped(config.path, session.name)) ? "off" : state,
       restart: session.restart,
@@ -777,10 +1189,14 @@ function cmdStatus(config, options, ui) {
     return;
   }
 
-  const headers = ["#", "NAME", "STATE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"];
+  const showNode = (config.nodes?.length ?? 0) > 0;
+  const headers = showNode
+    ? ["#", "NAME", "NODE", "STATE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]
+    : ["#", "NAME", "STATE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"];
   const table = rows.map((r) => [
     String(r.index),
     r.name,
+    ...(showNode ? [r.node || "-"] : []),
     r.state,
     r.restart,
     r.pid,
@@ -800,15 +1216,24 @@ function cmdStatus(config, options, ui) {
   ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
   rows.forEach((row, i) => {
     const colored = [...table[i]];
+    const stateAt = showNode ? 3 : 2;
     colored[0] = ui.paint("dim", colored[0]);
-    if (row.state === "off") colored[2] = ui.paint("dim", "off");
-    const color = row.state === "running" ? "green" : row.state === "attached" ? "cyan" : row.state === "dead" ? "red" : "dim";
-    colored[2] = ui.paint(color, colored[2]);
+    if (showNode) colored[2] = ui.paint(row.node ? "cyan" : "dim", colored[2]);
+    if (row.state === "off") colored[stateAt] = ui.paint("dim", "off");
+    if (row.state === "unreachable") colored[stateAt] = ui.paint("red", "unreachable");
+    const color = row.state === "running" ? "green" : row.state === "attached" ? "cyan" : row.state === "dead" || row.state === "unreachable" ? "red" : "dim";
+    colored[stateAt] = ui.paint(color, colored[stateAt]);
     ui.out(colored.map((cell, idx) => pad(cell, widths[idx])).join("  ").trimEnd());
   });
   if (!options.quiet) {
     const running = rows.filter((r) => r.state === "running" || r.state === "attached").length;
-    ui.out(`\n${running}/${rows.length} running  ${ui.paint("dim", `config: ${config.path}`)}`);
+    const unreachableNodes = [...unreachable];
+    ui.out(
+      `\n${running}/${rows.length} running` +
+        (config.nodes?.length ? `  ${ui.paint("dim", `${config.nodes.length} node${config.nodes.length === 1 ? "" : "s"}`)}` : "") +
+        (unreachableNodes.length ? `  ${ui.paint("red", `unreachable: ${unreachableNodes.join(", ")}`)}` : "") +
+        `  ${ui.paint("dim", `config: ${config.path}`)}`,
+    );
   }
 }
 
@@ -827,8 +1252,9 @@ function tuiSessionRows(config, live) {
     const state = stateOf(entry);
     rows.push({
       name: session.tmuxName,
+      node: session.node ?? "",
       state,
-      label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}  ${state}`,
+      label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}${session.node ? ` @${session.node}` : ""}  ${state}`,
       dim: state === "off" || state === "dead",
     });
   }
@@ -903,19 +1329,32 @@ async function cmdTui(config, options, ui) {
     process.exit(2);
   }
 
+  // Sessions can live on other machines: merge one listing per node, remember
+  // who owns each name, and hand back a tmux handle for the right machine.
   const readLive = () => {
-    try {
-      return tmux.listSessions();
-    } catch {
-      return new Map();
+    const live = new Map();
+    const owner = new Map();
+    for (const nodeName of [null, ...(config?.nodes ?? []).map((node) => node.name)]) {
+      let map;
+      try {
+        map = makeTmux(config, options, { node: nodeName }).listSessions();
+      } catch {
+        continue;
+      }
+      for (const [name, entry] of map) {
+        if (live.has(name)) continue;
+        live.set(name, entry);
+        owner.set(name, nodeName);
+      }
     }
+    return { live, tmuxFor: (name) => makeTmux(config, options, { node: owner.get(name) ?? null }) };
   };
 
   if (once) {
     const cols = process.stdout.columns || 100;
     const rows = process.stdout.rows || 30;
     const layout = computeLayout(cols, rows, { leftWidth });
-    const live = readLive();
+    const { live } = readLive();
     const model = {
       sessions: tuiSessionRows(config, live),
       todos: tuiTodoRows(filterTodos(readTodos()), Date.now()),
@@ -972,13 +1411,13 @@ async function cmdTui(config, options, ui) {
       size: screenSize,
       onResize: (callback) => process.stdout.on("resize", callback),
       async refresh({ index = 0 } = {}) {
-        const live = readLive();
+        const { live, tmuxFor } = readLive();
         const sessions = tuiSessionRows(config, live);
         const todos = tuiTodoRows(filterTodos(readTodos()), Date.now());
         const current = sessions[index]?.name ?? sessions[0]?.name;
         let preview = { title: "—", lines: ["no session selected"] };
         if (current && live.has(current)) {
-          const text = tmux.capture(current, previewLines());
+          const text = tmuxFor(current).capture(current, previewLines());
           preview = { title: current, lines: text ? text.split("\n") : ["(empty pane)"] };
         }
         return { sessions, todos, preview };
@@ -1183,9 +1622,9 @@ async function cmdAttach(config, options, ui) {
     process.exit(2);
   }
   const [session] = selectSessions(config, [name], ui);
-  const tmux = makeTmux(config, options);
+  const tmux = makeTmux(config, options, session);
   if (options.dryRun) {
-    ui.info(`[dry-run] tmux attach-session -t =${session.tmuxName}`);
+    ui.info(`[dry-run] ${tmux.args(["attach-session", "-t", `=${session.tmuxName}`]).join(" ")}`);
     return;
   }
   if (!tmux.sessionExists(session.tmuxName)) {
@@ -1207,9 +1646,9 @@ function cmdLogs(config, options, ui) {
     process.exit(2);
   }
   const [session] = selectSessions(config, [name], ui);
-  const tmux = makeTmux(config, options);
+  const tmux = makeTmux(config, options, session);
   if (options.dryRun) {
-    ui.info(`[dry-run] tmux capture-pane -p -t =${session.tmuxName}: -S -${options.lines ?? 200}`);
+    ui.info(`[dry-run] ${tmux.args(["capture-pane", "-p", "-t", `=${session.tmuxName}:`, "-S", `-${options.lines ?? 200}`]).join(" ")}`);
     return;
   }
   if (!tmux.sessionExists(session.tmuxName)) {
@@ -1227,10 +1666,10 @@ function cmdSend(config, options, ui) {
     process.exit(2);
   }
   const [session] = selectSessions(config, [name], ui);
-  const tmux = makeTmux(config, options);
+  const tmux = makeTmux(config, options, session);
   const text = rest.join(" ");
   if (options.dryRun) {
-    ui.info(`[dry-run] tmux send-keys -t =${session.tmuxName}: -- ${shellQuote(text)}${options.noEnter ? "" : " Enter"}`);
+    ui.info(`[dry-run] ${tmux.args(["send-keys", "-t", `=${session.tmuxName}:`, "--", text]).join(" ")}${options.noEnter ? "" : " Enter"}`);
     return;
   }
   if (!tmux.sessionExists(session.tmuxName)) {
@@ -1720,6 +2159,16 @@ function cmdDoctor(config, options, ui) {
   const names = inspectCommandNames({ target: scriptPath(options) });
   add("command name", names.ok, describeCommandNames(names));
   add("config", Boolean(config), config?.path ?? "not found");
+  if (config?.nodes?.length) {
+    // Registering a machine is a promise; say whether ssh can keep it, but do
+    // not spend a round trip per node without being asked.
+    const used = new Set(config.sessions.filter((s) => s.node).map((s) => s.node));
+    add(
+      "nodes",
+      true,
+      `${config.nodes.length} registered (${[...used].join(", ") || "none"} carrying sessions) — check one with: pp node test <name>`,
+    );
+  }
   const autostart = autostartState();
   add("autostart", Boolean(autostart.kind) && autostart.installed && autostart.enabled, describeAutostart(autostart));
   if (isWsl()) {
@@ -2525,6 +2974,23 @@ export async function runCommand(command, options) {
     case "delete": {
       const config = requireConfig(options, ui);
       return cmdRm(config, options, ui);
+    }
+    case "node":
+    case "nodes": {
+      const sub = String(options.names[0] ?? "ls").toLowerCase();
+      const readOnly = ["ls", "list", "status", "show", "info", "describe", "test", "ping", "probe", "check"].includes(sub);
+      let config = null;
+      try {
+        config = loadConfig({ configPath: options.config, cwd: options.cwd });
+      } catch (err) {
+        if (options.config || !readOnly) {
+          ui.error(err.message);
+          process.exit(2);
+        }
+        ui.warn(err.message);
+        config = null;
+      }
+      return cmdNode(config, options, ui);
     }
     case "cron": {
       let config = null;

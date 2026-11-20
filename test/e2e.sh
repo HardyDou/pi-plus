@@ -405,6 +405,73 @@ check "back forgets the dead panel"      0 ''                   bash -c "test ! 
 check "tui help page"                  0 'attach'              bash -c "cd $E2E && $ROOT/bin/pp.js help tui"
 check "tui appears in the overview"    0 'tui \(panel\)'        bash -c "cd $E2E && $ROOT/bin/pp.js help"
 
+section "nodes"
+# A stand-in for ssh that runs the "remote" command locally, so the whole
+# remote path (ssh argv building -> remote tmux) is exercised without a server.
+SHIM="$E2E/shim"
+mkdir -p "$SHIM"
+cat > "$SHIM/ssh" <<'SHIMSH'
+#!/bin/sh
+# like ssh: skip the options, then run the rest as one command on the far side
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p|-i|-o) shift 2 ;;
+    -t|-v) shift ;;
+    *) break ;;
+  esac
+done
+host="$1"; shift
+if [ "$host" = "dead@127.0.0.1" ]; then echo "ssh: connect to host 127.0.0.1 port 22: Connection refused" >&2; exit 255; fi
+exec sh -c "$*"
+SHIMSH
+chmod +x "$SHIM/ssh"
+
+NODECFG="$E2E/nodes.yml"
+cat > "$NODECFG" <<'YAML'
+version: 1
+nodes:
+  - name: far
+    host: 127.0.0.1
+    user: nobody
+    note: reaches us through the shim
+  - name: dead
+    host: 127.0.0.1
+    user: dead
+sessions:
+  - name: far-x
+    node: far
+    cwd: /tmp
+  - name: dead-x
+    node: dead
+    cwd: /tmp
+YAML
+
+tmux -L "$SOCK" new-session -d -s far-x "sleep 600" 2>/dev/null || true
+
+check "node is listed"                0 'far'                     bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node ls"
+check "node shows its auth"           0 'agent'                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node ls"
+check "node show lists its sessions"  0 'far-x'                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node show far"
+check "node show hides passwords"     0 'password  -'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node show far"
+check "remote session is seen running" 0 'running'                bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls far-x"
+check "the NODE column names the machine" 0 'far'                 bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls far-x"
+check "a dead node is unreachable, not stopped" 0 'unreachable'    bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls dead-x"
+check "node test runs the probe"     0 'host +[A-Za-z0-9]'       bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG node test far"
+check "node test reports a broken node" 1 'ssh'                  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG node test dead"
+check "attach to a remote session is built for ssh" 0 'attach-session .*far-x' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach far-x --dry-run"
+check "node add writes the config"   0 'added node'              bash -c "cp $NODECFG $E2E/add.yml && cd $E2E && $ROOT/bin/pp.js -c $E2E/add.yml node add prod --host 10.0.0.11 --user deploy --identity ~/.ssh/id_ed25519"
+check "node add keeps the sessions"  0 ''                        bash -c "grep -q 'name: far-x' $E2E/add.yml"
+check "node add --dry-run touches nothing" 0 'would write'       bash -c "cp $NODECFG $E2E/dry.yml && cd $E2E && $ROOT/bin/pp.js -c $E2E/dry.yml node add ghost --host 10.9.9.9 --dry-run && ! grep -q ghost $E2E/dry.yml"
+check "node add needs a host"        2 'missing --host'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/add.yml node add nohost"
+check "node add refuses a used name" 2 'usage: pp node add'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/add.yml node add"
+check "node rm drops it"             0 'removed node'            bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/add.yml node rm prod --force"
+check "node rm leaves sessions alone" 0 ''                       bash -c "grep -q 'name: far-x' $E2E/add.yml"
+check "node rm refuses a referenced node" 1 'still run on'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node rm far"
+check "an unknown node is a config error" 2 'is not defined under' bash -c "cd $E2E && printf 'version: 1\nnodes:\n  - name: far\n    host: h\nsessions:\n  - name: x\n    node: nope\n    cwd: /tmp\n' > $E2E/badnode.yml && $ROOT/bin/pp.js -c $E2E/badnode.yml check"
+check "node help page"               0 'sshpass'                 bash -c "cd $E2E && $ROOT/bin/pp.js help node"
+check "node appears in the overview" 0 'node \(nodes\)'          bash -c "cd $E2E && $ROOT/bin/pp.js help"
+
+tmux -L "$SOCK" kill-session -t far-x 2>/dev/null || true
+
 section "packaging"
 check "npm test green"           0 'fail 0'                   bash -c "cd $ROOT && npm test 2>&1 | tail -20"
 check "npm pack contents"        0 'bin/pp.js'             bash -c "cd $ROOT && npm pack --dry-run 2>&1 | grep bin/pp.js"

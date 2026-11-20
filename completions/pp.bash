@@ -4,14 +4,17 @@ _pp() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local commands="tui panel back new n create up start down stop rm remove delete restart status ls list attach a logs log send mesh cron todo todos check validate doctor init install autostart uninstall alias link update upgrade version help"
+  local commands="tui panel back new n create up start down stop rm remove delete restart status ls list attach a logs log send mesh cron todo todos node nodes check validate doctor init install autostart uninstall alias link update upgrade version help"
 
   case "$prev" in
     -c|--config)
       COMPREPLY=( $(compgen -f -- "$cur") )
       return 0
       ;;
-    --socket|--lines|-n|--agent|-C|--dir)
+    --socket|--lines|-n|--agent|-C|--dir|--host|--port|--user|--identity|--password|--note)
+      return 0
+      ;;
+    --password-env|--from-ssh-config)
       return 0
       ;;
     mesh)
@@ -24,6 +27,10 @@ _pp() {
       ;;
     todo|todos)
       COMPREPLY=( $(compgen -W "ls list add done finish seen attach go rm remove delete clear prune" -- "$cur") )
+      return 0
+      ;;
+    node|nodes)
+      COMPREPLY=( $(compgen -W "ls list status show info describe add set upsert rm remove delete test ping probe check ssh" -- "$cur") )
       return 0
       ;;
     alias|link)

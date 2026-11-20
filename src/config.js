@@ -2,10 +2,11 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { parseYaml, YamlError } from "./yaml.js";
+import { normalizeNodes } from "./nodes.js";
 
 const CONFIG_BASENAMES = ["pi-plus.yml", "pi-plus.yaml", "plus.yml", "plus.yaml"];
 
-const TOP_LEVEL_KEYS = new Set(["version", "tmux", "defaults", "sessions"]);
+const TOP_LEVEL_KEYS = new Set(["version", "tmux", "defaults", "nodes", "sessions"]);
 const SESSION_KEYS = new Set([
   "name",
   "cwd",
@@ -23,6 +24,7 @@ const SESSION_KEYS = new Set([
   "log",
   "remain_on_exit",
   "restart",
+  "node",
 ]);
 
 /** Compose-style restart policies: when is this session brought back up? */
@@ -252,8 +254,14 @@ function normalizeSession(raw, defaults, index, configPath) {
     );
   }
 
+  const nodeRaw = session.node == null ? null : String(session.node).trim();
+  if (nodeRaw !== null && nodeRaw === "") {
+    throw new ConfigError(`${where}: node must name a machine from "nodes"`);
+  }
+
   return {
     name,
+    node: nodeRaw,
     tmuxName: String(session.tmux_name ?? name).trim() || name,
     cwd,
     agent,
@@ -298,10 +306,32 @@ export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
     __warnings: warnings,
   };
 
+  const nodes = normalizeNodes(raw.nodes, { configPath, warnings });
+
   if (!Array.isArray(raw.sessions)) {
     throw new ConfigError(`${configPath}: "sessions" must be a list`);
   }
   const sessions = raw.sessions.map((s, i) => normalizeSession(s, defaults, i, configPath));
+
+  const nodeNames = new Set(nodes.map((n) => n.name));
+  for (const s of sessions) {
+    if (!s.node) continue;
+    if (!nodeNames.has(s.node)) {
+      throw new ConfigError(
+        `${configPath}: session "${s.name}": node "${s.node}" is not defined under "nodes"` +
+          (nodeNames.size ? ` (known: ${[...nodeNames].join(", ")})` : " (there are no nodes yet — pp node add)"),
+      );
+    }
+    if (s.remotePiMode === "config") {
+      // The remote-pi name would have to be written into the *remote* working
+      // directory; pp cannot do that yet, so fall back to the env mode.
+      warnings.push(
+        `${configPath}: session "${s.name}" runs on node "${s.node}": remote_pi_mode "config" is not supported ` +
+          `for remote sessions, using "env"`,
+      );
+      s.remotePiMode = "env";
+    }
+  }
 
   const seenTmux = new Map();
   for (const s of sessions) {
@@ -337,6 +367,7 @@ export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
     path: configPath,
     version: raw.version ?? 1,
     tmuxSocket: tmux.socket ? String(tmux.socket) : null,
+    nodes,
     sessions,
     warnings,
   };
@@ -359,7 +390,10 @@ export function removeSessionBlock(text, name) {
   let current = null;
   for (let i = sectionStart + 1; i < lines.length; i += 1) {
     const line = lines[i];
-    if (/^\S/.test(line)) break; // next top-level key ends the section
+    if (/^\S/.test(line)) {
+      if (current) current.end = i; // the section ends here, not at EOF
+      break;
+    } // next top-level key ends the section
     const item = /^(\s*)-\s/.exec(line);
     if (item && (indent === null || item[1].length === indent)) {
       if (indent === null) indent = item[1].length;

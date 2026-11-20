@@ -30,6 +30,7 @@ pi-plus.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --n
 - **直接跟别的 agent 说话**：`pp mesh ls/send` 直连 remote-pi 的本地 broker，按会话名或跨机地址发消息、拿 ACK、等回复。
 - **定时任务**：`pp cron add` 按「一次 / 每 N 分钟 / crontab 表达式」把 prompt 打进会话，或跑一条命令；装一个 crontab 行就管所有任务，重启后能补跑。
 - **谁在等我**：`pp todo` 列出「哪个会话卡在问题上」，`pp todo attach 2` 直接进去；pi 弹提示或跑完停在问句时自动登记。
+- **多机器一张表**：`pp node add` 登记一台 ssh 能到的机器，会话写 `node: prod-01` 就跑到那台机器上——远端不用装 pp，`pp ls`/`tui`/`cron`/`todo` 一视同仁。
 
 ## 安装
 
@@ -148,6 +149,43 @@ pp mesh send backend "跑一下测试" --reply 60000        # 等它回话，收
 - 与 `pp send` 的区别：`pp send` 是往 tmux pane 里打字（对方当成"用户输入"），
   `pp mesh send` 是走 agent 之间的消息通道（对方收到 `[agent-network] message from …` 信封）
 - broker 没起来时会明确报 `no mesh broker at …`；`pp mesh ls/resolve` 可离线用来看地址
+
+## 别的机器上的会话（`pp node`）
+
+一台机器一个节点，登记在**同一个配置文件**里；会话加一行 `node:` 就搬过去。
+远端只需要 sshd + tmux（跑 agent 才需要 `pi`），**不用装 pp**。
+
+```bash
+pp node add prod-01 --host 10.0.0.11 --user deploy --identity ~/.ssh/id_ed25519
+pp node test prod-01        # 一次 ssh 往返：os / tmux / pi / pp / 会话数 / 负载
+pp node ls                  # NODE  TARGET  PORT  AUTH  SESSIONS  NOTE
+```
+
+```yaml
+nodes:
+  - name: prod-01
+    host: 10.0.0.11
+    user: deploy
+    identity: ~/.ssh/id_ed25519
+  - name: textbook
+    host: textbook.example.com
+    password_env: TEXTBOOK_PASS      # 密码不落盘；变量没设置会直接报错
+
+sessions:
+  - name: prod-api
+    node: prod-01                    # 这个会话在 prod-01 上
+    cwd: /srv/api
+  - name: textbook-web
+    node: textbook
+    cwd: /srv/web
+```
+
+之后 `pp ls` 的 NODE 列显示归属，`pp attach prod-api`、`pp logs prod-api`、
+`pp send prod-api "..."`、`pp tui` 里的预览、`pp cron` 的投递全都自动走 ssh。
+连不上的机器整台标成 `unreachable`，而不是假装里面的会话都停了。
+
+密码走 `sshpass -e`（环境变量 `SSHPASS`），不进命令行，`ps` 看不到；
+写在配置里的密码会让文件自动 `chmod 600` 并给你警告。详见 [docs/nodes.md](docs/nodes.md)。
 
 ## 在 pi 里用 `/pp-*`（扩展）
 
@@ -319,6 +357,7 @@ pp tui -c ./pi-plus.yml --socket work
 | [docs/development.md](docs/development.md) | 开发指南：跑测试、改代码的规矩、测试分层、发布流程（含 npm staged publishing 的坑） |
 | [docs/extension.md](docs/extension.md) | pi 扩展 `/pp-*` 与 `schedule` 工具：在会话里切 tmux、看别人的屏幕、断开连接、让 agent 自己排定时任务 |
 | [docs/cron.md](docs/cron.md) | 定时任务：三种时间表、crond 托管块、补跑与迟到语义、时区、调试 |
+| [docs/nodes.md](docs/nodes.md) | 多机器：`nodes:` 与 `node:` 字段、四种认证方式（密钥/agent/ssh config/密码）、`pp node add/ls/show/rm/test/ssh`、远端会话怎么跑、连不上怎么查 |
 | [docs/todo.md](docs/todo.md) | 待办：三种来源、去重、`PP_TODO_SETTLED` 噪音控制、数据文件、边界 |
 
 ## 配置参考
@@ -472,6 +511,7 @@ pp send <name|#> "文本"     往 pane 里打字并回车（--no-enter 不回车
 pp mesh ls|resolve|send    直连 remote-pi broker：看谁在线 / 查地址 / 发消息（--reply 等回复）
 pp cron add|ls|rm|tick     定时把 prompt/命令送进会话（--in/--every/--cron；见下节）
 pp todo [ls|attach|done]   谁在等我决策：列表 / 进去 / 完成（--all、--session）
+pp node ls|add|test        管别的机器：登记节点、体检（os/tmux/pi/负载）、按参数 ssh
 pp tui                     一块屏管所有会话和待办（左侧会话、右侧待办、下方预览）
 pp check                   校验配置
 pp doctor                  环境诊断（含自启状态、WSL 提示）

@@ -232,6 +232,41 @@ pp cron ls
 pp cron install
 ```
 
+### `pp node <ls|show|add|rm|test|ssh>`
+
+管别的机器：一个 `node` 就是一台能用 ssh 到的机器，登记一次之后，它的会话就能像本机会话一样
+`up`/`down`/`attach`/`logs`/`send`/`tui`/`cron`（远端只需 sshd + tmux，不需要装 pp）。
+
+```bash
+pp node add prod-01 --host 10.0.0.11 --user deploy --identity ~/.ssh/id_ed25519
+pp node add textbook --from-ssh-config textbook --password-env TEXTBOOK_PASS
+pp node test prod-01        # 一次 ssh 往返：os / tmux / pi / pp / 负载 / 会话数
+pp node ls                  # NODE TARGET PORT AUTH SESSIONS NOTE
+pp node show prod-01        # 详情 + 谁在用（密码打码）
+pp node rm prod-01          # 还有 session 指着它时拒绝，--force 才硬删
+pp node ssh prod-01         # 按登记的参数开交互式 ssh
+```
+
+| 选项 | 说明 |
+| --- | --- |
+| `--host <ip\|dns>` | 地址，也可写 `user@host:port` |
+| `--port <n>` / `--user <name>` | ssh 端口 / 登录用户 |
+| `--identity <path>` | 私钥路径（`~`/`$VAR` 展开） |
+| `--password <text>` | 密码写进配置（文件随后 chmod 600，会警告） |
+| `--password-env <VAR>` | 从环境变量取密码；变量没设置直接报错 |
+| `--from-ssh-config <alias>` | 抄 `~/.ssh/config` 里某个 Host 的 HostName/Port/User/IdentityFile |
+| `--note <text>` | 备注，`pp node ls` 显示 |
+| `--all` | `test`：测所有节点 |
+| `--force` | `rm`：即使有会话在用它也删（会留下悬空引用） |
+| `--dry-run` | `add`：只打印将写入的 YAML 块 |
+| `--json` | 机器可读输出（`ls`/`show`/`test`） |
+
+密码通过 `sshpass -e`（环境变量 `SSHPASS`）交给 ssh，不进命令行，`ps` 看不到；
+远端需要装 `sshpass` 才能用密码认证。`pp ls` 对每台机器只查一次 tmux，
+连不上的机器整台标成 `unreachable`（红色），不会假装会话都停了。
+
+完整说明见 [nodes.md](nodes.md)。
+
 ### `pp tui [选项]`
 
 一屏内的控制面板：左列会话（配置顺序在前，再补 tmux 里多出来的），右列上半是待办、

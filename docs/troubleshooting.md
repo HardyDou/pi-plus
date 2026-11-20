@@ -56,6 +56,20 @@ pp tui --diag
 
 按「你看到的原文」查。每条都附上验证命令。
 
+## 节点类（`pp node`）
+
+| 现象 | 原因与做法 |
+| --- | --- |
+| `pp node test` 报 `password_env PP_X is not set` | 密码变量在当前环境里没有值。`export PP_X=…`，或改用 `--identity`。pp 不会偷偷退回去用密钥。 |
+| `node "x" uses a password, which needs sshpass` | 远端/本机没装 `sshpass`（`apt install sshpass`），或者改用密钥登录。 |
+| `ssh is not installed (or not on PATH)` | `PATH` 里找不到 ssh 客户端。 |
+| `node "x": ssh to user@host timed out` | 端口/防火墙/`ConnectTimeout=10` 之内没握手成功；先用 `pp node ssh x` 手试。 |
+| `pp ls` 整台机器显示 `unreachable` | ssh 层就不通（密钥、端口、`sshd`、`sshpass`）。`pp node test x` 会给一句人话。 |
+| `pp up` 说已启动但状态 `off` | 远端没装 tmux（`pp node test` 会写 `tmux missing`），或 `tmux.socket` 名字在远端没有对应 server。 |
+| `session "x": node "y" is not defined under "nodes"` | `sessions[].node` 写错或 `nodes:` 里删掉了它。`pp check` 会指出具体会话。 |
+| `1 session still run on "far"` | `pp node rm` 的保护：有会话还在用它。先改 `node:` 或删掉会话，确实要删加 `--force`。 |
+| 远端会话的 `cwd` 明明存在却说 `cwd does not exist` | 远端会话的路径是**远端**的路径，不是本机的。 |
+
 ## 命令名类
 
 ### 敲 `pp ls` 却打出 `Usage: pp [-t type] [-a] [-i input] ...`
