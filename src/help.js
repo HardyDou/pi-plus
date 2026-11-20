@@ -663,6 +663,11 @@ export const COMMANDS = [
       "With --nodes it checks the machines instead of this one: one ssh per node",
       "(in parallel), printing ping, tmux version, load, uptime, session count,",
       "disk and memory, so \"which box is about to fall over\" is one command.",
+      "",
+      "The CONFIG column answers the other question: does the config still",
+      "describe that machine? `3/4` means three of the four sessions you listed",
+      "for it are running; `+1` means something runs there that you never wrote",
+      "down (pp adopt). Without --nodes the same check is one line called drift.",
     ].join("\n"),
     options: [
       "--json           JSON output",

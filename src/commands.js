@@ -2787,6 +2787,21 @@ async function doctorNodes(config, options, ui) {
     }),
   );
 
+  // What the config expects on that machine vs what is actually running there.
+  const driftOf = (node, probe) => {
+    const expected = config.sessions.filter((session) => session.node === node.name);
+    const live = String(probe?.session_names ?? "").split(/\s+/).filter(Boolean);
+    const liveSet = new Set(live);
+    const mine = new Set(expected.map((session) => session.tmuxName));
+    return {
+      up: expected.filter((session) => liveSet.has(session.tmuxName)).length,
+      total: expected.length,
+      missing: expected.filter((session) => !liveSet.has(session.tmuxName) && session.restart !== "no").map((session) => session.name),
+      stray: live.filter((name) => !mine.has(name)),
+    };
+  };
+  for (const result of results) if (result.ok) result.drift = driftOf(result.node, result.probe);
+
   const usable = results.filter((r) => r.ok);
   const carrying = usable.filter((r) => Number(r.probe?.sessions ?? 0) > 0).length;
   const slowest = usable.length ? Math.max(...usable.map((r) => r.ms)) : 0;
@@ -2800,7 +2815,7 @@ async function doctorNodes(config, options, ui) {
           ok: r.ok,
           ms: r.ms,
           error: r.ok ? null : r.error,
-          ...(r.ok ? { probe: r.probe } : {}),
+          ...(r.ok ? { probe: r.probe, drift: r.drift ?? null } : {}),
         })),
         null,
         2,
@@ -2817,6 +2832,17 @@ async function doctorNodes(config, options, ui) {
     if (!Number.isFinite(value) || value <= 0) return "-";
     return value >= 86400 ? `${Math.floor(value / 86400)}d` : `${Math.floor(value / 3600)}h`;
   };
+  // "3/4" reads as "three of the four I expect are up"; " +1" is a session
+  // nobody wrote down. Both are the reason to open an editor or run pp adopt.
+  const driftText = (r) => {
+    if (!r.ok || !r.drift) return "-";
+    const { up, total, missing, stray } = r.drift;
+    if (total === 0 && stray.length === 0) return ui.paint("dim", "-");
+    const parts = [];
+    if (total > 0) parts.push(missing.length ? ui.paint("yellow", `${up}/${total}`) : ui.paint("green", `${up}/${total}`));
+    if (stray.length) parts.push(ui.paint("yellow", `+${stray.length}`));
+    return parts.join(" ");
+  };
   const rows = results.map((r) => [
     `${r.ok ? ui.paint("green", "✓") : ui.paint("red", "✗")} ${r.node.name}`,
     nodeTarget(r.node),
@@ -2827,8 +2853,9 @@ async function doctorNodes(config, options, ui) {
     r.ok ? String(r.probe?.sessions ?? "-") : "-",
     r.ok ? r.probe?.disk ?? "-" : "-",
     r.ok ? r.probe?.mem ?? "-" : "-",
+    driftText(r),
   ]);
-  const headers = ["MACHINE", "TARGET", "PING", "TMUX", "LOAD", "UP", "SESSIONS", "DISK", "MEM"];
+  const headers = ["MACHINE", "TARGET", "PING", "TMUX", "LOAD", "UP", "SESSIONS", "DISK", "MEM", "CONFIG"];
   const widths = headers.map((h, i) => Math.max(h.length, ...rows.map((row) => stripAnsi(row[i]).length)));
   const pad = (value, width) => value + " ".repeat(Math.max(0, width - stripAnsi(value).length));
   ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));

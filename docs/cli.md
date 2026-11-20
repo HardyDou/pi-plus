@@ -145,6 +145,11 @@ rewritten, so the diff stays small.
 `down` = 配置里有、现在没在跑（`pp up` 能修）；`unmanaged` = 在跑、但配置里没有（`pp adopt` 能收）。
 两数都为 0 时这行只显示 `N/N running`。`pp doctor` 里同一条信息叫 `drift`。
 
+### `pp doctor --nodes` 的 `CONFIG` 列
+
+`3/4` = 你为这台机器列了 4 个会话、3 个在跑；`+1` = 它上面还有一个没写进配置的会话。
+两个符号分别对应 `pp up` 和 `pp adopt`。
+
 ### `pp logs <name|#...> | --all`
 
 ```bash

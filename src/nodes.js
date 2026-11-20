@@ -250,6 +250,8 @@ export const PROBE_SCRIPT = [
   'echo "up=$(cut -d. -f1 /proc/uptime 2>/dev/null || echo -)"',
   'echo "load=$(cut -d" " -f1-3 /proc/loadavg 2>/dev/null || echo -)"',
   'echo "sessions=$(command -v tmux >/dev/null 2>&1 && tmux ls 2>/dev/null | wc -l || echo 0)"',
+  // names, not just a count: "3/4 up, 1 stray" is the sentence an operator wants
+  'echo "session_names=$(command -v tmux >/dev/null 2>&1 && tmux list-sessions -F \'#{session_name}\' 2>/dev/null | tr \'\\n\' \' \' || echo)"',
   // "is this machine about to fall over" needs disk and memory, not just CPU
   'echo "disk=$(df -P / 2>/dev/null | awk \'NR==2 {print $5}\' || echo -)"',
   'echo "mem=$(awk \'/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {if (t > 0) printf "%d%%", (t-a)*100/t; else print "-"}\' /proc/meminfo 2>/dev/null || echo -)"',

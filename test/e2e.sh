@@ -481,6 +481,8 @@ check "node test reports a broken node" 1 'ssh'                  bash -c "cd $E2
 check "doctor --nodes tours the park" 0 'reachable'             bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK doctor --nodes --node far"
 check "doctor --nodes marks a dead host" 1 'down'                bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK doctor --nodes --node dead"
 check "doctor --nodes --json carries the probe" 0 '"probe"'      bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK doctor --nodes --node far --json"
+check "doctor --nodes says what the config expects" 0 'CONFIG'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK doctor --nodes --node far"
+check "doctor --nodes --json carries the drift" 0 '"drift"'    bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK doctor --nodes --node far --json"
 # mv gets its own file: it rewrites the config, and the checks above read this one
 MVCFG="$E2E/mv.yml"
 cat > "$MVCFG" <<'YAML'
