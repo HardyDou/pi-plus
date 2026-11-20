@@ -354,6 +354,7 @@ export const COMMANDS = [
     ].join("\n"),
     options: [
       "--left <n|N%>    Width of the sessions column (default: 34% of the terminal)",
+      "--diag           Print tty/tmux sizes and whether the frame fits (use when it scrolls)",
       "--once           Print one frame and exit (works without a tty; good for CI)",
       "--socket <name>  Which tmux server to look at",
     ],

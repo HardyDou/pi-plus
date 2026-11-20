@@ -848,6 +848,40 @@ function tuiTodoRows(todos, now) {
   }));
 }
 
+/**
+ * The pane's real size, straight from tmux.
+ *
+ * Over ssh (and after a client resize) `process.stdout.rows` can lag behind the
+ * pane, and a frame one row too tall scrolls the terminal — which looks exactly
+ * like the panel appending a fresh frame every second. tmux is the authority.
+ */
+function tmuxPaneSize(tmux) {
+  if (!process.env.TMUX) return null;
+  const target = process.env.TMUX_PANE ? ["-t", process.env.TMUX_PANE] : [];
+  const res = tmux.run(
+    ["display-message", "-p", ...target, "#{pane_width} #{pane_height} #{client_width} #{client_height}"],
+    { allowFailure: true, readOnly: true },
+  );
+  if (res.status !== 0) return null;
+  const [cols, rows, clientCols, clientRows] = String(res.stdout ?? "")
+    .trim()
+    .split(/\s+/)
+    .map((value) => Number(value) || 0);
+  if (!cols || !rows) return null;
+  // a tmux window can be larger than the client looking at it (window-size
+  // largest/manual): then everything below the client's height is off-screen
+  // and tmux lets you scroll to it, which is exactly the "it still scrolls"
+  // report. Paint only what one client can actually see.
+  return {
+    cols,
+    rows,
+    clientCols: clientCols || 0,
+    clientRows: clientRows || 0,
+    visibleCols: Math.min(cols, clientCols || cols),
+    visibleRows: Math.min(rows, clientRows || rows),
+  };
+}
+
 async function cmdTui(config, options, ui) {
   const tmux = makeTmux(config, options);
   const once = Boolean(options.once);
@@ -891,7 +925,21 @@ async function cmdTui(config, options, ui) {
     return;
   }
 
-  const previewLines = () => Math.max(4, computeLayout(process.stdout.columns || 100, process.stdout.rows || 30).preview.h - 2);
+  let paneCache = { at: 0, size: null };
+  const paneSize = () => {
+    const now = Date.now();
+    if (now - paneCache.at > 1000) paneCache = { at: now, size: tmuxPaneSize(tmux) };
+    return paneCache.size;
+  };
+  const screenSize = () => {
+    const cols = process.stdout.columns || 100;
+    const rows = process.stdout.rows || 30;
+    const pane = paneSize();
+    if (!pane) return { cols, rows };
+    return { cols: Math.min(cols, pane.visibleCols), rows: Math.min(rows, pane.visibleRows) };
+  };
+
+  const previewLines = () => Math.max(4, computeLayout(screenSize().cols, screenSize().rows).preview.h - 2);
 
   let tui = null;
   tui = createTui({
@@ -901,7 +949,7 @@ async function cmdTui(config, options, ui) {
       input: process.stdin,
       output: process.stdout,
       isTTY: Boolean(process.stdin.isTTY),
-      size: () => ({ cols: process.stdout.columns || 100, rows: process.stdout.rows || 30 }),
+      size: screenSize,
       onResize: (callback) => process.stdout.on("resize", callback),
       async refresh({ index = 0 } = {}) {
         const live = readLive();
@@ -946,6 +994,62 @@ async function cmdTui(config, options, ui) {
     },
   });
   await tui.start();
+}
+
+async function cmdTuiDiag(config, options, ui) {
+  const tmux = makeTmux(config, options);
+  const inTmux = Boolean(process.env.TMUX);
+  const tty = { cols: process.stdout.columns || 0, rows: process.stdout.rows || 0 };
+  const pane = tmuxPaneSize(tmux);
+  const target = process.env.TMUX_PANE ? ["-t", process.env.TMUX_PANE] : [];
+  const probe = inTmux
+    ? tmux.run(["display-message", "-p", ...target, "#{alternate_on} #{history_size} #{window_width}x#{window_height}"], {
+        allowFailure: true,
+        readOnly: true,
+      })
+    : { status: 1, stdout: "" };
+  const [altOn = "?", history = "?", window = "?"] = String(probe.stdout ?? "").trim().split(/\s+/);
+  const screen = pane
+    ? { cols: Math.min(tty.cols || pane.visibleCols, pane.visibleCols), rows: Math.min(tty.rows || pane.visibleRows, pane.visibleRows) }
+    : { cols: tty.cols || 100, rows: tty.rows || 30 };
+  const layout = computeLayout(screen.cols, screen.rows, {
+    leftWidth: options.left === undefined ? 0 : parseLeftOption(options.left, screen.cols),
+  });
+
+  ui.out(`pp ${options.version ?? ""} — pp tui --diag`);
+  ui.out("");
+  ui.out(`  tty            ${tty.cols}x${tty.rows}   TERM=${process.env.TERM ?? "?"}`);
+  ui.out(
+    inTmux
+      ? `  inside tmux    yes (pane ${process.env.TMUX_PANE ?? "?"}, window ${window})`
+      : "  inside tmux    no (the tty size is all there is)",
+  );
+  if (pane) {
+    ui.out(`  pane size      ${pane.cols}x${pane.rows}   client sees ${pane.visibleCols}x${pane.visibleRows}`);
+  } else {
+    ui.out("  pane size      unavailable");
+  }
+  if (inTmux) {
+    ui.out(
+      `  alternate      on=${altOn}   history=${history} rows   ${
+        altOn === "1" ? "(the panel owns the screen)" : "(no alternate screen: old frames stay in scrollback)"
+      }`,
+    );
+  }
+  ui.out(`  frame          ${layout.height} rows x ${layout.width} cols, painted into ${screen.rows} rows`);
+  ui.out(
+    layout.height <= screen.rows
+      ? "  verdict        fits — the panel cannot scroll the terminal"
+      : `  verdict        OVERFLOW by ${layout.height - screen.rows} rows — this would scroll; report these numbers`,
+  );
+  if (pane && pane.rows > pane.visibleRows) {
+    ui.out("");
+    ui.out(
+      `  note           this tmux window is ${pane.rows} rows but the client only shows ${pane.visibleRows};`,
+    );
+    ui.out("                 tmux will let you scroll the rest. Fix the window, not the panel:");
+    ui.out("                 tmux set -g window-size latest   (or re-attach from the size you want)");
+  }
 }
 
 async function cmdAttach(config, options, ui) {
@@ -2223,7 +2327,7 @@ export async function runCommand(command, options) {
     }
     case "tui":
     case "panel":
-      return cmdTui(tryLoadConfig(options), options, ui);
+      return options.diag ? cmdTuiDiag(tryLoadConfig(options), options, ui) : cmdTui(tryLoadConfig(options), options, ui);
     case "restart": {
       const config = requireConfig(options, ui);
       return cmdRestart(config, options, ui);

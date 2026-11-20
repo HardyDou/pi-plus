@@ -393,6 +393,8 @@ check "tui renders the todo panel"     0 'todo \('              bash -c "cd $E2E
 check "tui renders the preview panel"  0 'preview'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
 check "tui lists a real session"       0 'e-always'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
 check "tui without a tty explains itself" 2 'needs a terminal'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui < /dev/null"
+check "tui --diag reports a fit"       0 'verdict *fits'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --diag"
+check "tui --diag names the frame"     0 'rows x .* cols'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --diag"
 check "tui help page"                  0 'attach'              bash -c "cd $E2E && $ROOT/bin/pp.js help tui"
 check "tui appears in the overview"    0 'tui \(panel\)'        bash -c "cd $E2E && $ROOT/bin/pp.js help"
 

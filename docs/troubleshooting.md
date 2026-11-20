@@ -1,3 +1,20 @@
+## `pp tui` 会滚屏 / 看起来每刷新一次就多一帧
+
+按时间排查（每条都能定位到底是谁在滚）：
+
+```bash
+pp tui --diag
+```
+
+它会打印四件事：
+
+1. `tty` 尺寸（`process.stdout` 报的）和 `pane size`（tmux 报的）——两者不一致说明 SSH 侧的窗口尺寸是旧的；
+2. `client sees` —— **tmux 窗口比客户端屏幕大**时，多出来的行在屏外，tmux 允许你滚过去看，这跟面板无关；`--diag` 会直接给修复命令（通常 `tmux set -g window-size latest`）；
+3. `alternate on=0` —— 说明这个 pane 没进 alternate screen（`tmux set -w alternate-screen off`，或终端不支持 `1049`），旧帧就会留在 scrollback 里；
+4. `verdict` —— 这一帧要不要超出屏幕；`fits` 就说明面板自己不会滚。
+
+面板本身的保证（0.9.1 起）：每行用绝对光标定位重画、面板运行时关掉自动折行、行宽按终端裁剪、绝不在最后一行之下落笔、绘制行数取 `min(tty, pane, client)`。
+
 # 排障手册
 
 按「你看到的原文」查。每条都附上验证命令。

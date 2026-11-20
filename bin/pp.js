@@ -48,6 +48,7 @@ function parseArgs(argv) {
         case "--force": options.force = true; break;
         case "--once": options.once = true; break;
         case "--left": options.left = takeValue(flag, inline); break;
+        case "--diag": options.diag = true; break;
         case "--all": options.all = true; break;
         case "--reconcile": options.reconcile = true; break;
         case "--quiet": options.quiet = true; break;

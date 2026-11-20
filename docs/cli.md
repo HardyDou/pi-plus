@@ -257,6 +257,7 @@ pp tui --socket work
 | 选项 | 说明 |
 |---|---|
 | `--left <n\|N%>` | 左列宽度，默认终端的 34%（最小 18 列，右侧至少留 26 列）；运行时 `[` `]` 也能改 |
+| `--diag` | 打印 tty / tmux 尺寸、是否在 alternate screen、这一帧能不能装下（怀疑"滚动/追加"时先跑它） |
 | `--once` | 打印一帧就退出（管道里可用；`stdout` 不是 tty 时也只有这条路） |
 | `--socket <name>` | 看哪个 tmux server |
 
