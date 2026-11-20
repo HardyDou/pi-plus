@@ -64,6 +64,7 @@ function parseArgs(argv) {
         case "--command": options.command = takeValue(flag, inline); break;
         case "--catch-up": options.catchUp = takeValue(flag, inline); break;
         case "--start": options.start = true; break;
+        case "--all": options.all = true; break;
         case "--via": options.via = takeValue(flag, inline); break;
         case "--now": options.now = takeValue(flag, inline); break;
         case "--log": options.log = takeValue(flag, inline); break;

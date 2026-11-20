@@ -2031,6 +2031,53 @@ function refreshCronLog(options, ui) {
 }
 
 /** Deliver one job: type the prompt into its pane, or run its command. */
+/** `--all` marks a job as "every session that is running right now". */
+const ALL_SESSIONS = "*";
+
+/**
+ * Fan a prompt out to every running session. Busy agents are skipped — pi parks
+ * typed input in its editor and never submits it, so a busy pane would only
+ * collect another copy (see `deliverJob`).
+ */
+function deliverToEverySession(tmux, job) {
+  let live;
+  try {
+    live = tmux.listSessions();
+  } catch {
+    live = new Map();
+  }
+  const names = [...live.keys()].sort();
+  if (names.length === 0) return { status: "skipped: no tmux session is running" };
+  const sent = [];
+  const busy = [];
+  const failed = [];
+  for (const name of names) {
+    if (tmux.isAgentBusy(name)) {
+      busy.push(name);
+      continue;
+    }
+    let result;
+    try {
+      result = tmux.sendText(name, job.prompt);
+    } catch {
+      failed.push(name);
+      continue;
+    }
+    if (result.submitted) sent.push(name);
+    else failed.push(name);
+  }
+  if (sent.length === 0 && failed.length === 0) {
+    return { status: `deferred: all ${busy.length} sessions are working — the next tick will deliver` };
+  }
+  if (sent.length === 0) {
+    return { status: `failed: none of ${names.length} sessions took the prompt (${failed.join(", ")})` };
+  }
+  const detail = [`${sent.length}/${names.length}`];
+  if (busy.length) detail.push(`${busy.length} busy`);
+  if (failed.length) detail.push(`${failed.length} failed (${failed.join(", ")})`);
+  return { status: "delivered", text: `to ${detail.join(", ")}` };
+}
+
 function deliverJob(job, options) {
   if (job.action === "command") {
     const result = spawnSync("sh", ["-c", job.command], { encoding: "utf8" });
@@ -2040,6 +2087,7 @@ function deliverJob(job, options) {
   }
 
   const tmux = new Tmux({ socket: job.socket ?? null });
+  if (job.session === ALL_SESSIONS) return deliverToEverySession(tmux, job);
   if (!tmux.sessionExists(job.session)) {
     if (!job.startSession) {
       return { status: `skipped: session "${job.session}" is not running` };
@@ -2090,7 +2138,7 @@ function cronRow(job, now = new Date()) {
   const due = nextRun(job, now);
   return {
     id: job.id,
-    session: job.action === "command" ? `$ ${job.command}` : job.session,
+    session: job.action === "command" ? `$ ${job.command}` : job.session === ALL_SESSIONS ? "all sessions" : job.session,
     schedule: describeSchedule(job.schedule),
     next: due ? localStamp(due) : "-",
     runs: job.runs ?? 0,
@@ -2105,7 +2153,8 @@ function printCronJobs(jobs, ui, now = new Date()) {
   }
   const records = jobs.map((job) => cronRow(job, now));
   const headers = ["ID", "TARGET", "SCHEDULE", "NEXT", "RUNS", "LAST"];
-  const table = records.map((row) => [row.id, row.session, row.schedule, row.next, String(row.runs), row.last]);
+  const target = (session) => (session === ALL_SESSIONS ? "all sessions" : session);
+  const table = records.map((row) => [row.id, target(row.session), row.schedule, row.next, String(row.runs), row.last]);
   const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
   const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
   ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
@@ -2128,7 +2177,11 @@ async function cmdCronAdd(config, options, ui) {
   let session = null;
   let socket = options.socket ?? config?.tmuxSocket ?? null;
   let configPath = config?.path ?? null;
-  if (!command) {
+  if (options.all) {
+    if (options.session) throw new CronError("give either --session <name|#> or --all, not both");
+    if (command) throw new CronError("--all takes a prompt — a command runs once, not per session");
+    session = ALL_SESSIONS;
+  } else if (!command) {
     const wanted = options.session ?? null;
     if (wanted) {
       if (!config) {
@@ -2190,8 +2243,11 @@ async function cmdCronAdd(config, options, ui) {
   }
   ui.info(`${ui.paint("green", "scheduled")} ${job.id}  ${describeSchedule(schedule)}  →  ${job.action === "command" ? `$ ${command}` : `session ${session}`}`);
   ui.info(ui.paint("dim", `first run: ${due ? due.toLocaleString() : "never"}   cancel with: pp cron rm ${job.id}`));
-  if (!options.start && job.action === "prompt") {
+  if (!options.start && job.action === "prompt" && session !== ALL_SESSIONS) {
     ui.info(ui.paint("dim", `the session must be running at that moment (add --start to bring it up first)`));
+  }
+  if (session === ALL_SESSIONS) {
+    ui.info(ui.paint("dim", `every session running at that moment gets it; a busy agent is skipped and retried on the next tick`));
   }
   refreshCronLog(options, ui);
 }

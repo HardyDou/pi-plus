@@ -43,6 +43,7 @@ pp cron add --session backend --in 30m "check the build"          # 一次性，
 pp cron add --session backend --at 2026-11-21T09:00 "…"           # 一次性，绝对（本地时间）
 pp cron add --session docs    --every 2h "…"                      # 固定间隔（30s…1d）
 pp cron add --session docs    --cron "0 9 * * 1-5" "…"            # crontab 表达式
+pp cron add --all --every 10m "忽略我的心跳检测，请继续你的任务"      # 所有在跑的会话
 ```
 
 - **时区**：一律按**本机本地时间**解释，`cron.json` 里存的是 UTC（`once` 存 ISO 串，
@@ -55,7 +56,8 @@ pp cron add --session docs    --cron "0 9 * * 1-5" "…"            # crontab �
   没有 `--command` 时 `--session` 必填（不在 tmux 里也没给就报
   `which session? pass --session <name|#>`）。
 
-## 投递是怎么发生的
+`--all` 把同一句话投给**此刻在跑的每个会话**：忙（`⠋ Working`）的会话跳过——
+pi 在忙的时候只会把输入寄放在编辑框里、不会自己发出去，所以下一次 tick 再补投。
 
 `pp cron tick` 被调用时：
 

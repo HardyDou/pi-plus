@@ -356,7 +356,10 @@ export function tick({ now = new Date(), env = process.env, deliver, dryRun = fa
         job.lastRun = now.toISOString();
         job.runs = (job.runs ?? 0) + 1;
         ran.push({ id: job.id, session: job.session, lateBy });
-        logLine(`delivered ${job.id} → ${job.session}${lateBy > 60000 ? ` (late by ${formatDuration(Math.round(lateBy / 1000))})` : ""}`, env);
+        logLine(
+          `delivered ${job.id} → ${job.session}${result.text ? ` ${result.text}` : ""}${lateBy > 60000 ? ` (late by ${formatDuration(Math.round(lateBy / 1000))})` : ""}`,
+          env,
+        );
       } else if (result.status.startsWith("deferred:")) {
         // Not a failure and not a run: leave lastRun alone so the same schedule
         // comes due again on the next tick, once the pane is free.

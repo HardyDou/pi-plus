@@ -36,6 +36,7 @@ pp <command> [names...] [options]
 | `--every <时长>` | `cron add` 固定间隔重复 |
 | `--cron "<表达式>"` | `cron add` crontab 表达式（`"0 9 * * 1-5"`） |
 | `--session <name>` | `cron add` 目标会话（默认：当前 tmux 会话） |
+| `--all` | `cron add` 投给所有**在跑**的会话（忙的跳过，下一次 tick 补投） |
 | `--command <cmd>` | `cron add` 跑 shell 命令而不是往会话里打字 |
 | `--catch-up <时长>` | `cron add` 迟到多久之内还要补跑，默认 `2h`，`0` = 不补 |
 | `--start` | `cron add` 到点时会话没跑就先 `up` 再投 |
