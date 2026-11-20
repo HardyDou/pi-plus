@@ -63,11 +63,15 @@ pp cron add --session docs    --cron "0 9 * * 1-5" "…"            # crontab �
 2. 读 `cron.json`，对每个作业算 `nextRun`（`once` 看 `at`，`every` 看
    `lastRun + every`，`cron` 走 `nextCronRun`）；
 3. 到期且迟到时间在 `catchUp` 之内 → 投递：
-   - `action=prompt`：先确认会话存在（`startSession` 为真则先 `pp up`），再
-     `tmux send-keys -l -- <prompt>` + `Enter`。**这等于替用户敲了一句话**，目标会话里的
-     agent 会当成新的用户消息处理。
+   - `action=prompt`：先确认会话存在（`startSession` 为真则先 `pp up`）。如果面板上还挂着
+     `⠋ Working` 转圈行（agent 正在跑一轮），**不打字**，记
+     `lastStatus = "deferred: <session> is working — the next tick will deliver"`，下一分钟再来；
+     否则 `tmux send-keys -l -- <prompt>` + `Enter`。**这等于替用户敲了一句话**，目标会话里的
+     agent 会当成新的用户消息处理。发送成功与否看"输入框是否被清空"——pi 在一轮没跑完时会把
+     输入变成待发送草稿，盲按 Enter 什么也证明不了。
    - `action=command`：`sh -c <command>`，收 rc。
-4. 成功 → `runs++`、`lastRun=now`、`lastStatus=delivered`；`once` 作业从文件里剪掉；
+4. 成功 → `runs++`、`lastRun=now`、`lastStatus=delivered`；`deferred` 不算失败也不算运行
+   （`runs`/`lastRun` 都不动，所以同一调度会自然再到期）；`once` 作业从文件里剪掉；
 5. 迟到超过 `catchUp` → 不投递，记 `lastStatus = "skipped: missed by 2h 30m (catch-up 2h)"`，
    `once` 作业直接丢弃（它已经没有意义了）。
 

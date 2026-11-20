@@ -198,6 +198,33 @@ test("tick skips jobs that are too late instead of firing them silently", () => 
   assert.equal(readJobs(env).length, 0, "a stale one-shot is dropped");
 });
 
+test("tick defers a job whose pane is busy instead of piling another copy in", () => {
+  const { env } = stateHome();
+  const now = new Date("2026-11-20T18:00:00Z");
+  writeJobs(
+    [
+      {
+        id: "busy1",
+        action: "prompt",
+        prompt: "巡检",
+        session: "s1",
+        schedule: { kind: "every", every: 600 },
+        createdAt: "2026-11-20T17:00:00.000Z",
+        lastRun: "2026-11-20T17:50:00.000Z",
+        runs: 3,
+      },
+    ],
+    env,
+  );
+  const result = tick({ now, env, deliver: () => ({ status: "deferred: s1 is working — the next tick will deliver" }) });
+  assert.equal(result.ran.length, 0, "a deferral is not a run");
+  assert.match(result.skipped[0].reason, /deferred/);
+  const job = readJobs(env)[0];
+  assert.equal(job.runs, 3, "the run counter does not move");
+  assert.equal(job.lastRun, "2026-11-20T17:50:00.000Z", "lastRun stays put so the job comes due again");
+  assert.match(job.lastStatus, /deferred/);
+});
+
 test("tick refuses to run twice at the same time", () => {
   const { env, dir } = stateHome();
   mkdirSync(join(dir, "pi-plus"), { recursive: true });

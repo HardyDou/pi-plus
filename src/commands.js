@@ -1987,6 +1987,12 @@ function deliverJob(job, options) {
       return { status: `skipped: session "${job.session}" is not running (pp up failed)` };
     }
   }
+  // pi holds input in the editor while a turn is running and does not submit it,
+  // so typing now would only pile another copy into the box. Let the next tick
+  // deliver it instead; the prompt is not lost, the schedule simply waits.
+  if (tmux.isAgentBusy(job.session)) {
+    return { status: `deferred: ${job.session} is working — the next tick will deliver` };
+  }
   let result;
   try {
     result = tmux.sendText(job.session, job.prompt);
@@ -2002,7 +2008,8 @@ function deliverJob(job, options) {
       .slice(-2)
       .join(" / ")
       .slice(0, 160);
-    return { status: `failed: typed into ${job.session} but Enter never took${tail ? ` — pane showed: ${tail}` : ""}` };
+    const why = result.reused ? "the prompt is in the box but Enter never took it" : "typed into the box but Enter never took it";
+    return { status: `failed: ${job.session} — ${why}${tail ? ` — pane showed: ${tail}` : ""}` };
   }
   return { status: "delivered" };
 }

@@ -41,6 +41,54 @@ export function screenSignature(text) {
     .join("\n");
 }
 
+const ANSI = /\u001b\[[0-9;?]*[A-Za-z]/g;
+
+/** The rule lines a pi TUI draws above and below its input box. */
+function isRule(line) {
+  return /^─{10,}$/.test(line.trim());
+}
+
+/**
+ * Whatever is sitting in the input box: the lines between the last two rules of
+ * a pi screen. Empty means the box is empty, i.e. nothing is waiting to be sent.
+ */
+export function editorDraft(text) {
+  const lines = String(text)
+    .replace(ANSI, "")
+    .split("\n")
+    .map((line) => line.replace(/\s+$/, ""));
+  const rules = [];
+  lines.forEach((line, index) => {
+    if (isRule(line)) rules.push(index);
+  });
+  if (rules.length < 2) return "";
+  const box = lines.slice(rules[rules.length - 2] + 1, rules[rules.length - 1]);
+  return box.join("\n").trim();
+}
+
+/**
+ * Is the agent in this pane still working on a turn? pi draws a braille spinner
+ * into a rule line while it is; input typed meanwhile piles up in the editor
+ * instead of being submitted, so callers should wait rather than type.
+ *
+ * Only rule lines count: braille inside the draft itself is just text, and a
+ * false positive here would postpone deliveries forever.
+ */
+export function looksBusy(text) {
+  return String(text)
+    .replace(ANSI, "")
+    .split("\n")
+    .some((line) => /^─{2,}\s*[\u2800-\u28ff]/u.test(line));
+}
+
+/** Do these two texts describe the same draft? Wrapping makes exact matches rare. */
+export function sameDraft(draft, text, chars = 24) {
+  const squeeze = (value) => String(value).replace(/\s+/g, "");
+  const wanted = squeeze(text).slice(0, chars);
+  if (!wanted) return false;
+  return squeeze(draft).includes(wanted);
+}
+
 /** Resolve a bare command name against PATH (absolute paths are kept as-is). */
 export function resolveExecutable(command, env = process.env) {
   if (!command || command.includes("/") || command.includes("\\")) return command;
@@ -201,27 +249,48 @@ export class Tmux {
    * box unsent. Hence the pause before Enter, and the retry when the screen did
    * not move at all - an accepted Enter always changes what is on the screen.
    */
-  sendText(name, text, { enter = true, settleMs = 200, retries = 3 } = {}) {
-    this.run(["send-keys", "-t", paneTarget(name), "-l", "--", text]);
-    if (!enter) return { submitted: false, retries: 0 };
-    sleep(settleMs);
-    const before = this.screenSignature(name);
-    this.run(["send-keys", "-t", paneTarget(name), "Enter"]);
-    sleep(settleMs);
-    let attempts = 0;
-    // Each retry waits longer: a busy agent may take a moment to notice the key.
-    while (attempts < retries && this.screenSignature(name) === before) {
-      sleep(settleMs * 2 ** attempts);
-      attempts += 1;
-      this.run(["send-keys", "-t", paneTarget(name), "Enter"]);
+  sendText(name, text, { enter = true, settleMs = 250, retries = 3 } = {}) {
+    // A prompt left in the box by an earlier attempt is not typed twice: it is
+    // already in the editor, it only needs the Enter that never landed.
+    const waiting = this.editorDraft(name);
+    const reused = waiting !== "" && sameDraft(waiting, text);
+    if (!reused) {
+      this.run(["send-keys", "-t", paneTarget(name), "-l", "--", text]);
       sleep(settleMs);
     }
-    const after = this.screenSignature(name);
+    if (!enter) return { submitted: false, retries: 0, typed: !reused, reused };
+
+    // An accepted Enter empties the box. "The screen moved" is not a good signal:
+    // a working agent redraws its spinner constantly, so it says nothing.
+    let attempts = 0;
+    for (;;) {
+      this.run(["send-keys", "-t", paneTarget(name), "Enter"]);
+      sleep(settleMs);
+      const left = this.editorDraft(name);
+      if (left === "" || !sameDraft(left, text)) {
+        return { submitted: true, retries: attempts, typed: !reused, reused };
+      }
+      if (attempts >= retries) break;
+      sleep(settleMs * 2 ** attempts);
+      attempts += 1;
+    }
     return {
-      submitted: after !== before,
+      submitted: false,
       retries: attempts,
-      screen: after === before ? after : "",
+      typed: !reused,
+      reused,
+      screen: this.screenSignature(name),
     };
+  }
+
+  /** What is waiting in this pane's input box, unsent. */
+  editorDraft(name) {
+    return editorDraft(this.capture(name, 40));
+  }
+
+  /** Is the agent in this pane mid-turn (so typing would only pile up)? */
+  isAgentBusy(name) {
+    return looksBusy(this.capture(name, 30));
   }
 
   /** What the last few visible lines look like, with colours and padding gone. */
