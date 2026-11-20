@@ -498,6 +498,15 @@ check "node test reports a broken node" 1 'ssh'                  bash -c "cd $E2
 check "doctor --nodes tours the park" 0 'reachable'             bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK doctor --nodes --node far"
 check "doctor --nodes marks a dead host" 1 'down'                bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK doctor --nodes --node dead"
 check "doctor --nodes --json carries the probe" 0 '"probe"'      bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK doctor --nodes --node far --json"
+# `check --remote` asks the machine about paths only it can see
+check "check skips remote paths by default" 0 'not checked here'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG check"
+REMOTEGOOD="$E2E/remotegood.yml"
+printf 'version: 1\nnodes:\n  - name: far\n    host: 127.0.0.1\n    user: nobody\nsessions:\n  - name: good-path\n    node: far\n    cwd: /tmp\n    agent: sh\n    restart: "no"\n' > "$REMOTEGOOD"
+check "check --remote accepts a good path" 0 'ok config'           bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $REMOTEGOOD check --remote"
+REMOTEBAD="$E2E/remotebad.yml"
+printf 'version: 1\nnodes:\n  - name: far\n    host: 127.0.0.1\n    user: nobody\nsessions:\n  - name: bad-path\n    node: far\n    cwd: /nope/never\n    agent: definitely-not-installed\n    restart: "no"\n' > "$REMOTEBAD"
+check "check --remote catches a bad path" 1 'does not exist on far' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $REMOTEBAD check --remote"
+check "check --remote catches a missing agent" 1 'not found on far' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $REMOTEBAD check --remote"
 check "doctor --nodes says what the config expects" 0 'CONFIG'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK doctor --nodes --node far"
 check "doctor --nodes --json carries the drift" 0 '"drift"'    bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK doctor --nodes --node far --json"
 # mv gets its own file: it rewrites the config, and the checks above read this one

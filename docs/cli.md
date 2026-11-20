@@ -150,6 +150,22 @@ rewritten, so the diff stays small.
 `3/4` = 你为这台机器列了 4 个会话、3 个在跑；`+1` = 它上面还有一个没写进配置的会话。
 两个符号分别对应 `pp up` 和 `pp adopt`。
 
+### `pp check --remote`：让远端自己回答"这个路径存在吗"
+
+默认 `pp check` 跳过跑在别的机器上的会话（路径只在那台机器上存在）。`--remote` 会对每台
+节点握手一次，问两件事：
+
+- 会话的 `cwd` 在那台机器上存在吗？
+- `agent` 的第一个词在那台机器的 `PATH` 里吗？
+
+```bash
+$ pp check --remote
+error: "bad": cwd does not exist on t114: /nope/does-not-exist
+error: "bad": agent "definitely-not-installed" not found on t114
+```
+
+节点连不上时会单独报 `node "x" unreachable — …`，并让退出码变成 1，适合放进 CI/发版前检查。
+
 ### `pp status` 的 `CRON` 列
 
 "有几个定时任务正对着这个会话"，`*` 表示有任务会往**每个**在跑的会话投递（例如

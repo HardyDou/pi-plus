@@ -2904,6 +2904,60 @@ function cmdCheck(config, options, ui) {
     }
   }
 
+  // A remote session's cwd lives on the node. Checking it here would only
+  // produce false alarms, but never checking it means a typo in a path is
+  // discovered at 3am. `--remote` asks the machines, once per node.
+  const remoteSessions = config.sessions.filter((session) => session.node);
+  if (remoteSessions.length) {
+    if (!options.remote) {
+      notes.push(
+        `${remoteSessions.length} remote session(s) not checked here — pp check --remote asks the machines`,
+      );
+    } else {
+      const byNode = new Map();
+      for (const session of remoteSessions) {
+        const list = byNode.get(session.node) ?? [];
+        list.push(session);
+        byNode.set(session.node, list);
+      }
+      for (const [nodeName, list] of byNode) {
+        const node = config.nodes?.find((entry) => entry.name === nodeName);
+        if (!node) {
+          problems.push(`node "${nodeName}" is not defined under "nodes"`);
+          continue;
+        }
+        const script = list
+          .map((session) => {
+            const dir = shellQuote(session.cwd);
+            const agent = shellQuote(session.agent[0]);
+            return (
+              `if [ -d ${dir} ]; then echo "ok ${session.name}"; ` +
+              `else echo "nocwd ${session.name} ${session.cwd}"; fi; ` +
+              `command -v ${agent} >/dev/null 2>&1 || echo "noagent ${session.name} ${session.agent[0]}"`
+            );
+          })
+          .join("; ");
+        const probe = runOnNode(node, [script], { timeout: 25000 });
+        if (probe.error) {
+          problems.push(`node "${nodeName}" unreachable — ${probe.error.message}`);
+          continue;
+        }
+        if (probe.status !== 0 && !String(probe.stdout ?? "").trim()) {
+          const why = String(probe.stderr ?? "").trim().split("\n")[0] || `exit ${probe.status}`;
+          problems.push(`node "${nodeName}" unreachable — ${why}`);
+          continue;
+        }
+        for (const line of String(probe.stdout ?? "").trim().split("\n")) {
+          const [kind, name, detail] = line.split(" ");
+          if (kind === "nocwd") problems.push(`"${name}": cwd does not exist on ${nodeName}: ${detail}`);
+          if (kind === "noagent") problems.push(`"${name}": agent "${detail}" not found on ${nodeName}`);
+        }
+        const stderr = String(probe.stderr ?? "").trim();
+        if (probe.status !== 0 && stderr) problems.push(`node "${nodeName}": ${stderr.split("\n")[0]}`);
+      }
+    }
+  }
+
   if (ui.json) {
     ui.out(JSON.stringify({ ok: problems.length === 0, problems, notes, config: config.path }, null, 2));
   } else {
