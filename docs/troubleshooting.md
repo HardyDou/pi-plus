@@ -293,7 +293,9 @@ socket 上，`tmux -L other list-sessions` 才看得到。
 | 画面像乱码 / 一直滚动 | 终端不是 UTF-8 或 `TERM` 太原始：`export TERM=xterm-256color`、`export LANG=C.UTF-8` |
 | 中文字符把边框挤歪 | 宽度按 `displayWidth` 算（CJK 记 2 列）；若某个 emoji 仍错位，多半是宽度表没覆盖到，把该字符和 `pp -V` 一起报上来 |
 | 预览是空的 | 该会话还没输出，或 pane 已 dead（`remain-on-exit` 下会保留最后一屏）；`pp logs <name>` 对照 |
-| `Enter` 后没反应 | 会话没在跑：底部会提示 `X is not running; start it with pp up X`，等你按任意键返回 |
+| `Enter` 后没反应，只有底部一行提示 | 0.11.4 起失败原因会留在 footer 约 5 秒：`X is not running` / `no attached tmux client to switch` / `could not switch to X: <tmux 原话>` |
+| 选中待办回车后「进去又推出」，之后按键全无反应 | 0.11.4 修的两个 bug：待办行没带会话名（`attach(undefined)`，只闪一行提示），以及把"交出终端给 tmux"误判成退出 —— 后者会 `pause()` stdin，面板还活着但键盘死了，只能 Ctrl+C。升级：`npm i -g pi-farm@0.11.4` |
+| 进入某个会话后不知道怎么写回面板 | `pp back`（会话内用 `/pp-back`）。面板在切换的瞬间还会在目标会话的状态行打一句 `panel is behind you — pp back …` |
 | `Enter` 后回到面板但内容没变 | 那就在同一个 client 上 `switch-client` 了（tmux 内）；按 `r` 重绘，或 `Ctrl-b d` 再回来 |
 | 列表里多出「not in config」的会话 | tmux 里手工起的；`pp up <name>` 想接管就先写进配置 |
 

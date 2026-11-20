@@ -160,6 +160,8 @@ function fakeIo({ sessions, todos, preview }) {
     input,
     output,
     text: () => stripAnsi(buffer),
+    // frames are painted row by row from 1;1, so the tail after the last such write is the newest frame
+    lastFrame: () => stripAnsi(buffer.slice(buffer.lastIndexOf("\u001b[1;1H"))),
     raw: () => buffer,
     io: {
       input,
@@ -216,6 +218,76 @@ test("createTui hands the terminal to tmux on Enter", async () => {
   input.emit("data", "q");
   await done;
   assert.deepEqual(calls, ["alpha"]);
+});
+
+test("Enter does not end the session — the panel still takes keys when tmux gives the terminal back", async () => {
+  const calls = [];
+  const { input, io, lastFrame } = fakeIo({
+    sessions: [{ label: "1 alpha", name: "alpha" }, { label: "2 beta", name: "beta" }],
+    todos: [],
+    preview: [],
+  });
+  io.attach = async (name) => {
+    // a real attach blocks for a while: tmux drives the terminal until it hands it back
+    await new Promise((resolve) => setTimeout(resolve, 140));
+    calls.push(name);
+  };
+  const tui = createTui({ io });
+  let finished = false;
+  const done = tui.start().then(() => {
+    finished = true;
+  });
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  input.emit("data", "\r");
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  assert.equal(finished, false, "handing the terminal to tmux must not be mistaken for a quit");
+  input.emit("data", "\u001b[B");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.match(lastFrame(), /preview: beta/, "keys are still handled after the attach returns");
+  input.emit("data", "q");
+  await done;
+  assert.deepEqual(calls, ["alpha"]);
+});
+
+test("a note from a failed attach stays in the footer across refreshes", async () => {
+  const { input, io, lastFrame } = fakeIo({
+    sessions: [{ label: "1 alpha", name: "alpha" }],
+    todos: [],
+    preview: [],
+  });
+  const tui = createTui({ io });
+  const done = tui.start();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  tui.noteFromAttach("alpha is not running — start it with: pp up alpha", 5000);
+  input.emit("data", "r");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.match(lastFrame(), /alpha is not running/);
+  input.emit("data", "r");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.match(lastFrame(), /alpha is not running/, "the reason survives the next tick instead of flashing away");
+  input.emit("data", "q");
+  await done;
+});
+
+test("Enter on a todo attaches to the todo's session, not to undefined", async () => {
+  const calls = [];
+  const { input, io } = fakeIo({
+    sessions: [{ label: "1 alpha", name: "alpha" }],
+    // the shape tuiTodoRows produces: the session lives in `name`
+    todos: [{ name: "beta", ref: "abc123", label: "1. beta — ship it (just now, manual)" }],
+    preview: [],
+  });
+  io.attach = async (name) => calls.push(name);
+  const tui = createTui({ io });
+  const done = tui.start();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  input.emit("data", "\t"); // focus the todo panel
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  input.emit("data", "\r");
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  input.emit("data", "q");
+  await done;
+  assert.deepEqual(calls, ["beta"]);
 });
 
 test("paintFrame addresses every row so a wide line can never scroll the pane", () => {

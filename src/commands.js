@@ -843,6 +843,7 @@ function tuiSessionRows(config, live) {
 function tuiTodoRows(todos, now) {
   return todos.map((todo, index) => ({
     name: todo.session,
+    session: todo.session,
     ref: todo.id,
     label: `${index + 1}. ${todo.session} — ${todo.title} (${agoString(todo.createdAt, now)}, ${todo.kind})`,
     dim: todo.state === "done" || todo.state === "seen",
@@ -942,6 +943,20 @@ async function cmdTui(config, options, ui) {
 
   const previewLines = () => Math.max(4, computeLayout(screenSize().cols, screenSize().rows).preview.h - 2);
 
+  // where the panel itself lives, so `pp back` can find it and so Enter cannot "attach" to itself
+  let panelSession = "";
+  if (process.env.TMUX) {
+    const probe = tmux.run(["display-message", "-p", "#{session_name}\t#{window_index}\t#{pane_id}"], {
+      allowFailure: true,
+      readOnly: true,
+    });
+    const [session, window, pane] = String(probe.stdout ?? "").trim().split("\t");
+    if (session) {
+      panelSession = session;
+      savePanel({ session, window, pane });
+    }
+  }
+
   let tui = null;
   tui = createTui({
     version: options.version ?? "",
@@ -973,35 +988,44 @@ async function cmdTui(config, options, ui) {
         }
       },
       async attach(name) {
+        if (!name) {
+          tui?.noteFromAttach("that row has no session — press r to refresh the lists");
+          return;
+        }
+        if (panelSession && name === panelSession) {
+          tui?.noteFromAttach(`${name} is this panel — Tab switches panels, q quits, d closes a todo`);
+          return;
+        }
         if (!tmux.sessionExists(name)) {
           // no ui.warn here: printing into a live alt screen tears the frame
-          tui?.noteFromAttach(`${name} is not running — start it with pp up ${name}`);
-          await new Promise((resolve) => setTimeout(resolve, 600));
+          tui?.noteFromAttach(`${name} is not running — start it with: pp up ${name}`);
           return;
         }
         if (process.env.TMUX) {
           const clients = tmux.listClients?.() ?? [];
           const client = clients.sort((a, b) => b.activity - a.activity)[0];
-          tmux.run(
-            client
-              ? ["switch-client", "-c", client.name, "-t", `=${name}`]
-              : ["switch-client", "-t", `=${name}`],
-            { allowFailure: true },
-          );
+          if (!client) {
+            tui?.noteFromAttach("no attached tmux client to switch — run `tmux attach` in a terminal, then press Enter");
+            return;
+          }
+          const res = tmux.run(["switch-client", "-c", client.name, "-t", `=${name}`], { allowFailure: true });
+          if ((res.status ?? 1) !== 0) {
+            // silence here looked like "it goes in and comes straight back out"
+            const why = String(res.stderr ?? "").trim().split("\n")[0] || `tmux exited ${res.status}`;
+            tui?.noteFromAttach(`could not switch to ${name}: ${why}`);
+            return;
+          }
+          // the client is gone from the panel now: tell it, on its own status line, how to come back
+          tmux.run(["display-message", "-c", client.name, `panel is behind you — \`pp back\` (or /pp-back) returns`], {
+            allowFailure: true,
+          });
           return;
         }
-        tmux.attach(name);
+        const status = tmux.attach(name);
+        if (status !== 0) tui?.noteFromAttach(`tmux attach ${name} exited ${status} — is ${name} still running?`);
       },
     },
   });
-  if (process.env.TMUX) {
-    const probe = tmux.run(["display-message", "-p", "#{session_name}\t#{window_index}\t#{pane_id}"], {
-      allowFailure: true,
-      readOnly: true,
-    });
-    const [session, window, pane] = String(probe.stdout ?? "").trim().split("\t");
-    if (session) savePanel({ session, window, pane });
-  }
   await tui.start();
 }
 

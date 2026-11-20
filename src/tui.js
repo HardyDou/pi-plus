@@ -323,9 +323,16 @@ export function moveSelection(index, length, delta) {
 export function createTui({ io, version = "", leftWidth = 0 }) {
   let state = { sessions: [], todos: [], preview: { title: "—", lines: [] }, focus: "sessions", footer: "", todoOffset: 0, sessionIndex: 0, todoIndex: 0, leftWidth: 0 };
   let running = false;
+  /**
+   * `running` means "the panel owns the screen"; `finished` means "the user wants out".
+   * They must stay separate: handing the terminal to tmux drops `running` too, and
+   * treating that as a quit used to pause stdin and leave a frozen panel behind.
+   */
+  let finished = false;
   let timer = null;
   /** an attach() problem is shown in the footer: printing mid-frame would tear the screen */
   let attachNote = "";
+  let attachNoteUntil = 0;
   state.leftWidth = leftWidth;
 
   function footerText(extra = "") {
@@ -353,8 +360,8 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
 
   async function refresh(extra = "") {
     const data = await io.refresh({ index: state.sessionIndex, focus: state.focus });
-    const note = [extra, attachNote].filter(Boolean).join(" · ");
-    attachNote = "";
+    const kept = Date.now() < attachNoteUntil ? attachNote : "";
+    const note = [extra, kept].filter(Boolean).join(" · ");
     state.sessions = data.sessions ?? [];
     state.todos = data.todos ?? [];
     state.preview = data.preview ?? { title: "—", lines: [] };
@@ -380,13 +387,19 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
   }
 
   /** attach() ran into a problem: say it in the footer instead of on the screen. */
-  function noteFromAttach(text) {
+  function noteFromAttach(text, ms = 5000) {
     attachNote = text;
+    attachNoteUntil = Date.now() + ms;
+  }
+
+  function quit() {
+    cleanup();
+    finished = true;
   }
 
   async function handle(key) {
     if (key === "quit" || key === "escape") {
-      cleanup();
+      quit();
       return;
     }
     if (key === "tab") {
@@ -432,12 +445,14 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
     }
     if (key === "enter") {
       const todo = state.todos[state.todoIndex];
-      const session = state.focus === "todos" && todo ? { name: todo.session } : state.sessions[state.sessionIndex];
+      // todo rows carry the session as `name` (from tuiTodoRows); read both so a row shape change cannot
+      // silently hand `undefined` to attach — that used to look like "it goes in and comes straight back out"
+      const session = state.focus === "todos" && todo ? { name: todo.session ?? todo.name } : state.sessions[state.sessionIndex];
       if (!session) return;
       cleanup();
       await io.attach(session.name);
       // tmux gave the terminal back: take it again and redraw
-      if (!running) {
+      if (!finished) {
         running = true;
         enterScreen();
         timer = setInterval(() => {
@@ -467,11 +482,11 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
       await refresh();
       return new Promise((resolve) => {
         io.input.on("end", () => {
-          cleanup();
+          quit();
           resolve();
         });
         const wait = setInterval(() => {
-          if (!running) {
+          if (finished) {
             clearInterval(wait);
             io.input.setRawMode?.(false);
             io.input.pause();
