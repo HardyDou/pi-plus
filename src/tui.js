@@ -167,21 +167,56 @@ export function parseLeftOption(text, cols = 100) {
   return clampLeftWidth(columns, cols);
 }
 
-export function computeLayout(cols, rows, { leftWidth: wanted = 0 } = {}) {
+/** Narrower than this and two columns stop paying for themselves: stack them. */
+export const STACK_WIDTH = 88;
+export const TODO_MIN_HEIGHT = 3;
+export const TODO_MAX_HEIGHT = 9;
+
+/**
+ * The todo list is usually one or two rows long, while the preview is the thing
+ * you actually read — so the todo box grows with its content (between
+ * TODO_MIN_HEIGHT and TODO_MAX_HEIGHT) and the preview takes everything else.
+ */
+export function todoBoxHeight(todoCount, body) {
+  const wanted = Math.max(TODO_MIN_HEIGHT, Math.min((Number(todoCount) || 0) + 2, TODO_MAX_HEIGHT));
+  return Math.max(3, Math.min(wanted, body - 3));
+}
+
+export function computeLayout(cols, rows, { leftWidth: wanted = 0, todoCount = 0 } = {}) {
   const width = Math.max(40, cols);
   const height = Math.max(10, rows);
   const footer = 1;
   const body = height - footer;
+  const mode = width < STACK_WIDTH ? "stacked" : "split";
+  // on a narrow terminal an empty todo box is pure overhead: give the rows to the preview
+  const todoHeight = mode === "stacked" && (Number(todoCount) || 0) === 0 ? 0 : todoBoxHeight(todoCount, body);
+
+  if (mode === "stacked") {
+    const previewMin = 3;
+    const sessionsHeight = Math.max(4, Math.min(body - todoHeight - previewMin, Math.max(5, Math.floor(body * 0.4))));
+    const rest = body - sessionsHeight - todoHeight;
+    return {
+      width,
+      height,
+      mode,
+      todoHeight,
+      sessions: { x: 0, y: 0, w: width, h: sessionsHeight },
+      todos: { x: 0, y: sessionsHeight, w: width, h: todoHeight },
+      preview: { x: 0, y: sessionsHeight + todoHeight, w: width, h: Math.max(previewMin, rest) },
+      footer: { x: 0, y: body, w: width, h: footer },
+    };
+  }
+
   const leftWidth = clampLeftWidth(wanted || Math.floor(width * DEFAULT_LEFT_RATIO), width);
   const rightWidth = width - leftWidth - 1;
-  const todoHeight = Math.max(4, Math.ceil(body * 0.45));
-  const previewHeight = body - todoHeight;
   return {
     width,
     height,
+    mode,
+    todoHeight,
     sessions: { x: 0, y: 0, w: leftWidth, h: body },
     todos: { x: leftWidth + 1, y: 0, w: rightWidth, h: todoHeight },
-    preview: { x: leftWidth + 1, y: todoHeight, w: rightWidth, h: previewHeight },
+    preview: { x: leftWidth + 1, y: todoHeight, w: rightWidth, h: body - todoHeight },
     footer: { x: 0, y: body, w: width, h: footer },
   };
 }
@@ -228,16 +263,28 @@ export function renderFrame(state, layout) {
   const rightBottom = boxLines(layout.preview, previewTitle, previewRows);
 
   const out = [];
-  for (let row = 0; row < layout.height; row += 1) {
-    if (row === layout.footer.y) {
-      out.push(padWidth(state.footer ?? "", layout.width));
-      continue;
+  if (layout.mode === "stacked") {
+    for (const [block, rect] of [
+      [left, layout.sessions],
+      [rightTop, layout.todos],
+      [rightBottom, layout.preview],
+    ]) {
+      if (!rect || rect.h <= 0) continue;
+      for (const line of block) out.push(padWidth(line, layout.width));
     }
-    const leftLine = left[row] ?? "";
-    const rightLine = row < layout.todos.h ? (rightTop[row] ?? "") : (rightBottom[row - layout.todos.h] ?? "");
-    out.push(padWidth(`${leftLine} ${rightLine}`, layout.width));
+  } else {
+    for (let row = 0; row < layout.height; row += 1) {
+      if (row === layout.footer.y) {
+        out.push(padWidth(state.footer ?? "", layout.width));
+        continue;
+      }
+      const leftLine = left[row] ?? "";
+      const rightLine = row < layout.todos.h ? (rightTop[row] ?? "") : (rightBottom[row - layout.todos.h] ?? "");
+      out.push(padWidth(`${leftLine} ${rightLine}`, layout.width));
+    }
   }
-  return out;
+  out[layout.footer.y] = padWidth(state.footer ?? "", layout.width);
+  return out.slice(0, layout.height);
 }
 
 /**
@@ -296,7 +343,7 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
 
   function draw() {
     const { cols, rows } = io.size();
-    const layout = computeLayout(cols, rows, { leftWidth: state.leftWidth });
+    const layout = computeLayout(cols, rows, { leftWidth: state.leftWidth, todoCount: state.todos.length });
     const model = indexItems();
     model.footer = footerText(state.note ?? "");
     // never paint more rows than the terminal actually has

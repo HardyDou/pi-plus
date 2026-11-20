@@ -1023,6 +1023,7 @@ async function cmdTuiDiag(config, options, ui) {
     : { cols: tty.cols || 100, rows: tty.rows || 30 };
   const layout = computeLayout(screen.cols, screen.rows, {
     leftWidth: options.left === undefined ? 0 : parseLeftOption(options.left, screen.cols),
+    todoCount: readTodos().length,
   });
 
   ui.out(`pp ${options.version ?? ""} — pp tui --diag`);
@@ -1045,6 +1046,9 @@ async function cmdTuiDiag(config, options, ui) {
       }`,
     );
   }
+  ui.out(
+    `  layout         ${layout.mode} — sessions ${layout.sessions.w}x${layout.sessions.h}, todo ${layout.todos.h} rows, preview ${layout.preview.h} rows`,
+  );
   ui.out(`  frame          ${layout.height} rows x ${layout.width} cols, painted into ${screen.rows} rows`);
   ui.out(
     layout.height <= screen.rows

@@ -3,6 +3,7 @@ import test from "node:test";
 import { EventEmitter } from "node:events";
 import {
   clampLeftWidth,
+  TODO_MAX_HEIGHT,
   computeLayout,
   createTui,
   parseLeftOption,
@@ -13,6 +14,7 @@ import {
   paintFrame,
   renderFrame,
   stripAnsi,
+  todoBoxHeight,
   truncateWidth,
 } from "../src/tui.js";
 
@@ -60,7 +62,7 @@ test("computeLayout splits the screen without overlaps", () => {
 });
 
 test("renderFrame fills the screen exactly and shows both panels", () => {
-  const layout = computeLayout(80, 20);
+  const layout = computeLayout(80, 20, { todoCount: 1 });
   const lines = renderFrame(
     {
       sessions: [
@@ -123,7 +125,7 @@ test("brackets resize the sessions column", async () => {
 });
 
 test("renderFrame scrolls the todo list with todoOffset", () => {
-  const layout = computeLayout(80, 24);
+  const layout = computeLayout(80, 24, { todoCount: 20 });
   const todos = Array.from({ length: 20 }, (_, index) => ({ label: `todo-${index}` }));
   const lines = renderFrame(
     { sessions: [], todos, preview: { title: "—", lines: [] }, focus: "todos", footer: "", todoOffset: 5 },
@@ -254,4 +256,42 @@ test("a CJK preview never produces a line wider than the screen", () => {
     assert.ok(displayWidth(line) <= layout.width, `line overflows: ${JSON.stringify(line)}`);
     assert.ok(!line.includes("\n"));
   }
+});
+
+test("the todo box grows with its content, the preview takes the rest", () => {
+  assert.equal(todoBoxHeight(0, 30), 3, "empty list: header + one row + border");
+  assert.equal(todoBoxHeight(1, 30), 3);
+  assert.equal(todoBoxHeight(3, 30), 5, "three items and two borders");
+  assert.equal(todoBoxHeight(50, 30), TODO_MAX_HEIGHT, "capped once it stops being useful");
+  const tall = computeLayout(120, 40, { todoCount: 0 });
+  const busy = computeLayout(120, 40, { todoCount: 6 });
+  assert.ok(busy.preview.h < tall.preview.h, "a longer list costs the preview rows");
+  assert.equal(tall.todos.h + tall.preview.h, tall.sessions.h, "the right column still adds up");
+});
+
+test("a narrow terminal stacks the panels instead of squeezing two columns", () => {
+  const layout = computeLayout(70, 26, { todoCount: 2 });
+  assert.equal(layout.mode, "stacked");
+  assert.equal(layout.sessions.w, layout.width, "panels are full width");
+  assert.equal(layout.todos.y, layout.sessions.h, "todo sits under sessions");
+  assert.equal(layout.preview.y, layout.sessions.h + layout.todos.h);
+  assert.equal(layout.sessions.h + layout.todos.h + layout.preview.h, layout.height - 1);
+
+  const lines = renderFrame(
+    { sessions: [], todos: [], preview: { title: "x", lines: [] }, footer: "f", focus: "sessions" },
+    layout,
+  );
+  assert.equal(lines.length, layout.height);
+  for (const line of lines) assert.equal(displayWidth(line), layout.width);
+});
+
+test("an empty todo list is hidden entirely on a narrow terminal", () => {
+  const layout = computeLayout(70, 26, { todoCount: 0 });
+  assert.equal(layout.todos.h, 0, "no rows wasted on an empty list");
+  assert.ok(layout.preview.h > computeLayout(70, 26, { todoCount: 3 }).preview.h);
+  const lines = renderFrame(
+    { sessions: [], todos: [], preview: { title: "x", lines: [] }, footer: "f", focus: "sessions" },
+    layout,
+  );
+  assert.ok(!lines.some((line) => line.includes(" todo (")), "no empty todo box");
 });

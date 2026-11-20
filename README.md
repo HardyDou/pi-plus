@@ -274,6 +274,10 @@ pp todo ls --all --json       # 连已完成的、机器可读
  ↑↓ move   Tab panel   Enter attach   d done   [ ] width   r refresh   q quit
 ```
 
+- 待办框的高度跟着内容走（空 3 行、每条 +1、最多 9 行），预览拿走剩下的行；
+- 终端窄于 88 列时自动竖排（会话 / 待办 / 预览），空待办框直接隐藏；
+- 从会话回到面板：`pp back` 或 `/pp-back`（`switch-client`，不 detach，不留残留画面）。
+
 按键：
 
 | 键 | 作用 |
