@@ -1,6 +1,6 @@
 {
   "name": "pi-farm",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "description": "Declarative tmux sessions for pi coding agents (CLI: pp). One YAML drives the tmux session, pi session id/name and remote-pi mesh name, and survives reboots.",
   "type": "module",
   "bin": {
