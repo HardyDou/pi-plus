@@ -325,7 +325,7 @@ export function tmuxSafeName(raw) {
 }
 
 /** Build an ad-hoc (config-less) session for `pp new`. */
-function adHocSession({ name, cwd, agent, log, remotePiName, remotePiMode }) {
+function adHocSession({ name, cwd, agent, log, remotePiName, remotePiMode, node = null }) {
   const argv = splitCommand(agent);
   const pi = basename(argv[0] ?? "") === "pi";
   return {
@@ -344,12 +344,23 @@ function adHocSession({ name, cwd, agent, log, remotePiName, remotePiMode }) {
     log,
     remainOnExit: false,
     restart: "always",
+    node,
   };
 }
 
 async function cmdNew(baseConfig, options, ui) {
+  // `--node` puts the session on another machine: the directory only has to
+  // exist *there*, so leave the check to the remote tmux.
+  let node = null;
+  if (options.node) {
+    node = (baseConfig?.nodes ?? []).find((entry) => entry.name === options.node);
+    if (!node) {
+      ui.error(`no node "${options.node}" — see pp node ls`);
+      process.exit(2);
+    }
+  }
   const cwd = resolve(expandPath(options.dir ?? process.cwd()));
-  if (!existsSync(cwd) || !statSync(cwd).isDirectory()) {
+  if (!node && (!existsSync(cwd) || !statSync(cwd).isDirectory())) {
     ui.error(`directory does not exist: ${cwd}`);
     process.exit(2);
   }
@@ -361,7 +372,7 @@ async function cmdNew(baseConfig, options, ui) {
     process.exit(2);
   }
 
-  const tmux = makeTmux(baseConfig ?? { tmuxSocket: null }, options);
+  const tmux = makeTmux(baseConfig ?? { tmuxSocket: null, nodes: [] }, options, { node: node?.name ?? null });
   const live = tmux.listSessions();
   if (live.has(name)) {
     if (explicitName && !options.force) {
@@ -387,6 +398,7 @@ async function cmdNew(baseConfig, options, ui) {
     remotePiName,
     // ad-hoc sessions never touch the project's remote-pi config file
     remotePiMode: "env",
+    node: node?.name ?? null,
   });
 
   // Where --save writes: the loaded config, else the file the user pointed at
@@ -396,6 +408,7 @@ async function cmdNew(baseConfig, options, ui) {
   const config = {
     path: savePath,
     tmuxSocket: baseConfig?.tmuxSocket ?? null,
+    nodes: baseConfig?.nodes ?? [],
     sessions: [session],
     warnings: [],
   };
@@ -423,6 +436,7 @@ export function saveNewSession(configPath, session, ui) {
   const entry = [
     `  - name: ${session.name}`,
     `    cwd: ${session.cwd}`,
+    session.node ? `    node: ${session.node}` : null,
     session.log ? `    log: ${session.log}` : null,
     session.remotePiName ? `    remote_pi_name: ${session.remotePiName}` : "    remote_pi_name: false",
     session.remotePiName ? "    remote_pi_mode: env" : null,
@@ -431,7 +445,11 @@ export function saveNewSession(configPath, session, ui) {
     .join("\n");
   let body;
   if (existsSync(configPath)) {
-    const text = readFileSync(configPath, "utf8");
+    let text = readFileSync(configPath, "utf8");
+    if (/^sessions:\s*\[\s*\]\s*$/m.test(text)) {
+      // an empty flow list is still an empty section, not a reason to give up
+      text = text.replace(/^sessions:\s*\[\s*\]\s*$/m, "sessions:");
+    }
     if (!/^sessions:\s*$/m.test(text)) {
       ui.error(`${configPath} has no "sessions:" section; add the session manually`);
       return;

@@ -29,6 +29,8 @@ export const COMMANDS = [
     options: [
       "-C, --dir <path>  directory to run in (default: current directory)",
       "--agent <cmd>     agent command (default: pi)",
+      "--node <name>     start it on another machine (see pp node); -C is then",
+      "                  a path *there*, and the local directory check is skipped",
       "--log             keep full output in ~/.pi/plus/logs/<name>.log",
       "--save            append the session to the config file",
       "-a, --attach      attach after starting",
@@ -40,6 +42,7 @@ export const COMMANDS = [
       "pp new",
       "pp new api -C ~/code/api --attach",
       "pp new scratch --agent bash --log --save",
+      "pp new api --node t114 -C /srv/api --save",
     ],
     see: ["up", "attach", "init"],
   },

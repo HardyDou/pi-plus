@@ -384,6 +384,7 @@ pp todo ls --all --json
 pp new                                   # 名字 = 目录名
 pp n api -C ~/code/api --attach          # 别名 n / create
 pp new scratch --agent bash --log --save # 顺便写进配置
+pp new api --node t114 -C /srv/api --save   # 开到别的机器上（-C 是那边的路径）
 ```
 
 ### `pp help [command]`

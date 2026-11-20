@@ -197,6 +197,24 @@ pp node exec --all --parallel -- 'df -h / | tail -1'
 在那行上按 Enter：本地面板把自己的终端交给 `ssh -t <node> tmux attach`，你在远端会话里 detach（或 `/pp-quit`）
 就回到面板 —— 不能像本机那样 `switch-client`，因为 client 在本地、会话在远端。
 
+### 在远端机器上新开会话
+
+```bash
+pp new api --node t114 -C /srv/api --agent pi --save
+```
+
+`-C` 这时是**那台机器上**的路径（本地不再校验目录是否存在，交给远端 tmux），
+`--save` 会写成：
+
+```yaml
+sessions:
+  - name: api
+    cwd: /srv/api
+    node: t114
+    remote_pi_name: api
+    remote_pi_mode: env
+```
+
 ### 只对一台机器批量操作
 
 ```bash

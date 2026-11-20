@@ -396,6 +396,9 @@ export function upsertNodeInFile(configPath, node) {
   const text = readFileSync(path, "utf8");
   const lines = text.split("\n");
   const block = renderNodeBlock(node).split("\n");
+  // `nodes: []` is an empty section, not a missing one: reuse the line.
+  const emptyAt = lines.findIndex((line) => /^nodes\s*:\s*\[\s*\]\s*$/.test(line));
+  if (emptyAt !== -1) lines[emptyAt] = "nodes:";
   const found = findBlocks(lines, "nodes");
 
   if (!found) {

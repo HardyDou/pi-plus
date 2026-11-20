@@ -273,3 +273,14 @@ test("a guarded machine says so, and survives an edit", () => {
   assert.equal(normalizeNode({ name: "b", host: "h" }, 0, "<t>").guarded, false);
   assert.doesNotMatch(renderNodeBlock(normalizeNode({ name: "b", host: "h" }, 0, "<t>")), /guarded/);
 });
+
+test("an empty nodes section is filled, not duplicated", () => {
+  const file = join(tmpdir(), `pp-empty-nodes-${process.pid}.yml`);
+  writeFileSync(file, "version: 1\nnodes: []\nsessions: []\n");
+  upsertNodeInFile(file, normalizeNode({ name: "n1", host: "h" }, 0, file));
+  const text = readFileSync(file, "utf8");
+  assert.equal(text.match(/^nodes:/gm).length, 1);
+  assert.match(text, /^ {2}- name: n1$/m);
+  assert.match(text, /^sessions: \[\]$/m, "the sessions line is untouched");
+  rmSync(file, { force: true });
+});

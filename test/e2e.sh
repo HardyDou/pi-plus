@@ -488,6 +488,12 @@ check "node exec --parallel still reports failures" 1 'exit 4'  bash -c "cd $E2E
 check "node help page"               0 'sshpass'                 bash -c "cd $E2E && $ROOT/bin/pp.js help node"
 check "node appears in the overview" 0 'node \(nodes\)'          bash -c "cd $E2E && $ROOT/bin/pp.js help"
 
+check "new --node starts a session on that machine" 0 'api-remote' bash -c "cd $E2E && cp $NODECFG $E2E/newfar.yml && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $E2E/newfar.yml --socket $SOCK new api-remote --node far -C /tmp --agent bash --save 2>&1 | grep api-remote"
+check "new --node writes the node into the config" 0 'node: far' bash -c "grep 'node: far' $E2E/newfar.yml"
+check "the new remote session is listed as running" 0 'running' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $E2E/newfar.yml --socket $SOCK ls api-remote"
+check "new --node rejects an unknown machine" 2 'no node' bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/newfar.yml --socket $SOCK new bad --node ghost -C /tmp"
+check "new --save fills an empty sessions list" 0 'name: e2e-empty' bash -c "cd $E2E && printf 'version: 1\nnodes:\n  - name: far\n    host: 127.0.0.1\n    user: nobody\nsessions: []\n' > $E2E/empty.yml && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $E2E/empty.yml --socket $SOCK new e2e-empty --agent bash --save >/dev/null && grep 'name: e2e-empty' $E2E/empty.yml"
+
 # guarded machines: stopping something must be deliberate
 GUARDCFG="$E2E/guard.yml"
 sed 's/    note: reaches us through the shim/    note: reaches us through the shim\n    guarded: true/' "$NODECFG" > "$GUARDCFG"
