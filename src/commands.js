@@ -1698,7 +1698,16 @@ function cmdStatus(config, options, ui) {
   }
 
   if (ui.json) {
-    ui.out(JSON.stringify(shown, null, 2));
+    // the same two counts the footer shows, so a script does not have to
+    // re-derive "is this machine still what the config says" from row states
+    const jsonDown = rows.filter((r) => r.state === "off" || r.state === "stopped" || r.state === "dead").length;
+    const jsonConfigured = new Set(config.sessions.map((session) => `${session.node ?? ""}:${session.tmuxName}`));
+    const jsonStrays = [];
+    for (const [key, map] of liveCache ?? []) {
+      const nodeName = key === "local" ? "" : key;
+      for (const name of map.keys()) if (!jsonConfigured.has(`${nodeName}:${name}`)) jsonStrays.push(name);
+    }
+    ui.out(JSON.stringify({ sessions: shown, drift: { down: jsonDown, unmanaged: jsonStrays.length, stray: jsonStrays } }, null, 2));
     return;
   }
 
@@ -2030,6 +2039,31 @@ async function cmdTui(config, options, ui) {
           preview = { title: current, lines: text ? text.split("\n") : ["(empty pane)"] };
         }
         return { sessions, todos, preview };
+      },
+      async driftUp() {
+        // count what the config expects and is not running, then start those
+        const { live } = readLive();
+        const missing = config.sessions.filter((session) => {
+          if (session.restart === "no") return false;
+          if (live.has(session.name)) return false;
+          if (isStopped(config.path, session.name)) return false;
+          return true;
+        });
+        if (!missing.length) return 0;
+        let started = 0;
+        for (const session of missing) {
+          const handle = makeTmux(config, options, session);
+          try {
+            if (handle.sessionExists(session.tmuxName)) continue;
+            prepareSession(session, options);
+            handle.create(session, launchSpec(session, handle));
+            started++;
+            note("up", session.name, { node: session.node ?? null, detail: "panel drift", result: "ok" });
+          } catch (error) {
+            tui?.noteFromAttach(`could not start ${session.name}: ${error.message}`);
+          }
+        }
+        return started;
       },
       async closeTodo(item) {
         const todos = readTodos();

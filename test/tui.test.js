@@ -322,6 +322,45 @@ test("a note from a failed attach stays in the footer across refreshes", async (
   await done;
 });
 
+test("D starts what is off and says so past the next tick", async () => {
+  const { input, io, lastFrame } = fakeIo({
+    sessions: [{ label: "1 alpha", name: "alpha" }],
+    todos: [],
+    preview: [],
+  });
+  let calls = 0;
+  io.driftUp = async () => {
+    calls++;
+    return 2;
+  };
+  const tui = createTui({ io });
+  const done = tui.start();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  input.emit("data", "D");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.equal(calls, 1, "D runs the same repair pp up --drift does");
+  assert.match(lastFrame(), /started 2/);
+  // a plain redraw must not wipe a result the user asked for
+  input.emit("data", "r");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.match(lastFrame(), /started 2/, "the result survives the next frame instead of flashing");
+  input.emit("data", "q");
+  await done;
+});
+
+test("D says nothing happened when the config already matches", async () => {
+  const { input, io, lastFrame } = fakeIo({ sessions: [], todos: [], preview: [] });
+  io.driftUp = async () => 0;
+  const tui = createTui({ io });
+  const done = tui.start();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  input.emit("data", "D");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  assert.match(lastFrame(), /nothing to start/);
+  input.emit("data", "q");
+  await done;
+});
+
 test("Enter on a todo attaches to the todo's session, not to undefined", async () => {
   const calls = [];
   const { input, io } = fakeIo({

@@ -138,6 +138,7 @@ export function parseKeys(input) {
       else if (char === "+" || char === "=") keys.push("more");
       else if (char === "f") keys.push("follow");
       else if (char === "s") keys.push("sort");
+      else if (char === "D") keys.push("drift");
       i += 1;
     }
   }
@@ -377,7 +378,7 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     const off = state.sessions.filter((row) => row.state === "off" || row.state === "dead" || row.state === "stopped").length;
     const unmanaged = state.sessions.filter((row) => row.unmanaged).length;
     const drift = [off ? `${off} off` : null, unmanaged ? `${unmanaged} unmanaged` : null].filter(Boolean).join(" · ");
-    const base = " ↑↓ move · PgUp/PgDn scroll · Tab panel · Enter attach · d done · [ ] width · -/+ rows · f follow · q quit ";
+    const base = " ↑↓ move · PgUp/PgDn · Tab · Enter attach · d done · D start what is off · [ ] width · -/+ rows · f follow · q quit ";
     const text = extra ? `${paused}${extra}  ${base}` : `${paused}${base}`;
     return `${drift ? `${YELLOW}${drift}${RESET}${DIM} · ` : ""}${DIM}${padWidth(text, io.size().cols)}${RESET}`;
   }
@@ -431,8 +432,15 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     io.output.write(paintFrame(lines));
   }
 
-  async function refresh(extra = "") {
+  async function refresh(extra = "", { sticky = false } = {}) {
     const data = await io.refresh({ index: state.sessionIndex, focus: state.focus });
+    // A result the user asked for ("started 2") must outlive the next 1s tick,
+    // otherwise it flashes for a quarter of a second. It goes in the same slot
+    // as an attach note — but a plain redraw must never overwrite that note.
+    if (sticky && extra) {
+      attachNote = extra;
+      attachNoteUntil = Date.now() + 5000;
+    }
     const kept = Date.now() < attachNoteUntil ? attachNote : "";
     const note = [extra, kept].filter(Boolean).join(" · ");
     state.sessions = data.sessions ?? [];
@@ -565,7 +573,14 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
       return;
     }
     if (key === "help") {
-      await refresh("↑↓/jk move · Tab switch panel · Enter attach · d close todo · r redraw · q quit");
+      await refresh("↑↓/jk move · Tab switch panel · Enter attach · d close todo · D start what is off · r redraw · q quit", { sticky: true });
+      return;
+    }
+    if (key === "drift") {
+      // "start what is off" without leaving the panel: the same thing pp up
+      // --drift does, and it says so in the footer instead of the screen
+      const started = await io.driftUp?.();
+      await refresh(started ? `started ${started}` : "nothing to start — config and machine agree", { sticky: true });
       return;
     }
     if (key === "done") {

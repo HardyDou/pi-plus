@@ -150,6 +150,18 @@ rewritten, so the diff stays small.
 `3/4` = 你为这台机器列了 4 个会话、3 个在跑；`+1` = 它上面还有一个没写进配置的会话。
 两个符号分别对应 `pp up` 和 `pp adopt`。
 
+### `pp status --json`
+
+```json
+{
+  "sessions": [ { "index": 1, "name": "web", "state": "running", "idle": "3m", "idleSeconds": 180, … } ],
+  "drift":    { "down": 2, "unmanaged": 1, "stray": ["adhoc-shell"] }
+}
+```
+
+`drift` 就是 footer 那两个数字的机器可读版本：`down` 用 `pp up --drift` 修，`unmanaged`/`stray` 用 `pp adopt` 修。
+（0.32.0 起是对象；之前的版本直接打数组。）
+
 ### `pp send --all "…"`
 
 一句话发到所有会话（`--node`/`--tag` 收窄范围）。正在跑的会话会被**跳过**而不是排队 —— 把第二句话塞进

@@ -339,6 +339,7 @@ pp todo ls --all --json       # 连已完成的、机器可读
 | `Tab` | 切换列表（会话 ↔ 待办） |
 | `Enter` | 进入（会话：在 tmux 里 `switch-client`，在 tmux 外 `tmux attach`）；从待办进则进它所属的会话 |
 | `d` | 把选中的待办标记完成 |
+| `D` | 补齐 drift：启动"该在却没起"的会话（等于 `pp up --drift`，不用离开面板） |
 | `[` / `]` | 左列变窄 / 变宽（每按一次 4 列） |
 | `r` | 立即重绘 |
 | `q` / `Esc` / `Ctrl-C` | 退出 |
