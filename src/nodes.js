@@ -29,7 +29,7 @@ export const NODE_KEYS = new Set([
 ]);
 
 /** Session settings a machine may set for every session that runs on it. */
-export const NODE_DEFAULT_KEYS = new Set(["agent", "restart", "remote_pi_mode"]);
+export const NODE_DEFAULT_KEYS = new Set(["agent", "restart", "remote_pi_mode", "env", "args"]);
 
 export const DEFAULT_PORT = 22;
 const RESTART_POLICIES = ["no", "always", "on-failure", "unless-stopped"];
@@ -162,6 +162,30 @@ export function normalizeNode(raw, index, configPath = "<config>", warnings = []
           throw new NodeError(`${where}: defaults.remote_pi_mode must be config, env or off`);
         }
         defaults.remote_pi_mode = mode;
+      } else if (key === "env") {
+        if (value == null) continue;
+        if (typeof value !== "object" || Array.isArray(value)) {
+          throw new NodeError(`${where}: defaults.env must be a mapping of variables`);
+        }
+        const env = {};
+        for (const [name, entry] of Object.entries(value)) {
+          if (entry != null && typeof entry === "object") {
+            throw new NodeError(`${where}: defaults.env.${name} must be a plain value`);
+          }
+          env[name] = entry == null ? "" : String(entry);
+        }
+        defaults.env = env;
+      } else if (key === "args") {
+        if (value == null) continue;
+        // a template supplies the flags everyone on that machine wants
+        // (--model, --theme); a session appends its own after them
+        if (Array.isArray(value)) {
+          defaults.args = value.map((entry) => String(entry));
+        } else if (typeof value === "string") {
+          defaults.args = value.trim().split(/\s+/).filter(Boolean);
+        } else {
+          throw new NodeError(`${where}: defaults.args must be a list or a string`);
+        }
       } else {
         defaults.agent = value;
       }
@@ -424,6 +448,15 @@ export function renderNodeBlock(node) {
   if (defaultKeys.length) {
     lines.push("    defaults:");
     for (const key of defaultKeys) {
+      if (key === "env") {
+        lines.push("      env:");
+        for (const [name, value] of Object.entries(defaults.env)) lines.push(`        ${name}: ${yamlScalar(value)}`);
+        continue;
+      }
+      if (key === "args") {
+        lines.push(`      args: [${defaults.args.map((entry) => yamlScalar(entry)).join(", ")}]`);
+        continue;
+      }
       const value = key === "agent" && Array.isArray(defaults.agent) ? defaults.agent.join(" ") : defaults[key];
       lines.push(`      ${key}: ${yamlScalar(value)}`);
     }

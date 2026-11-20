@@ -179,6 +179,11 @@ function normalizeSession(raw, defaults, index, configPath) {
     if (k === "env" && v && typeof v === "object" && !Array.isArray(v)) {
       // merge, so defaults env does not leak between sessions
       session.env = { ...(defaults.env ?? {}), ...asStringMap(v, `${where}.env`) };
+    } else if (k === "args" && v != null) {
+      // a machine default says "--model X"; a session may add "--verbose" on
+      // top of it instead of having to repeat the whole list
+      const inherited = Array.isArray(defaults.args) ? defaults.args : asTokens(defaults.args, `${where}.args (inherited)`);
+      session.args = [...inherited, ...asTokens(v, `${where}.args`)];
     } else {
       session[k] = v;
     }
@@ -330,7 +335,14 @@ export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
     const nodeName = typeof s?.node === "string" && s.node.trim() !== "" ? s.node.trim() : null;
     const node = nodeName ? nodesByName.get(nodeName) : null;
     if (!node) return normalizeSession(s, defaults, i, configPath);
-    const nodeDefaults = { ...defaults, ...(node.defaults ?? {}) };
+    // env merges (top level -> machine -> session), args stack (machine first)
+    const nodeDefaults = {
+      ...defaults,
+      ...(node.defaults ?? {}),
+      ...(defaults.env || node.defaults?.env
+        ? { env: { ...(defaults.env ?? {}), ...(node.defaults?.env ?? {}) } }
+        : {}),
+    };
     const merged = { ...s };
     if (node.basePath && typeof merged.cwd === "string" && merged.cwd !== "" && !isAbsolutePath(merged.cwd)) {
       // a relative cwd is relative to the machine's base path, not to whoever

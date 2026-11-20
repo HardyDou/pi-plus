@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import { decodeFields } from "../src/tmux.js";
+import { parseYaml } from "../src/yaml.js";
 
 import {
   authSummary,
@@ -300,10 +301,30 @@ test("a machine can carry its own base path and session defaults", () => {
   assert.match(text, /^ {6}restart: "no"$/m, "restart: no must be quoted or yaml reads a boolean");
 });
 
+test("a machine template carries env and args, and they stack", () => {
+  const node = normalizeNode(
+    { name: "t114", host: "h", defaults: { env: { HTTP_PROXY: "http://127.0.0.1:7890", N: 1 }, args: "--model deepseek" } },
+    0,
+    "<t>",
+  );
+  assert.deepEqual(node.defaults.env, { HTTP_PROXY: "http://127.0.0.1:7890", N: "1" });
+  assert.deepEqual(node.defaults.args, ["--model", "deepseek"], "a string is split like a command line");
+  const text = renderNodeBlock(node);
+  assert.match(text, /^ {6}env:$/m);
+  assert.match(text, /^ {8}HTTP_PROXY: http:\/\/127\.0\.0\.1:7890$/m);
+  assert.match(text, /^ {8}N: "1"$/m, "a number stays a string, or env would be handed a number");
+  assert.match(text, /^ {6}args: \["--model", deepseek\]$/m);
+  // what is rendered must parse back to the same thing
+  const back = normalizeNode(parseYaml(`nodes:\n${text}`).nodes[0], 0, "<t>");
+  assert.deepEqual(back.defaults, node.defaults);
+});
+
 test("base_path and defaults are validated", () => {
   assert.throws(() => normalizeNode({ name: "a", host: "h", base_path: "srv" }, 0, "<t>"), /base_path .* must be absolute/);
   assert.throws(() => normalizeNode({ name: "a", host: "h", defaults: ["x"] }, 0, "<t>"), /defaults must be a mapping/);
   assert.throws(() => normalizeNode({ name: "a", host: "h", defaults: { restart: "sometimes" } }, 0, "<t>"), /defaults\.restart/);
+  assert.throws(() => normalizeNode({ name: "a", host: "h", defaults: { env: ["A=1"] } }, 0, "<t>"), /defaults\.env must be a mapping/);
+  assert.throws(() => normalizeNode({ name: "a", host: "h", defaults: { args: 7 } }, 0, "<t>"), /defaults\.args must be a list/);
   const warnings = [];
   normalizeNode({ name: "a", host: "h", defaults: { cwd: "/x" } }, 0, "<t>", warnings);
   assert.equal(warnings.some((w) => w.includes("defaults.cwd")), true, "cwd is not a node-level default");

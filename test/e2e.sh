@@ -521,6 +521,33 @@ check "back forgets the dead panel"      0 ''                   bash -c "test ! 
 check "tui help page"                  0 'attach'              bash -c "cd $E2E && $ROOT/bin/pp.js help tui"
 check "tui appears in the overview"    0 'tui \(panel\)'        bash -c "cd $E2E && $ROOT/bin/pp.js help"
 
+section "node defaults: a session template"
+cat > "$E2E/tmpl.yml" <<'YAML'
+version: 1
+tmux:
+  socket: SOCKPLACE
+nodes:
+  - name: box
+    host: example
+    base_path: /srv
+    defaults:
+      env:
+        HTTP_PROXY: http://127.0.0.1:7890
+      args: ["--model", "deepseek"]
+sessions:
+  - name: api
+    node: box
+    cwd: api
+    env:
+      LOCAL: "1"
+    args: ["--verbose"]
+YAML
+sed -i "s/SOCKPLACE/$SOCK/" "$E2E/tmpl.yml"
+check "a machine template hands its env to the session" 0 'HTTP_PROXY=http://127.0.0.1:7890' bash -c "cd $E2E && $ROOT/bin/pp.js -c tmpl.yml --dry-run up api"
+check "the session's own env is added, not replaced" 0 'LOCAL=1' bash -c "cd $E2E && $ROOT/bin/pp.js -c tmpl.yml --dry-run up api"
+check "template args come before the session's own" 0 '\-\-model deepseek \-\-verbose' bash -c "cd $E2E && $ROOT/bin/pp.js -c tmpl.yml --dry-run up api"
+check "a machine template resolves the cwd under base_path" 0 '\-c /srv/api' bash -c "cd $E2E && $ROOT/bin/pp.js -c tmpl.yml --dry-run up api"
+
 section "nodes"
 # A stand-in for ssh that runs the "remote" command locally, so the whole
 # remote path (ssh argv building -> remote tmux) is exercised without a server.

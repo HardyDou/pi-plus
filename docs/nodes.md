@@ -143,6 +143,48 @@ pp node show prod-01          # 看它现在带的默认值
 pp new api --node prod-01 -C api --save   # 落到 /srv/apps/api
 ```
 
+### 把大家都要的参数写成模板
+
+`defaults` 里还能放 `env` 和 `args`——这两样最常被抄来抄去（代理变量、`--model`）：
+
+```yaml
+nodes:
+  - name: t114
+    host: 192.168.5.114
+    user: ops
+    base_path: /srv
+    defaults:
+      agent: pi
+      restart: unless-stopped
+      env:
+        HTTP_PROXY: http://127.0.0.1:7890
+      args: ["--model", "deepseek"]
+sessions:
+  - name: api
+    node: t114
+    cwd: apps/api
+    env:
+      LOG_LEVEL: debug
+    args: ["--verbose"]
+```
+
+这台机器上跑起来的 `api` 会话，实际是：
+
+```
+env HTTP_PROXY=http://127.0.0.1:7890 LOG_LEVEL=debug … pi --model deepseek --verbose
+```
+
+三条规则要记住：
+
+| 谁 | 怎么合并 |
+| --- | --- |
+| `env` | 三层叠加：顶层 `defaults.env` → 机器的 `defaults.env` → 会话自己的 `env`，同名的后者赢 |
+| `args` | **堆叠不覆盖**：机器模板的参数在前，会话自己的参数接在后面 |
+| `cwd` | 相对路径按机器的 `base_path` 解析（`api` → `/srv/api`），绝对路径原样 |
+
+`pp node show t114` 会把模板原样打出来，`pp node add t114 --base-path /srv` 只改路径、
+不会顺手清掉模板（编辑时未提到的字段一律沿用旧值）。
+
 ## 命令
 
 | 命令 | 作用 |
