@@ -247,13 +247,16 @@ export function renderFrame(state, layout) {
  * relies on the terminal not to wrap will scroll (and look like it is appending
  * frames) the moment one line is a column too wide — CJK previews are exactly
  * that case. Addressing every row and erasing the tail of each line means a
- * mis-measured glyph can only dirty its own row, never scroll the pane.
+ * mis-measured glyph can only dirty its own row, never scroll the pane, and no
+ * screen clear is issued per frame (nothing lands in a terminal scrollback).
  */
-export function paintFrame(lines, width) {
-  let out = `${CLEAR}${WRAP_OFF}`;
+export function paintFrame(lines) {
+  let out = WRAP_OFF;
   for (let i = 0; i < lines.length; i += 1) {
-    // erase the row *before* writing: EL after a full-width line would eat its last cell
-    out += `${ESC}${i + 1};1H${ESC}K${truncateWidth(lines[i], width)}`;
+    // erase the row *before* writing: EL after a full-width line would eat its last cell.
+    // The line goes out verbatim: stripping ANSI here would silently drop the
+    // selection highlight, the bold borders and the dim footer.
+    out += `${ESC}${i + 1};1H${ESC}K${lines[i]}`;
   }
   return out;
 }
@@ -298,7 +301,7 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
     model.footer = footerText(state.note ?? "");
     // never paint more rows than the terminal actually has
     const lines = renderFrame(model, layout).slice(0, Math.max(1, rows || layout.height));
-    io.output.write(paintFrame(lines, layout.width));
+    io.output.write(paintFrame(lines));
   }
 
   async function refresh(extra = "") {
@@ -323,7 +326,10 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
   }
 
   function enterScreen() {
-    io.output.write(`${ALT_SCREEN}${HIDE_CURSOR}${WRAP_OFF}`);
+    // clear exactly once, when taking over the screen. Repainting must not clear:
+    // a terminal that keeps an alternate-screen scrollback (iTerm2 can) saves one
+    // frame per ED, which is what makes the panel look like it is appending.
+    io.output.write(`${ALT_SCREEN}${HIDE_CURSOR}${CLEAR}${WRAP_OFF}`);
   }
 
   /** attach() ran into a problem: say it in the footer instead of on the screen. */

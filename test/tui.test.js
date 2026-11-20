@@ -225,6 +225,15 @@ test("paintFrame addresses every row so a wide line can never scroll the pane", 
   }
   assert.ok(!out.includes("\u001b[0J"), "no cursor moves past the last row (that would erase it)");
   assert.ok(!out.includes("\n"), "frames are not painted with newlines");
+  assert.ok(!out.includes("\u001b[2J"), "frames are never cleared wholesale (that fills a scrollback)");
+  assert.ok(!out.includes("\u001b[H"), "no home-cursor clear either");
+});
+
+test("paintFrame keeps colours and attributes", () => {
+  const out = paintFrame(["\u001b[7mselected\u001b[0m", "\u001b[1mbold\u001b[0m\u001b[2mdim\u001b[0m"]);
+  assert.ok(out.includes("\u001b[7m"), "reverse video (the selection bar) survives");
+  assert.ok(out.includes("\u001b[1m"), "bold survives");
+  assert.ok(out.includes("\u001b[2m"), "dim survives");
 });
 
 test("a CJK preview never produces a line wider than the screen", () => {
