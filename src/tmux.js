@@ -248,7 +248,9 @@ export class Tmux {
           "#{pane_current_path}",
           "#{session_created}",
           "#{session_attached}",
-          "#{session_activity}",
+          // window_activity moves when a pane prints; session_activity only moves
+          // on attach/detach, which made "idle 4h" mean "nobody looked at it"
+          "#{window_activity}",
         ].join(FIELD_SEP),
       ],
       { allowFailure: true, readOnly: true },
