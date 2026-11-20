@@ -6,6 +6,7 @@
  *   /pp-quit                detach this client, session and pi keep running (Ctrl-b d)
  *   /pp-status              where am I: session, pane, cwd, pi session, remote-pi name
  *   /pp-peek [name] [-n N]  last N lines of another session's pane (default 30)
+ *   /pp-back                back to the `pp tui` panel you came from (no detach)
  *   /pp-todo                what is waiting for a decision, jump into it
  *
  * Plus one model-facing tool, `schedule`: it lets the agent queue a prompt to be
@@ -23,6 +24,7 @@ import { promisify } from "node:util";
 import { Box, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
+import { clearPanel, findPanelPane, loadPanel } from "../src/panel.js";
 import { addTodo, closeSessionTodos, filterTodos, looksLikeQuestion, readTodos, settledMode } from "../src/todo.js";
 
 import {
@@ -256,6 +258,37 @@ export default function ppTmux(pi) {
         return;
       }
       await switchClient(ctx, resolved.name);
+    },
+  });
+
+  command("pp-back", {
+    description: "Switch this client back to the pp tui panel (no detach, nothing to restore)",
+    handler: async (_args, ctx) => {
+      tmuxContext();
+      const panel = loadPanel();
+      if (!panel) {
+        ctx.ui.notify("no panel remembered — start one with: pp tui", "warning");
+        return;
+      }
+      const panes = await tmux(["list-panes", "-a", "-F", "#{pane_id} #{session_name} #{window_index}"]).catch(
+        () => "",
+      );
+      const found = findPanelPane(panes, panel);
+      if (!found) {
+        clearPanel();
+        ctx.ui.notify(`the panel in ${panel.session} is gone — start a new one with: pp tui`, "warning");
+        return;
+      }
+      await switchClient(ctx, found.session);
+      await tmux(["select-window", "-t", `=${found.session}:${found.window}`]).catch(() => "");
+      if (found.pane) await tmux(["select-pane", "-t", found.pane]).catch(() => "");
+      pi.appendEntry("pp-back", {
+        at: new Date().toISOString(),
+        session: found.session,
+        window: found.window,
+        pane: found.pane,
+      });
+      if (ctx.hasUI) ctx.ui.notify(`back at the panel — ${found.session}:${found.window}`, "info");
     },
   });
 

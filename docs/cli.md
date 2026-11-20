@@ -264,6 +264,18 @@ pp tui --socket work
 非 tty 且没有 `--once` 时退出码 2，提示 `pp tui needs a terminal`。
 右侧预览是快照：真正的终端由 tmux 接管，pp 不解析转义序列。
 
+### `pp back`
+
+面板自己记下它在哪个 tmux 会话/窗口/pane（`$XDG_STATE_HOME/pi-plus/panel.json`）。
+从面板 Enter 进会话、办完事想回去时，`pp back`（或在会话里 `/pp-back`）用
+`switch-client` 把当前 client 切回那个 pane —— 不 detach，所以终端不需要恢复保存的
+一屏，也就不会多出一屏可滚的历史。面板已经不在了就清掉记录并提示重开。
+
+```bash
+pp back
+pp back --dry-run        # 只打印要执行的 tmux 命令
+```
+
 ### `pp todo <子命令>`
 
 「谁在等我决策」清单。存在 `$XDG_STATE_HOME/pi-plus/todos.json`，pi 扩展在会话

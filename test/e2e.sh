@@ -395,6 +395,9 @@ check "tui lists a real session"       0 'e-always'             bash -c "cd $E2E
 check "tui without a tty explains itself" 2 'needs a terminal'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui < /dev/null"
 check "tui --diag reports a fit"       0 'verdict *fits'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --diag"
 check "tui --diag names the frame"     0 'rows x .* cols'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --diag"
+check "back without a panel says so"  1 'no panel remembered'   bash -c "rm -f $XDG_STATE_HOME/pi-plus/panel.json; cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK back"
+check "back with a dead panel says it is gone" 1 'is gone'    bash -c "mkdir -p $XDG_STATE_HOME/pi-plus && echo '{\"session\":\"nope\",\"window\":\"0\",\"pane\":\"%999999\"}' > $XDG_STATE_HOME/pi-plus/panel.json && cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK back"
+check "back forgets the dead panel"      0 ''                   bash -c "test ! -f $XDG_STATE_HOME/pi-plus/panel.json"
 check "tui help page"                  0 'attach'              bash -c "cd $E2E && $ROOT/bin/pp.js help tui"
 check "tui appears in the overview"    0 'tui \(panel\)'        bash -c "cd $E2E && $ROOT/bin/pp.js help"
 
@@ -404,7 +407,7 @@ check "npm pack contents"        0 'bin/pp.js'             bash -c "cd $ROOT && 
 check "install.sh syntax"        0 ''                           bash -n "$ROOT/install.sh"
 check "extension ships in the package" 0 'extensions/pp-tmux.js' bash -c "cd $ROOT && npm pack --dry-run 2>&1 | grep extensions/pp-tmux.js"
 check "package declares the pi manifest" 0 'pp-tmux.js'         bash -c "cd $ROOT && node -p \"JSON.stringify(require('./package.json').pi)\""
-check "extension exposes the six commands" 0 '^6$'         bash -c "cd $ROOT && grep -c 'command(\"pp-' extensions/pp-tmux.js"
+check "extension exposes the seven commands" 0 '^7$'         bash -c "cd $ROOT && grep -c 'command(\"pp-' extensions/pp-tmux.js"
 check "extension records todos from pi events" 0 '^2$'        bash -c "cd $ROOT && grep -c 'agent_settled' extensions/pp-tmux.js"
 check "extension registers the todo tool" 0 '^1$'        bash -c "cd $ROOT && grep -c 'name: \"todo\"' extensions/pp-tmux.js"
 

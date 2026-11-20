@@ -299,6 +299,7 @@ pp todo ls --all --json       # 连已完成的、机器可读
 pp tui                 # 交互
 pp tui --left 24       # 左列固定 24 列（也能写 30%）
 pp tui --once          # 打印一帧就退出（管道/CI 里也能用）
+pp back                # 从任何会话切回这个面板（不 detach，不留残留画面）
 pp tui -c ./pi-plus.yml --socket work
 ```
 

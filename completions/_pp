@@ -4,6 +4,7 @@ _pp() {
   local -a commands
   commands=(
     'tui:full-screen panel of sessions and todos (alias panel)'
+    'back:switch back to the pp tui panel (alias of the panel you came from)'
     'new:start a one-off session in a directory (alias n)'
     'n:alias for new'
     'create:alias for new'

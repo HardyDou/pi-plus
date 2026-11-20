@@ -13,6 +13,7 @@ import {
   removeSessionFromFile,
   shellQuote,
 } from "./config.js";
+import { clearPanel, findPanelPane, loadPanel, savePanel } from "./panel.js";
 import { readRemotePiConfig, remotePiConfigPath, writeRemotePiName } from "./remote-pi.js";
 import {
   addAlias,
@@ -993,6 +994,14 @@ async function cmdTui(config, options, ui) {
       },
     },
   });
+  if (process.env.TMUX) {
+    const probe = tmux.run(["display-message", "-p", "#{session_name}\t#{window_index}\t#{pane_id}"], {
+      allowFailure: true,
+      readOnly: true,
+    });
+    const [session, window, pane] = String(probe.stdout ?? "").trim().split("\t");
+    if (session) savePanel({ session, window, pane });
+  }
   await tui.start();
 }
 
@@ -1050,6 +1059,51 @@ async function cmdTuiDiag(config, options, ui) {
     ui.out("                 tmux will let you scroll the rest. Fix the window, not the panel:");
     ui.out("                 tmux set -g window-size latest   (or re-attach from the size you want)");
   }
+}
+
+/**
+ * `pp back` — put this client in front of the panel it was launched from.
+ *
+ * The panel records its own session/window/pane when it starts (`panel.json`),
+ * so coming back from a session you attached out of it is one command instead of
+ * "Ctrl-b s and find the window". If the panel died in the meantime the record is
+ * dropped and you are told, rather than being switched to a stranger's window.
+ */
+async function cmdBack(config, options, ui) {
+  const tmux = makeTmux(config, options);
+  const panel = loadPanel();
+  if (!panel) {
+    ui.error("no panel remembered — start one with: pp tui");
+    process.exit(1);
+  }
+  const list = tmux.run(["list-panes", "-a", "-F", "#{pane_id} #{session_name} #{window_index}"], {
+    allowFailure: true,
+    readOnly: true,
+  });
+  const found = list.status === 0 ? findPanelPane(list.stdout, panel) : null;
+  if (!found) {
+    clearPanel();
+    ui.error(`the panel in ${panel.session} is gone — start a new one with: pp tui`);
+    process.exit(1);
+  }
+  if (options.dryRun) {
+    ui.info(`[dry-run] tmux switch-client -t =${found.session} && select-window -t =${found.session}:${found.window}`);
+    return 0;
+  }
+  if (process.env.TMUX) {
+    // switch-client is the whole point: no detach, so the terminal never has to
+    // restore a saved screen (which is what leaves a screenful behind).
+    const res = tmux.run(["switch-client", "-t", `=${found.session}`], { allowFailure: true });
+    if (res.status !== 0) {
+      ui.error(String(res.stderr ?? "").trim() || "could not switch client");
+      process.exit(1);
+    }
+    tmux.run(["select-window", "-t", `=${found.session}:${found.window}`], { allowFailure: true });
+    if (found.pane) tmux.run(["select-pane", "-t", found.pane], { allowFailure: true });
+    ui.info(`back at the panel — ${found.session}:${found.window}`);
+    return 0;
+  }
+  process.exit(tmux.attach(found.session));
 }
 
 async function cmdAttach(config, options, ui) {
@@ -2325,6 +2379,8 @@ export async function runCommand(command, options) {
       }
       return cmdTodo(config, options, ui);
     }
+    case "back":
+      return cmdBack(tryLoadConfig(options), options, ui);
     case "tui":
     case "panel":
       return options.diag ? cmdTuiDiag(tryLoadConfig(options), options, ui) : cmdTui(tryLoadConfig(options), options, ui);
