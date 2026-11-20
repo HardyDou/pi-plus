@@ -372,9 +372,14 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
 
   function footerText(extra = "") {
     const paused = state.follow === false ? "PAUSED · " : "";
+    // drift, in the footer: sessions of ours that are off, and live ones that
+    // are not ours. Both are the reason someone opens this panel at 3am.
+    const off = state.sessions.filter((row) => row.state === "off" || row.state === "dead" || row.state === "stopped").length;
+    const unmanaged = state.sessions.filter((row) => row.unmanaged).length;
+    const drift = [off ? `${off} off` : null, unmanaged ? `${unmanaged} unmanaged` : null].filter(Boolean).join(" · ");
     const base = " ↑↓ move · PgUp/PgDn scroll · Tab panel · Enter attach · d done · [ ] width · -/+ rows · f follow · q quit ";
     const text = extra ? `${paused}${extra}  ${base}` : `${paused}${base}`;
-    return `${DIM}${padWidth(text, io.size().cols)}${RESET}`;
+    return `${drift ? `${YELLOW}${drift}${RESET}${DIM} · ` : ""}${DIM}${padWidth(text, io.size().cols)}${RESET}`;
   }
 
   /**

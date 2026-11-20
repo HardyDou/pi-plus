@@ -150,6 +150,18 @@ rewritten, so the diff stays small.
 `3/4` = 你为这台机器列了 4 个会话、3 个在跑；`+1` = 它上面还有一个没写进配置的会话。
 两个符号分别对应 `pp up` 和 `pp adopt`。
 
+### `pp up --drift`
+
+只补缺口：配置里该在、现在没在的会话才起，已经在跑的完全不碰；没有缺口时输出
+`nothing to start — the config and this machine agree`，所以可以放进 cron 或当成肌肉记忆反复敲。
+手工停掉的会话（`unless-stopped`/`on-failure`）依旧保持停止，除非 `--force`。
+
+```bash
+$ pp status
+8/8 running  6 nodes  config: /home/user/.pi/plus.yml
+$ pp up --drift                # 只起 status 尾行里那些 `2 down`
+```
+
 ### `pp logs <name|#...> | --all`
 
 ```bash

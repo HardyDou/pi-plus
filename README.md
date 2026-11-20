@@ -97,6 +97,7 @@ $EDITOR ~/.pi/plus.yml
 pp check                # 只校验配置，不碰 tmux
 pp doctor               # 环境体检：node / tmux / pi / 自启
 pp up                   # 后台拉起所有 session
+pp up --drift           # 只补没起来的（可反复敲，适合放 cron）
 pp status               # 看状态：序号、tmux 名、pid、pi session、remote-pi 名
 pp attach backend       # 进入某个 session（没启动会先启动）
 pp attach 3             # 也可以直接给序号（pp ls 第一列的 #）

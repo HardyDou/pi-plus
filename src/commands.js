@@ -581,7 +581,45 @@ async function cmdMv(config, options, ui) {
 }
 
 async function cmdUp(config, options, ui) {
-  const sessions = selectSessions(config, options.names, ui, { options });
+  // --drift: only the sessions that are missing right now, then say what runs
+  // that nobody wrote down. "walk the park and fix what is off", not "start all".
+  let driftNames = null;
+  if (options.drift) {
+    const liveCache = new Map();
+    const liveFor = (session) => {
+      const key = session.node ?? "";
+      if (!liveCache.has(key)) liveCache.set(key, makeTmux(config, options, session).listSessions());
+      return liveCache.get(key);
+    };
+    const missing = [];
+    for (const session of selectSessions(config, options.names, ui, { all: true, options })) {
+      if (liveFor(session).has(session.tmuxName)) continue;
+      if (isStopped(config.path, session.name) && !options.force) {
+        ui.info(`${ui.paint("dim", "skip")}    ${session.tmuxName} ${ui.paint("dim", "(stopped by hand; --force starts it)")}`);
+        continue;
+      }
+      missing.push(session.name);
+    }
+    const strays = [];
+    for (const [key, map] of liveCache) {
+      for (const name of map.keys()) {
+        const onNode = config.sessions.some((session) => session.tmuxName === name && (session.node ?? "") === key);
+        if (!onNode) strays.push(name);
+      }
+    }
+    if (strays.length) {
+      ui.warn(`${strays.length} running but not in the config: ${strays.join(", ")} — pp adopt ${strays.join(" ")}`);
+    }
+    if (missing.length === 0) {
+      ui.info(`nothing to start — the config and ${strays.length ? "the machine" : "this machine"} agree`);
+      return;
+    }
+    driftNames = missing;
+    ui.info(`starting ${missing.length} missing: ${missing.join(", ")}`);
+  }
+  const sessions = driftNames
+    ? config.sessions.filter((session) => driftNames.includes(session.name))
+    : selectSessions(config, options.names, ui, { options });
   const liveCache = new Map();
   const liveFor = (session) => {
     const key = session.node ?? "";
@@ -1823,6 +1861,7 @@ function tuiSessionRows(config, live) {
       age,
       label: ` - ${name}  ${state}${age ? ` ${age}` : ""} (not in config)`,
       dim: true,
+      unmanaged: true,
     });
   }
   return rows;
@@ -1919,12 +1958,17 @@ async function cmdTui(config, options, ui) {
     const rows = process.stdout.rows || 30;
     const layout = computeLayout(cols, rows, { leftWidth });
     const { live } = readLive();
+    const sessionRows = tuiSessionRows(config, live);
+    // same drift sentence as the live panel, so --once is a fair sample
+    const onceOff = sessionRows.filter((row) => row.state === "off" || row.state === "dead" || row.state === "stopped").length;
+    const onceStrays = sessionRows.filter((row) => row.unmanaged).length;
+    const onceDrift = [onceOff ? `${onceOff} off` : null, onceStrays ? `${onceStrays} unmanaged` : null].filter(Boolean).join(" · ");
     const model = {
-      sessions: tuiSessionRows(config, live),
+      sessions: sessionRows,
       todos: tuiTodoRows(filterTodos(readTodos()), Date.now()),
       preview: { title: "—", lines: [] },
       focus: "sessions",
-      footer: " pp tui --once  (--left 30 adjusts the sessions column) ",
+      footer: `${onceDrift ? `${onceDrift} · ` : ""}pp tui --once  (--left 30 adjusts the sessions column)`,
     };
     for (const line of renderFrame(model, layout)) ui.out(line);
     return;

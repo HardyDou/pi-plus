@@ -42,6 +42,11 @@ CLI 和 pi 扩展是**两份安装**：`pp` 走 `npm i -g pi-farm`，`/pp-*` 走
 如果一个会话的 `⠋ Working` 几个小时都不消失，那不是 `pp` 的问题：看 `pp attach <session>` 里
 卡住的那一步（常见是某个工具调用没返回）。
 
+## 面板底部出现 `3 off · 1 unmanaged`
+
+那两个数字就是 `pp status` 尾行那对儿的缩写：`off` 是配置里该在却没起的会话（`pp up --drift` 补齐），
+`unmanaged` 是机器上跑着但配置里没写的会话（`pp adopt` 收编）。`pp tui --once` 打印的那一帧也一样。
+
 ## `pp tui` 会滚屏 / 看起来每刷新一次就多一帧
 
 按时间排查（每条都能定位到底是谁在滚）：
