@@ -54,6 +54,19 @@ pp cron add --heal --every 5m
 每次真正拉起会话都会写一条 `heal` 审计，所以"谁把它拉起来的"有据可查：
 `pp audit --action heal`。
 
+### 它不会无限重启
+
+如果一个会话**起来就死**（cwd 写错、那台机器没装 agent），每 5 分钟重试一次只会让机器空转。
+所以同一会话一小时内被 `heal` 启动 3 次后，它会停下来并明说：
+
+```
+$ pp cron run 40d876
+deferred: hx keep dying (3 restarts in an hour) — someone should look
+```
+
+这时候该看的是 `pp logs <name>` 和 `pp check --remote`。修好之后要立刻重试一次可以用
+`pp cron run <id> --force`（`--force` 只跳过这个上限，不改其它行为）。
+
 ## 三种时间表
 
 ```bash

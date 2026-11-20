@@ -3503,6 +3503,9 @@ function refreshCronLog(options, ui) {
 /** Deliver one job: type the prompt into its pane, or run its command. */
 /** `--all` marks a job as "every session that is running right now". */
 const ALL_SESSIONS = "*";
+// heal: after this many restarts inside the window, stop and let a human look
+const HEAL_LIMIT = 3;
+const HEAL_WINDOW_MS = 60 * 60 * 1000;
 
 /**
  * Fan a prompt out to every running session. Busy agents are skipped — pi parks
@@ -3580,9 +3583,31 @@ function healDrift(job, options) {
     (session) => !liveFor(session).has(session.tmuxName) && !isStopped(config.path, session.name),
   );
   if (!missing.length) return { status: "delivered", text: "nothing needed starting" };
+
+  // A session that dies immediately (bad cwd, missing binary) would be started
+  // every tick forever. Three attempts in an hour is enough to call it broken
+  // and let a human look, instead of burning the machine in a quiet loop.
+  const recent = new Map();
+  try {
+    const since = new Date(Date.now() - HEAL_WINDOW_MS);
+    for (const entry of readAudit({ action: "heal", since, limit: 0 }, process.env)) {
+      recent.set(entry.target, (recent.get(entry.target) ?? 0) + 1);
+    }
+  } catch {
+    // no audit trail is not a reason to stop healing
+  }
+  const thrashing = options.force
+    ? []
+    : missing.filter((session) => (recent.get(session.name) ?? 0) >= HEAL_LIMIT);
+  const attempted = missing.filter((session) => !thrashing.includes(session));
+  if (!attempted.length) {
+    return {
+      status: `deferred: ${thrashing.map((s) => s.name).join(", ")} keep dying (${HEAL_LIMIT} restarts in an hour) — someone should look`,
+    };
+  }
   const started = [];
   const failed = [];
-  for (const session of missing) {
+  for (const session of attempted) {
     if (session.restart === "no") continue;
     try {
       const tmux = makeTmux(config, options, session);
@@ -3596,7 +3621,9 @@ function healDrift(job, options) {
   }
   if (!started.length && failed.length) return { status: `failed: could not start ${failed.join(", ")}` };
   const detail = started.length ? `started ${started.join(", ")}` : "nothing needed starting";
-  return { status: "delivered", text: failed.length ? `${detail}, failed ${failed.join(", ")}` : detail };
+  const skippedNote = thrashing.length ? `, skipped ${thrashing.map((s) => s.name).join(", ")} (keeps dying)` : "";
+  const tail = failed.length ? `${detail}, failed ${failed.join(", ")}` : detail;
+  return { status: "delivered", text: `${tail}${skippedNote}` };
 }
 
 function deliverJob(job, options) {
@@ -3912,7 +3939,10 @@ async function cmdCronRun(config, options, ui) {
     if (result.status === "delivered") job.runs = (job.runs ?? 0) + 1;
     writeJobs(readJobs().map((entry) => (entry.id === id ? job : entry)));
     const paint = result.status === "delivered" ? "green" : "yellow";
-    ui.info(`${ui.paint(paint, result.status)} ${id}`);
+    // "delivered" on its own hides the interesting part: how many, and what
+    // was refused. The tick writes the same text to cron.log.
+    const detail = result.text ? ` ${ui.paint("dim", `— ${result.text}`)}` : "";
+    ui.info(`${ui.paint(paint, result.status)} ${id}${detail}`);
   }
 }
 

@@ -397,6 +397,14 @@ check "heal brought it back"          0 'e-onfail'               bash -c "tmux -
 check "heal audit trail recorded"     0 'heal'                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG audit --action heal"
 check "heal drops a hand-stopped one" 0 'delivered'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG down e-unless --force >/dev/null; $ROOT/bin/pp.js -c $CFG cron run $HEAL_ID"
 check "stopped session stayed down"   1 'can.t find session|no server'  bash -c "tmux -L $SOCK has-session -t '=e-unless:'"
+# a session that dies right away must not be restarted forever
+for _ in 1 2 3; do
+  tmux -L "$SOCK" kill-session -t e-onfail 2>/dev/null || true
+  (cd "$E2E" && "$ROOT/bin/pp.js" -c "$CFG" cron run "$HEAL_ID" >/dev/null 2>&1)
+done
+tmux -L "$SOCK" kill-session -t e-onfail 2>/dev/null || true
+check "heal gives up on a session that keeps dying" 0 'keep dying|keeps dying' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron run $HEAL_ID"
+check "heal --force tries anyway"     0 'delivered'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --force cron run $HEAL_ID"
 # a session that is only running in tmux (not in the config) is a valid target
 check "cron targets a running session" 0 'scheduled [0-9a-f]'   bash -c "cd $E2E && tmux -L $SOCK new-session -d -s adhoc-$SOCK -c /tmp 'bash' && $ROOT/bin/pp.js -c $CFG cron add --session adhoc-$SOCK --in 5m 'echo adhoc'"
 check "cron rejects a session that is nowhere" 1 'not in .* and not running' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session nope-$SOCK --in 5m 'x'"
