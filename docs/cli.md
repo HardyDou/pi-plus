@@ -150,6 +150,17 @@ rewritten, so the diff stays small.
 `3/4` = 你为这台机器列了 4 个会话、3 个在跑；`+1` = 它上面还有一个没写进配置的会话。
 两个符号分别对应 `pp up` 和 `pp adopt`。
 
+### `pp send --all "…"`
+
+一句话发到所有会话（`--node`/`--tag` 收窄范围）。正在跑的会话会被**跳过**而不是排队 —— 把第二句话塞进
+一个"正在想事"的 agent，是最容易让它丢掉上下文的方式。
+
+```bash
+$ pp send --all "stand up, I am back"          # 空闲的都收到
+2 sent, 3 busy, 1 not running
+$ pp send --all --dry-run "make check"         # 只看会敲什么
+```
+
 ### `pp up --drift`
 
 只补缺口：配置里该在、现在没在的会话才起，已经在跑的完全不碰；没有缺口时输出

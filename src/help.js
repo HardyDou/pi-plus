@@ -265,9 +265,19 @@ export const COMMANDS = [
     details: [
       "Sends keystrokes to the session's pane and presses Enter, which is handy",
       "for pushing a prompt into a running agent from another shell or a script.",
+      "",
+      "With --all the same sentence goes to every configured session — the",
+      "fan-out `pp cron add --all` uses. Sessions whose agent is mid-turn are",
+      "skipped, not queued: a second prompt dropped into a working agent is how",
+      "it loses the thread.",
     ].join("\n"),
-    options: ["--no-enter       do not press Enter after the text"],
-    examples: ['pp send backend "run the tests"', 'pp send 3 "yes" --no-enter'],
+    options: [
+      "--no-enter       do not press Enter after the text",
+      "--all            send to every configured session (--node/--tag narrow it)",
+      "--node <name>    only sessions on that machine",
+      "--tag <tag>      only machines carrying that tag",
+    ],
+    examples: ['pp send backend "run the tests"', 'pp send --all "stand up, I am back"', 'pp send --all --dry-run "make check"'],
     see: ["logs", "attach"],
   },
   {

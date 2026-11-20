@@ -2326,6 +2326,47 @@ function cmdLogs(config, options, ui) {
 }
 
 function cmdSend(config, options, ui) {
+  // --all: one sentence into every session, the same fan-out pp cron uses.
+  // Busy sessions are skipped on purpose: queueing a second prompt into an
+  // agent that is mid-turn is how you get it to lose the thread.
+  if (options.all || options.tags?.length || options.node) {
+    if (options.names.length < 1) {
+      ui.error('usage: pp send --all "text" [--dry-run]');
+      process.exit(2);
+    }
+    const text = options.names.join(" ");
+    const sessions = selectSessions(config, [], ui, { all: true, options });
+    if (!sessions.length) {
+      ui.error("no session matched that filter");
+      process.exitCode = 1;
+      return;
+    }
+    if (options.dryRun) {
+      for (const session of sessions) {
+        const tmux = makeTmux(config, options, session);
+        ui.info(`[dry-run] ${tmux.args(["send-keys", "-t", `=${session.tmuxName}:`, "--", text]).join(" ")}${options.noEnter ? "" : " Enter"}`);
+      }
+      return;
+    }
+    let sent = 0;
+    let busy = 0;
+    for (const session of sessions) {
+      const tmux = makeTmux(config, options, session);
+      if (!tmux.sessionExists(session.tmuxName)) continue;
+      if (tmux.isAgentBusy(session.tmuxName)) {
+        busy++;
+        ui.info(`${ui.paint("dim", "busy")}    ${session.tmuxName} — skipped, it is mid-turn`);
+        continue;
+      }
+      const result = tmux.sendText(session.tmuxName, text, { enter: !options.noEnter });
+      if (result.submitted || options.noEnter) sent++;
+      else ui.warn(`${session.tmuxName}: the text is in the box but Enter never took it`);
+      note("send", session.name, { node: session.node ?? null, detail: text.slice(0, 120), result: result.submitted ? "sent" : "typed" });
+    }
+    ui.info(`\n${sent} sent, ${busy} busy, ${sessions.length - sent - busy} not running`);
+    if (sent === 0 && busy === 0) process.exitCode = 1;
+    return;
+  }
   const [name, ...rest] = options.names;
   if (!name || rest.length === 0) {
     ui.error('usage: pp send <name> "text" [--no-enter]');
