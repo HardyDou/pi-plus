@@ -1764,6 +1764,21 @@ function cmdStatus(config, options, ui) {
   }
   const idleOver = options.idleOver ? parseDuration(options.idleOver, { what: "--idle-over" }) : null;
 
+  // how many things are still waiting inside each session: a session that is
+  // "running" and has two unanswered questions is not the same as an idle one
+  const todoFor = (() => {
+    const counts = new Map();
+    try {
+      for (const todo of readTodos()) {
+        if (todo.state === "done" || !todo.session) continue;
+        counts.set(todo.session, (counts.get(todo.session) ?? 0) + 1);
+      }
+    } catch {
+      return () => 0;
+    }
+    return (tmuxName) => counts.get(tmuxName) ?? 0;
+  })();
+
   const rows = sessions.map((session) => {
     const entry = liveFor(session.node).get(session.tmuxName);
     const pane = entry?.panes[0];
@@ -1784,6 +1799,7 @@ function cmdStatus(config, options, ui) {
       name: session.name,
       node: session.node ?? "",
       tmux: session.tmuxName,
+      todos: todoFor(session.tmuxName),
       state: state === "stopped" && (session.restart === "no" || isStopped(config.path, session.name)) ? "off" : state,
       // why it is not running matters at 3am: "someone stopped it on purpose"
       // and "it never came up" need different answers from the operator
@@ -1809,6 +1825,8 @@ function cmdStatus(config, options, ui) {
       remotePiName: session.remotePiName ?? "",
       // scheduled jobs aimed at this session (heal jobs are fleet-wide, not per session)
       cron: cronFor(session.tmuxName),
+      // things still waiting inside: unanswered questions, unread turns
+      todos: todoFor(session.tmuxName),
       // "who is looking at this" — the question before `pp down` on a shared box
       client: (() => {
         const client = clientsFor(session.node).find((entry) => entry.session === session.tmuxName);
@@ -1851,11 +1869,14 @@ function cmdStatus(config, options, ui) {
   const showClient = rows.some((row) => row.client);
   // so does CRON: a fleet with no schedules should not pay for the column
   const showCron = rows.some((row) => row.cron);
+  // and TODOS: only when something is actually waiting somewhere
+  const showTodos = rows.some((row) => row.todos);
   const headers = [
     ...(showNode
       ? ["#", "NAME", "NODE", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]
       : ["#", "NAME", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]),
     ...(showCron ? ["CRON"] : []),
+    ...(showTodos ? ["TODOS"] : []),
     ...(showClient ? ["CLIENT"] : []),
   ];
   const table = shown.map((r) => [
@@ -1881,28 +1902,27 @@ function cmdStatus(config, options, ui) {
           : "(new)",
     r.remotePiName,
     ...(showCron ? [r.cron || "-"] : []),
+    ...(showTodos ? [r.todos ? String(r.todos) : "-"] : []),
     ...(showClient ? [r.client || "-"] : []),
   ]);
   const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
   const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
+  const at = (name) => headers.indexOf(name);
   ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
   shown.forEach((row, i) => {
     const colored = [...table[i]];
-    const stateAt = showNode ? 3 : 2;
+    const stateAt = at("STATE");
     colored[0] = ui.paint("dim", colored[0]);
     if (showNode) colored[2] = ui.paint(row.node ? "cyan" : "dim", colored[2]);
     if (row.state === "off") colored[stateAt] = ui.paint("dim", colored[stateAt]);
     if (row.state === "unreachable") colored[stateAt] = ui.paint("red", "unreachable");
     const color = row.state === "running" ? "green" : row.state === "attached" ? "cyan" : row.state === "dead" || row.state === "unreachable" ? "red" : "dim";
     colored[stateAt] = ui.paint(color, colored[stateAt]);
-    const idleAt = stateAt + 1;
-    if (showCron && row.cron) {
-      const at = widths.length - (showClient ? 2 : 1);
-      colored[at] = ui.paint("cyan", colored[at]);
-    }
+    const idleAt = at("IDLE");
+    if (showCron && row.cron) colored[at("CRON")] = ui.paint("cyan", colored[at("CRON")]);
+    if (showTodos && row.todos) colored[at("TODOS")] = ui.paint("yellow", colored[at("TODOS")]);
     if (showClient && row.client) {
-      const at = widths.length - 1;
-      colored[at] = ui.paint(row.client.startsWith(`${process.env.USER ?? "?"}@`) ? "dim" : "cyan", colored[at]);
+      colored[at("CLIENT")] = ui.paint(row.client.startsWith(`${process.env.USER ?? "?"}@`) ? "dim" : "cyan", colored[at("CLIENT")]);
     }
     if (row.idleSeconds !== null && row.idleSeconds >= staleSeconds()) {
       colored[idleAt] = ui.paint("yellow", colored[idleAt]);
@@ -2003,6 +2023,19 @@ function shortAge(seconds) {
 
 function tuiSessionRows(config, live) {
   const rows = [];
+  // a session with unanswered questions looks exactly like an idle one otherwise
+  const waiting = (() => {
+    const counts = new Map();
+    try {
+      for (const todo of readTodos()) {
+        if (todo.state === "done" || !todo.session) continue;
+        counts.set(todo.session, (counts.get(todo.session) ?? 0) + 1);
+      }
+    } catch {
+      return () => 0;
+    }
+    return (tmuxName) => counts.get(tmuxName) ?? 0;
+  })();
   const seen = new Set();
   const stateOf = (entry) => {
     if (!entry) return "off";
@@ -2024,7 +2057,8 @@ function tuiSessionRows(config, live) {
       age,
       stale,
       idleSeconds: idle === null ? null : Math.round(idle),
-      label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}${session.node ? ` @${session.node}` : ""}  ${state}${age ? ` ${age}${stale ? " !" : ""}` : ""}`,
+      todos: waiting(session.tmuxName),
+      label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}${session.node ? ` @${session.node}` : ""}  ${state}${age ? ` ${age}${stale ? " !" : ""}` : ""}${waiting(session.tmuxName) ? ` ${waiting(session.tmuxName)}?` : ""}`,
       dim: state === "off" || state === "dead",
       warn: stale,
     });

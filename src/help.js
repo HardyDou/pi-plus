@@ -222,6 +222,11 @@ export const COMMANDS = [
       "",
       "When somebody is attached, a CLIENT column appears with `user@tty`: that",
       "is the check before `pp down` turns into a conversation with a colleague.",
+      "",
+      "A TODOS column appears when something is waiting inside a session: open",
+      "questions and unread turns that `pp todo` tracks. A session with two",
+      "unanswered questions looks exactly like a quiet one otherwise, and that is",
+      "how a handover gets dropped.",
     ].join("\n"),
     options: [
       "--json           JSON: { sessions, drift } (drift = down/stray counts)",

@@ -172,6 +172,18 @@ error: "bad": agent "definitely-not-installed" not found on t114
 `pp cron add --all --every 10m "…"`）。会话行为诡异时（输入框里突然多出一段话、自己在跑），
 先看这一列，再看 `pp cron ls`。只在真有任务时出现，平时不占宽度。
 
+### `pp status` 的 `TODOS` 列
+
+会话里还压着未处理的事（`pp todo` 记的未回答提问、未读的一轮）时，表格多一列 `TODOS`：
+
+```bash
+pp status
+#  #  NAME              STATE    IDLE  RESTART  PID     ...  TODOS
+#  1  mango-release-01  running  0s    always   12345   ...      2
+```
+
+黄色数字 = 有 N 件事在等；`-` 表示干净。`--json` 里是 `todos`。面板（`pp tui`）的会话行末尾同样带 `2?`。
+
 ### `pp status` 的 `CLIENT` 列
 
 有客户端连着会话时，表格末尾会多一列 `CLIENT`，形如 `user@/dev/pts/23`。杀会话之前先看这一列 ——
