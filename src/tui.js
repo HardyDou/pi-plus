@@ -21,6 +21,9 @@ const HIDE_CURSOR = `${ESC}?25l`;
 const SHOW_CURSOR = `${ESC}?25h`;
 const ALT_SCREEN = `${ESC}?1049h`;
 const MAIN_SCREEN = `${ESC}?1049l`;
+/** How the session list can be ordered (`s` cycles through these). */
+const SORTS = ["config", "idle", "name"];
+
 /** Trailers keep the cursor from ever wrapping onto a new line. */
 const WRAP_OFF = `${ESC}?7l`;
 const WRAP_ON = `${ESC}?7h`;
@@ -134,6 +137,7 @@ export function parseKeys(input) {
       else if (char === "-") keys.push("less");
       else if (char === "+" || char === "=") keys.push("more");
       else if (char === "f") keys.push("follow");
+      else if (char === "s") keys.push("sort");
       i += 1;
     }
   }
@@ -334,7 +338,7 @@ export function moveSelection(index, length, delta) {
  *   io.onResize(cb)  io.refresh() -> {sessions, todos, preview}
  *   io.attach(name) -> promise settled when tmux gives the terminal back
  */
-export function createTui({ io, version = "", leftWidth = 0 }) {
+export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) {
   let state = {
     sessions: [],
     todos: [],
@@ -350,6 +354,8 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
     todoRows: 0,
     /** false = the preview keeps the last frame it showed (someone is reading it) */
     follow: true,
+    /** config | idle (quietest first) | name — see SORTS */
+    sort: SORTS.includes(sort) ? sort : "config",
   };
   let running = false;
   /**
@@ -371,9 +377,39 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
     return `${DIM}${padWidth(text, io.size().cols)}${RESET}`;
   }
 
+  /**
+   * Display order for the session list. The selection is tracked by identity
+   * (an index into state.sessions), the cursor moves in *display* positions —
+   * otherwise a list that reorders itself every second (idle sort) would move
+   * the cursor under the user's hands.
+   */
+  function sessionOrder() {
+    const rows = state.sessions;
+    const indices = rows.map((_, i) => i);
+    if (state.sort === "idle") {
+      // quietest first; rows with no activity at all (stopped) come last
+      indices.sort((a, b) => (rows[b].idleSeconds ?? -1) - (rows[a].idleSeconds ?? -1));
+    } else if (state.sort === "name") {
+      indices.sort((a, b) => String(rows[a].name ?? "").localeCompare(String(rows[b].name ?? "")));
+    }
+    return indices;
+  }
+
+  function sessionPos() {
+    const pos = sessionOrder().indexOf(state.sessionIndex);
+    return pos === -1 ? 0 : pos;
+  }
+
+  function sessionAt(pos) {
+    const order = sessionOrder();
+    if (!order.length) return 0;
+    return order[Math.max(0, Math.min(order.length - 1, pos))];
+  }
+
   function indexItems() {
-    const sessions = state.sessions
-      .map((item, index) => ({ ...item, selected: index === state.sessionIndex }))
+    const order = sessionOrder();
+    const sessions = order
+      .map((index) => ({ ...state.sessions[index], selected: index === state.sessionIndex }))
       .slice(Math.max(0, state.sessionOffset ?? 0));
     const visible = state.todos.slice(state.todoOffset, state.todoOffset + 200);
     const todos = visible.map((item, index) => ({ ...item, selected: state.todoOffset + index === state.todoIndex }));
@@ -441,7 +477,7 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
   function keepVisible() {
     const visible = panelHeight(state.focus);
     const window = state.focus === "sessions" ? "sessionOffset" : "todoOffset";
-    const index = state.focus === "sessions" ? state.sessionIndex : state.todoIndex;
+    const index = state.focus === "sessions" ? sessionPos() : state.todoIndex;
     const total = state.focus === "sessions" ? state.sessions.length : state.todos.length;
     let offset = Math.max(0, state[window] ?? 0);
     if (index < offset) offset = index;
@@ -469,7 +505,7 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
     }
     if (key === "up" || key === "down") {
       const delta = key === "up" ? -1 : 1;
-      if (state.focus === "sessions") state.sessionIndex = moveSelection(state.sessionIndex, state.sessions.length, delta);
+      if (state.focus === "sessions") state.sessionIndex = sessionAt(sessionPos() + delta);
       else state.todoIndex = moveSelection(state.todoIndex, state.todos.length, delta);
       keepVisible();
       await refresh();
@@ -485,7 +521,7 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
       return;
     }
     if (key === "top" || key === "bottom") {
-      if (state.focus === "sessions") state.sessionIndex = key === "top" ? 0 : Math.max(0, state.sessions.length - 1);
+      if (state.focus === "sessions") state.sessionIndex = sessionAt(key === "top" ? 0 : Math.max(0, state.sessions.length - 1));
       else state.todoIndex = key === "top" ? 0 : Math.max(0, state.todos.length - 1);
       keepVisible();
       await refresh();
@@ -499,6 +535,19 @@ export function createTui({ io, version = "", leftWidth = 0 }) {
       state.todoRows = Math.max(TODO_MIN_HEIGHT, Math.min(current + (key === "more" ? 2 : -2), Math.max(TODO_MIN_HEIGHT, layout.height - 4)));
       keepVisible();
       await refresh(`todo box: ${state.todoRows} rows`);
+      return;
+    }
+    if (key === "sort") {
+      const next = SORTS[(SORTS.indexOf(state.sort) + 1) % SORTS.length];
+      state.sort = next;
+      keepVisible();
+      await refresh(
+        next === "idle"
+          ? "sorted: quietest first (s cycles)"
+          : next === "name"
+            ? "sorted: by name (s cycles)"
+            : "sorted: config order (s cycles)",
+      );
       return;
     }
     if (key === "follow") {

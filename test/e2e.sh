@@ -155,6 +155,9 @@ check "up is idempotent"         0 '0 started'                  PFc up
 check "status table"             0 'e-no +off'                  PFc status
 check "status shows an idle column"   0 'IDLE'                  PFc status
 check "status --json says how idle"   0 '"idleSeconds"'         bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK status --json | head -20"
+check "ls sorts by idle"              0 'e-always'              bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK ls --sort idle | head -2"
+check "ls rejects an unknown sort"    2 'unknown --sort'        bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK ls --sort sideways"
+check "ls --idle-over filters"        0 'quiet for|e-always'    bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK ls --idle-over 30d"
 check "status shows restart col" 0 'RESTART'                    PFc status
 check "status --json valid"      0 '"sessions"|e-always'        bash -c "pp -c $CFG --socket $SOCK status --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d)[:40])'"
 check "status named row only"    0 'e-always'                   bash -c "pp -c $CFG --socket $SOCK status e-always | sed -n 2p"

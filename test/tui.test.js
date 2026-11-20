@@ -449,3 +449,62 @@ test("PP_STALE_MINUTES decides what counts as quiet", async () => {
   assert.equal(staleSeconds({ PP_STALE_MINUTES: "0" }), 30 * 60, "zero falls back to the default");
   assert.equal(staleSeconds({ PP_STALE_MINUTES: "soon" }), 30 * 60);
 });
+
+test("s cycles the session order and keeps the cursor on the same session", async () => {
+  const rows = [
+    { name: "b", label: "2 b running 1s", idleSeconds: 1 },
+    { name: "a", label: "1 a running 9m", idleSeconds: 540 },
+    { name: "c", label: "3 c off", idleSeconds: null },
+  ];
+  const input = new EventEmitter();
+  input.setRawMode = () => {};
+  input.resume = () => {};
+  input.pause = () => {};
+  input.setEncoding = () => {};
+  let buffer = "";
+  const io = {
+    input,
+    output: {
+      write(chunk) {
+        buffer += chunk;
+        return true;
+      },
+    },
+    isTTY: true,
+    size: () => ({ cols: 120, rows: 24 }),
+    onResize: () => {},
+    refresh: async () => ({ sessions: rows, todos: [], preview: { title: "—", lines: [] } }),
+    closeTodo: async () => {},
+    attach: async () => {},
+  };
+  const frame = () => stripAnsi(buffer.slice(buffer.lastIndexOf("\u001b[1;1H")));
+  const order = () =>
+    ["1 a", "2 b", "3 c"]
+      .map((name) => ({ name, at: frame().indexOf(name) }))
+      .filter((hit) => hit.at >= 0)
+      .sort((a, b) => a.at - b.at)
+      .map((hit) => hit.name)
+      .join(" ");
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 60));
+
+  const tui = createTui({ io });
+  const done = tui.start();
+  await settle();
+  assert.equal(order(), "2 b 1 a 3 c", "config order first");
+
+  input.emit("data", "s");
+  await settle();
+  assert.equal(order(), "1 a 2 b 3 c", "idle order puts the quiet one first");
+  assert.match(frame(), /quietest first/);
+
+  input.emit("data", "s");
+  await settle();
+  assert.match(frame(), /by name/);
+
+  input.emit("data", "s");
+  await settle();
+  assert.equal(order(), "2 b 1 a 3 c", "and back round to config order");
+
+  input.emit("data", "q");
+  await done;
+});

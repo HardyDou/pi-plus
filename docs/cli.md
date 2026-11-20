@@ -148,7 +148,17 @@ rewritten, so the diff stays small.
 
 `STATE` 取值：`running`、`attached`（有人正在看）、`dead`（pane 退出但被 `remain-on-exit` 保留）、`off`（配置了但没跑 / `restart: no` / 手动停过）。
 
-JSON：行对象数组。
+选项：`--idle-over 30m`（只列安静超过这么久的会话，`s`/`m`/`h`/`d`）、
+`--sort config|idle|name`（`idle` 是"最久没动优先"）、`--node <名>`、`--json`、`-q`。
+
+`--idle-over` 和面板里 `s` 的琥珀 `!` 是同一件事的两种用法：一个看快照，一个盯着看。
+
+```bash
+pp ls --idle-over 30m     # 谁已经半小时没动静了
+pp ls --sort idle | head -3
+```
+
+JSON：行对象数组，每行带 `activity`（epoch 秒）与 `idleSeconds`。
 
 ### `pp attach <name|#>`
 
@@ -326,6 +336,7 @@ pp new api --node prod-01 -C api --save   # 落到 /srv/apps/api
 | `r` | 重绘 |
 | `PgUp` / `PgDn` | 整页翻动列表 |
 | `-` / `+` | 待办框行数 -1 / +1（预览相应让出或收回） |
+| `s` | 切换会话列表排序：配置顺序 → 最久没动优先 → 按名字（footer 会显示当前排序） |
 | `f` | 暂停 / 恢复预览跟随（暂停时 footer 显示 `PAUSED`） |
 | 行末 `2h` + `!` | 该会话已安静超过 `PP_STALE_MINUTES`（默认 30）分钟，琥珀色提醒 |
 | `q` / `Esc` / `Ctrl-C` | 退出 |

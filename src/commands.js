@@ -1391,6 +1391,14 @@ function cmdStatus(config, options, ui) {
     return map;
   };
 
+  const SORT_KEYS = new Set(["config", "idle", "name"]);
+  const sortKey = options.sort ?? "config";
+  if (!SORT_KEYS.has(sortKey)) {
+    ui.error(`unknown --sort "${sortKey}" (try config, idle, name)`);
+    process.exit(2);
+  }
+  const idleOver = options.idleOver ? parseDuration(options.idleOver, { what: "--idle-over" }) : null;
+
   const rows = sessions.map((session) => {
     const entry = liveFor(session.node).get(session.tmuxName);
     const pane = entry?.panes[0];
@@ -1426,8 +1434,23 @@ function cmdStatus(config, options, ui) {
     };
   });
 
+  let shown = rows;
+  if (idleOver !== null) {
+    shown = rows.filter((row) => row.idleSeconds !== null && row.idleSeconds >= idleOver);
+    if (!shown.length) {
+      ui.info(`no session has been quiet for ${shortAge(idleOver)} or more`);
+      return;
+    }
+  }
+  if (sortKey === "idle") {
+    // quietest first: the ones worth a look come before the busy ones
+    shown = [...shown].sort((a, b) => (b.idleSeconds ?? -1) - (a.idleSeconds ?? -1));
+  } else if (sortKey === "name") {
+    shown = [...shown].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
   if (ui.json) {
-    ui.out(JSON.stringify(rows, null, 2));
+    ui.out(JSON.stringify(shown, null, 2));
     return;
   }
 
@@ -1435,7 +1458,7 @@ function cmdStatus(config, options, ui) {
   const headers = showNode
     ? ["#", "NAME", "NODE", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]
     : ["#", "NAME", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"];
-  const table = rows.map((r) => [
+  const table = shown.map((r) => [
     String(r.index),
     r.name,
     ...(showNode ? [r.node || "-"] : []),
@@ -1457,7 +1480,7 @@ function cmdStatus(config, options, ui) {
   const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
   const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
   ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
-  rows.forEach((row, i) => {
+  shown.forEach((row, i) => {
     const colored = [...table[i]];
     const stateAt = showNode ? 3 : 2;
     colored[0] = ui.paint("dim", colored[0]);
@@ -1475,10 +1498,10 @@ function cmdStatus(config, options, ui) {
     ui.out(colored.map((cell, idx) => pad(cell, widths[idx])).join("  ").trimEnd());
   });
   if (!options.quiet) {
-    const running = rows.filter((r) => r.state === "running" || r.state === "attached").length;
+    const running = shown.filter((r) => r.state === "running" || r.state === "attached").length;
     const unreachableNodes = [...unreachable];
     ui.out(
-      `\n${running}/${rows.length} running` +
+      `\n${running}/${shown.length} running` +
         (config.nodes?.length ? `  ${ui.paint("dim", `${config.nodes.length} node${config.nodes.length === 1 ? "" : "s"}`)}` : "") +
         (unreachableNodes.length ? `  ${ui.paint("red", `unreachable: ${unreachableNodes.join(", ")}`)}` : "") +
         `  ${ui.paint("dim", `config: ${config.path}`)}`,
@@ -1687,6 +1710,7 @@ async function cmdTui(config, options, ui) {
   tui = createTui({
     version: options.version ?? "",
     leftWidth,
+    sort: options.sort ?? "config",
     io: {
       input: process.stdin,
       output: process.stdout,
