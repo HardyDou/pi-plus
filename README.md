@@ -34,6 +34,7 @@ pi-plus.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --n
 - **多机器一张表**：`pp node add` 登记一台 ssh 能到的机器，会话写 `node: prod-01` 就跑到那台机器上——远端不用装 pp，`pp ls`/`tui`/`cron`/`todo` 一视同仁；机器的 `base_path`/`defaults` 让会话条目只剩两行。
 - **机群体检**：`pp doctor --nodes` 并行 ssh 一遍，每台一行给出连通性、负载、uptime、会话数、磁盘、内存。
 - **会话可搬家**：`pp mv <会话> --node <机器>` 停掉、改一行 `node:`、在新机器起来；`--local` 挪回来。
+- **能收编**：`pp adopt --all` 把机器上已在跑、但没人写进配置的 tmux 会话登记进来（带 `--node` 收编别的机器上的）。
 
 ## 安装
 

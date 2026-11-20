@@ -136,6 +136,24 @@ Without a terminal (a script, an autostart job) it refuses unless `--force` is
 given. Comments elsewhere in the file survive — only the deleted block is
 rewritten, so the diff stays small.
 
+### `pp adopt [name|#...] [--all]`
+
+把机器上**已经在跑、但不在配置里**的 tmux 会话反向登记进 `plus.yml`：
+
+```bash
+pp adopt                    # 列出可收养的（带 --dry-run 先看会写什么）
+pp adopt web --dry-run
+pp adopt --all              # 全部收编
+pp adopt --all --node prod-01
+```
+
+从运行状态里取的信息：`cwd` 来自 pane 的当前目录、`agent` 来自 pane 在跑什么、
+重启策略记 `unless-stopped`（你手动停掉的就保持停着）。**不会重启任何会话**——它们照旧跑，
+配置从此开始描述它们。名字非法、与已有会话重名、pane 已经死掉的会被拒绝并说明原因。
+
+如果 pane 跑的不是常见 agent（不是 `pi`/`bash`/`node` 之类），会提醒你 `--agent` 手动记一个，
+免得下次 `pp up` 去执行一个跑不起来的命令。
+
 ### `pp mv <name|#> --node <machine> | --local`
 
 把一条会话挪到另一台机器：在原来的地方停掉、改配置里那一行 `node:`、在新地方起来。

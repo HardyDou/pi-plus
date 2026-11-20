@@ -10,6 +10,8 @@ import {
   sanitizeRemotePiName,
   setSessionField,
   splitCommand,
+  appendSessionBlock,
+  renderSessionEntry,
 } from "../src/config.js";
 import { parseYaml } from "../src/yaml.js";
 
@@ -251,4 +253,24 @@ sessions:
 
   assert.equal(setSessionField(text, "nope", "node", "x"), null);
   assert.equal(setSessionField(text, "api", "node", "prod-01").split("\n").length, text.split("\n").length + 1);
+});
+
+test("an adopted session is appended after the last one, not at the end of the file", () => {
+  const text = `version: 1
+sessions:
+  - name: api
+    cwd: /srv/api
+nodes:
+  - name: far
+    host: h
+`;
+  const entry = renderSessionEntry({ name: "stray", cwd: "/tmp", node: "far", agent: "pi", restart: "no" });
+  const next = appendSessionBlock(text, entry);
+  assert.match(next, /- name: api[\s\S]*- name: stray/);
+  assert.ok(next.indexOf("- name: stray") < next.indexOf("nodes:"), "lands inside sessions, not after nodes");
+  assert.match(next, /restart: "no"/, "restart: no must be quoted or YAML reads a boolean");
+
+  const empty = appendSessionBlock("version: 1\nsessions: []\n", renderSessionEntry({ name: "x", cwd: "/tmp" }));
+  assert.match(empty, /sessions:\n {2}- name: x/);
+  assert.equal(appendSessionBlock("version: 1\n", renderSessionEntry({ name: "x", cwd: "/tmp" })), null);
 });

@@ -271,6 +271,20 @@ pp ls --node t114            # 只看这台机器上的会话
 
 不带名字时 `--node` 只影响"批量"命令（`up`/`down`/`restart`/`ls`/`send`），单会话命令本来就已经定位到具体机器了。
 
+### 收编机器上已有的会话
+
+跟同事共用的机器上，往往先有 tmux 会话、后有人写配置。`pp adopt` 就是把"实际在跑的"
+变成"配置里写着的"：
+
+```bash
+$ pp adopt --all --node prod-01 --dry-run
+  + build   /srv/build   agent:pi   node:prod-01
+  + watch   /srv/watch   agent:bash   node:prod-01
+[dry-run] would write 2 session(s) to ~/.pi/plus.yml
+```
+
+不会重启任何东西；`pp ls` 里 `(not in config)` 的那些行从此不再是例外。
+
 ### 把会话挪到另一台机器
 
 ```bash

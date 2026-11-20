@@ -12,6 +12,10 @@ import {
   splitCommand,
   resolveSessionRef,
   removeSessionFromFile,
+  appendSessionBlock,
+  NAME_RE,
+  RESTART_POLICIES,
+  renderSessionEntry,
   shellQuote,
 } from "./config.js";
 import { agoText, auditPath, pruneAudit, readAudit, recordAudit } from "./audit.js";
@@ -888,6 +892,113 @@ async function cmdTodo(config, options, ui) {
     }
     throw err;
   }
+}
+
+/**
+ * Adopt sessions that are already running but not in the config. A machine
+ * tends to grow tmux sessions before anyone writes them down; this is the way
+ * back to "what runs here is what is written here".
+ */
+async function cmdAdopt(config, options, ui) {
+  if (options.restart && !RESTART_POLICIES.includes(options.restart)) {
+    ui.error(`--restart must be one of ${RESTART_POLICIES.join(", ")} (got "${options.restart}")`);
+    process.exitCode = 2;
+    return;
+  }
+  const nodeName = options.node ? findNode(config, options.node).name : null;
+  const node = nodeName ? nodeForSession(config, { node: nodeName }) : null;
+  const tmux = makeTmux(config, options, nodeName ? { node: nodeName } : null);
+  const live = tmux.listSessions();
+  if (live.size === 0) {
+    ui.info(`${tmux.label} has no running sessions to adopt`);
+    return;
+  }
+
+  const configured = new Set(config.sessions.filter((session) => (session.node ?? null) === nodeName).map((session) => session.tmuxName));
+  const byName = new Map(config.sessions.map((session) => [session.name, session]));
+  const strays = [...live.values()].filter((entry) => !configured.has(entry.name)).sort((a, b) => a.name.localeCompare(b.name));
+  if (strays.length === 0) {
+    ui.info(`nothing to adopt on ${tmux.label} — all ${live.size} running session(s) are in the config`);
+    return;
+  }
+
+  const wanted = (options.names ?? []).filter((name) => name !== undefined);
+  const picked = wanted.length ? strays.filter((entry) => wanted.includes(entry.name)) : options.all ? strays : [];
+  if (picked.length === 0) {
+    const already = wanted.filter((name) => !strays.some((entry) => entry.name === name));
+    if (wanted.length && already.length) {
+      ui.info(`already in the config: ${already.join(", ")}`);
+      return;
+    }
+    ui.error(`say which to adopt, or --all:  ${strays.map((entry) => entry.name).join(", ")}`);
+    return;
+  }
+  if (!options.all) {
+    const unknown = wanted.filter((name) => !live.has(name));
+    if (unknown.length) ui.warn(`not running here: ${unknown.join(", ")}`);
+  }
+
+  const rows = [];
+  for (const entry of picked) {
+    const agent = (entry.panes.find((pane) => !pane.dead)?.command ?? "").trim();
+    const problem =
+      !NAME_RE.test(entry.name)
+        ? `"${entry.name}" is not a valid session name — rename it or add it by hand`
+        : byName.has(entry.name)
+          ? `a session named "${entry.name}" is already configured${byName.get(entry.name).node ? ` on ${byName.get(entry.name).node}` : ""}`
+          : live.get(entry.name).panes.every((pane) => pane.dead)
+            ? "its pane is dead — nothing to adopt"
+            : null;
+    rows.push({
+      entry,
+      problem,
+      session: {
+        name: entry.name,
+        cwd: entry.path,
+        node: nodeName,
+        agent: agent || DEFAULT_AGENT,
+        restart: options.restart ?? "unless-stopped",
+      },
+    });
+  }
+
+  const good = rows.filter((row) => !row.problem);
+  if (options.json) {
+    ui.data(JSON.stringify(good.map((row) => ({ name: row.session.name, cwd: row.session.cwd, node: row.session.node, agent: row.session.agent })), null, 2));
+  } else {
+    const shells = new Set(["pi", "bash", "zsh", "sh", "dash", "fish", "node", "python3", "python", "tmux"]);
+    for (const row of rows) {
+      if (row.problem) ui.warn(`${row.session.name}: ${row.problem}`);
+      else {
+        ui.out(`  + ${row.session.name}  ${row.session.cwd}  agent:${row.session.agent}${row.session.node ? `  node:${row.session.node}` : ""}`);
+        if (!shells.has(row.session.agent.split(" ")[0])) ui.warn(`  ${row.session.name}: agent "${row.session.agent}" is what the pane is running — pass --agent to record something else`);
+      }
+    }
+  }
+  if (good.length === 0) {
+    ui.error("nothing could be adopted");
+    process.exitCode = 1;
+    return;
+  }
+  if (options.dryRun) {
+    ui.info(`[dry-run] would write ${good.length} session(s) to ${config.path}`);
+    for (const row of good) ui.out(renderSessionEntry(row.session));
+    return;
+  }
+
+  let text = readFileSync(config.path, "utf8");
+  for (const row of good) {
+    const next = appendSessionBlock(text, renderSessionEntry(row.session));
+    if (next === null) {
+      ui.error(`${config.path} has no "sessions:" section; add them by hand`);
+      return;
+    }
+    text = next;
+  }
+  writeFileSync(config.path, text);
+  note("adopt", good.map((row) => row.session.name).join(","), { node: nodeName, detail: `${good.length} session(s)` });
+  ui.info(`adopted ${good.length}: ${good.map((row) => row.session.name).join(", ")} → ${config.path}`);
+  ui.info(`take effect on restart: pp restart ${good.map((row) => row.session.name).join(" ")}`);
 }
 
 async function cmdRm(config, options, ui) {
@@ -3528,6 +3639,10 @@ export async function runCommand(command, options) {
     case "start": {
       const config = requireConfig(options, ui);
       return cmdUp(config, options, ui);
+    }
+    case "adopt": {
+      const config = requireConfig(options, ui);
+      return cmdAdopt(config, options, ui);
     }
     case "mv":
     case "move": {

@@ -86,6 +86,7 @@ function parseArgs(argv) {
         // directory (mv/new) is a different thing
         case "--cwd": options.sessionCwd = takeValue(flag, inline); break;
         case "--agent": options.agent = takeValue(flag, inline); break;
+        case "--restart": options.restart = takeValue(flag, inline); break;
         case "--log": options.log = true; break;
         case "--save": options.save = true; break;
         case "--attach": options.attach = true; break;

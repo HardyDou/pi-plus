@@ -39,7 +39,7 @@ export class ConfigError extends Error {
   }
 }
 
-const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
+export const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
 export function expandPath(value, env = process.env, home = homedir()) {
   let out = String(value).trim();
@@ -470,6 +470,44 @@ export function setSessionField(text, name, key, value) {
   }
   const next = [...lines.slice(0, target.start), ...body, ...lines.slice(target.end)];
   return `${next.join("\n").replace(/\n*$/, "")}\n`;
+}
+
+/** One YAML item for a session, the shape `pp new --save` writes. */
+export function renderSessionEntry(session) {
+  return [
+    `  - name: ${session.name}`,
+    `    cwd: ${session.cwd}`,
+    session.node ? `    node: ${session.node}` : null,
+    session.agent ? `    agent: ${session.agent}` : null,
+    // "no" is a YAML boolean, so the one policy that collides gets quotes
+    `    restart: ${(session.restart ?? "unless-stopped") === "no" ? '"no"' : (session.restart ?? "unless-stopped")}`,
+    session.log ? `    log: ${session.log}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * Append a session to the end of the `sessions:` list — after the last item,
+ * not at the end of the file, so a `nodes:` section below it stays readable.
+ */
+export function appendSessionBlock(text, entry) {
+  let source = String(text);
+  if (/^sessions:\s*\[\s*\]\s*$/m.test(source)) source = source.replace(/^sessions:\s*\[\s*\]\s*$/m, "sessions:");
+  if (!/^sessions\s*:/m.test(source)) return null;
+  const { lines, blocks } = findSessionBlocks(source);
+  const at = blocks.length ? blocks[blocks.length - 1].end : lines.findIndex((line) => /^sessions\s*:/.test(line)) + 1;
+  const next = [...lines.slice(0, at), ...entry.split("\n"), ...lines.slice(at)];
+  return `${next.join("\n").replace(/\n*$/, "")}\n`;
+}
+
+/** Append a session to a config file on disk. */
+export function appendSessionToFile(configPath, entry) {
+  const path = expandPath(configPath);
+  const next = appendSessionBlock(readFileSync(path, "utf8"), entry);
+  if (next === null) return false;
+  writeFileSync(path, next);
+  return true;
 }
 
 /** Rewrite one field of one session on disk. Returns true when it changed. */
