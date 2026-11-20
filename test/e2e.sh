@@ -153,6 +153,8 @@ section "up / status"
 check "bare up starts 3"         0 '3 started'                  PFc up
 check "up is idempotent"         0 '0 started'                  PFc up
 check "status table"             0 'e-no +off'                  PFc status
+check "status shows an idle column"   0 'IDLE'                  PFc status
+check "status --json says how idle"   0 '"idleSeconds"'         bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK status --json | head -20"
 check "status shows restart col" 0 'RESTART'                    PFc status
 check "status --json valid"      0 '"sessions"|e-always'        bash -c "pp -c $CFG --socket $SOCK status --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d)[:40])'"
 check "status named row only"    0 'e-always'                   bash -c "pp -c $CFG --socket $SOCK status e-always | sed -n 2p"

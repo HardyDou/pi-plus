@@ -14,6 +14,7 @@ const ESC = "\u001b[";
 const REVERSE = `${ESC}7m`;
 const DIM = `${ESC}2m`;
 const BOLD = `${ESC}1m`;
+const YELLOW = `${ESC}33m`;
 const RESET = `${ESC}0m`;
 const CLEAR = `${ESC}2J${ESC}H`;
 const HIDE_CURSOR = `${ESC}?25l`;
@@ -244,7 +245,12 @@ function boxLines(box, title, rows, { focus = false } = {}) {
 
 function listRow(item, width, selected) {
   const text = padWidth(item.label, width);
-  if (!selected) return item.dim ? `${DIM}${text}${RESET}` : text;
+  if (!selected) {
+    if (item.dim) return `${DIM}${text}${RESET}`;
+    // quiet for a long time: not broken, just worth a look
+    if (item.warn) return `${YELLOW}${text}${RESET}`;
+    return text;
+  }
   return `${REVERSE}${text}${RESET}`;
 }
 

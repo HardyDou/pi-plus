@@ -142,7 +142,9 @@ rewritten, so the diff stays small.
 
 ### `pp status [name|#...]`
 
-状态表（别名 `ls`、`list`）。列：`#`、`NAME`、`STATE`、`RESTART`、`PID`、`AGENT`、`CWD`、`PI SESSION`、`REMOTE-PI`。
+状态表（别名 `ls`、`list`）。列：`#`、`NAME`、`[NODE]`、`STATE`、`IDLE`、`RESTART`、`PID`、`AGENT`、`CWD`、`PI SESSION`、`REMOTE-PI`
+（`NODE` 只在配置里有 `nodes:` 时出现；`IDLE` 是这条会话最后一次有动静距今多久，
+超过 `PP_STALE_MINUTES`（默认 30）分钟会标黄）。
 
 `STATE` 取值：`running`、`attached`（有人正在看）、`dead`（pane 退出但被 `remain-on-exit` 保留）、`off`（配置了但没跑 / `restart: no` / 手动停过）。
 
@@ -325,6 +327,7 @@ pp new api --node prod-01 -C api --save   # 落到 /srv/apps/api
 | `PgUp` / `PgDn` | 整页翻动列表 |
 | `-` / `+` | 待办框行数 -1 / +1（预览相应让出或收回） |
 | `f` | 暂停 / 恢复预览跟随（暂停时 footer 显示 `PAUSED`） |
+| 行末 `2h` + `!` | 该会话已安静超过 `PP_STALE_MINUTES`（默认 30）分钟，琥珀色提醒 |
 | `q` / `Esc` / `Ctrl-C` | 退出 |
 
 ```bash

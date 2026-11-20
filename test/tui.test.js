@@ -420,3 +420,32 @@ test("an empty todo list is hidden entirely on a narrow terminal", () => {
   );
   assert.ok(!lines.some((line) => line.includes(" todo (")), "no empty todo box");
 });
+
+test("a session that has been quiet for a while is marked, not hidden", () => {
+  const layout = computeLayout(120, 20, { todoCount: 0 });
+  const lines = renderFrame(
+    {
+      sessions: [
+        { label: "1 busy running 2m", name: "busy" },
+        { label: "2 quiet running 4h !", name: "quiet", warn: true },
+      ],
+      todos: [],
+      preview: { title: "—", lines: [] },
+      focus: "sessions",
+      footer: "",
+      sessionOffset: 0,
+      todoOffset: 0,
+    },
+    layout,
+  );
+  assert.match(lines[2], /\u001b\[33m/, "the quiet one is amber");
+  assert.doesNotMatch(lines[1], /\u001b\[33m/, "the busy one is not");
+});
+
+test("PP_STALE_MINUTES decides what counts as quiet", async () => {
+  const { staleSeconds } = await import("../src/commands.js");
+  assert.equal(staleSeconds({}), 30 * 60);
+  assert.equal(staleSeconds({ PP_STALE_MINUTES: "5" }), 5 * 60);
+  assert.equal(staleSeconds({ PP_STALE_MINUTES: "0" }), 30 * 60, "zero falls back to the default");
+  assert.equal(staleSeconds({ PP_STALE_MINUTES: "soon" }), 30 * 60);
+});

@@ -1404,6 +1404,8 @@ function cmdStatus(config, options, ui) {
       pid = String(pane.pid ?? "");
       command = pane.command ?? "";
     }
+    const activity = entry?.activity ?? 0;
+    const idleSeconds = activity ? Math.max(0, Math.round(Date.now() / 1000 - activity)) : null;
     return {
       index: config.sessions.indexOf(session) + 1,
       name: session.name,
@@ -1417,6 +1419,9 @@ function cmdStatus(config, options, ui) {
       pi: session.pi,
       piSession: session.piSession ?? "",
       piSessionName: session.piSessionName ?? "",
+      activity,
+      idleSeconds,
+      idle: idleSeconds === null ? "" : shortAge(idleSeconds),
       remotePiName: session.remotePiName ?? "",
     };
   });
@@ -1428,13 +1433,14 @@ function cmdStatus(config, options, ui) {
 
   const showNode = (config.nodes?.length ?? 0) > 0;
   const headers = showNode
-    ? ["#", "NAME", "NODE", "STATE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]
-    : ["#", "NAME", "STATE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"];
+    ? ["#", "NAME", "NODE", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]
+    : ["#", "NAME", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"];
   const table = rows.map((r) => [
     String(r.index),
     r.name,
     ...(showNode ? [r.node || "-"] : []),
     r.state,
+    r.idle || "-",
     r.restart,
     r.pid,
     r.command,
@@ -1460,6 +1466,12 @@ function cmdStatus(config, options, ui) {
     if (row.state === "unreachable") colored[stateAt] = ui.paint("red", "unreachable");
     const color = row.state === "running" ? "green" : row.state === "attached" ? "cyan" : row.state === "dead" || row.state === "unreachable" ? "red" : "dim";
     colored[stateAt] = ui.paint(color, colored[stateAt]);
+    const idleAt = stateAt + 1;
+    if (row.idleSeconds !== null && row.idleSeconds >= staleSeconds()) {
+      colored[idleAt] = ui.paint("yellow", colored[idleAt]);
+    } else if (row.idle) {
+      colored[idleAt] = ui.paint("dim", colored[idleAt]);
+    }
     ui.out(colored.map((cell, idx) => pad(cell, widths[idx])).join("  ").trimEnd());
   });
   if (!options.quiet) {
@@ -1475,6 +1487,13 @@ function cmdStatus(config, options, ui) {
 }
 
 /** Rows for the sessions panel: config entries first, then live strays. */
+/** How long a session may sit quiet before pp points at it (minutes). */
+export function staleSeconds(env = process.env) {
+  const raw = Number(env?.PP_STALE_MINUTES);
+  const minutes = Number.isFinite(raw) && raw > 0 ? raw : 30;
+  return minutes * 60;
+}
+
 /** "3m" for a session that last moved three minutes ago. */
 function shortAge(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "";
@@ -1496,15 +1515,20 @@ function tuiSessionRows(config, live) {
     seen.add(session.tmuxName);
     const entry = live.get(session.tmuxName) ?? null;
     const state = stateOf(entry);
-    const age = entry?.activity ? shortAge(Date.now() / 1000 - entry.activity) : "";
+    const idle = entry?.activity ? Date.now() / 1000 - entry.activity : null;
+    const age = idle === null ? "" : shortAge(idle);
+    const stale = idle !== null && idle >= staleSeconds() && state !== "off" && state !== "dead";
     rows.push({
       name: session.tmuxName,
       node: session.node ?? "",
       state,
       activity: entry?.activity ?? 0,
       age,
-      label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}${session.node ? ` @${session.node}` : ""}  ${state}${age ? ` ${age}` : ""}`,
+      stale,
+      idleSeconds: idle === null ? null : Math.round(idle),
+      label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}${session.node ? ` @${session.node}` : ""}  ${state}${age ? ` ${age}${stale ? " !" : ""}` : ""}`,
       dim: state === "off" || state === "dead",
+      warn: stale,
     });
   }
   for (const [name, entry] of live) {
