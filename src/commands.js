@@ -96,7 +96,7 @@ import {
   todoRow,
   TodoError,
 } from "./todo.js";
-import { computeLayout, createTui, renderFrame } from "./tui.js";
+import { computeLayout, createTui, parseLeftOption, renderFrame } from "./tui.js";
 
 const COLORS = {
   reset: "\u001b[0m",
@@ -851,6 +851,17 @@ function tuiTodoRows(todos, now) {
 async function cmdTui(config, options, ui) {
   const tmux = makeTmux(config, options);
   const once = Boolean(options.once);
+  let leftWidth = 0;
+  if (options.left !== undefined) {
+    try {
+      leftWidth = parseLeftOption(options.left, process.stdout.columns || 100);
+    } catch (err) {
+      ui.error(err.message);
+      process.exit(2);
+    }
+  }
+
+
   if (!process.stdout.isTTY && !once) {
     ui.error("pp tui needs a terminal (try `pp tui --once` to print one frame)");
     process.exit(2);
@@ -867,14 +878,14 @@ async function cmdTui(config, options, ui) {
   if (once) {
     const cols = process.stdout.columns || 100;
     const rows = process.stdout.rows || 30;
-    const layout = computeLayout(cols, rows);
+    const layout = computeLayout(cols, rows, { leftWidth });
     const live = readLive();
     const model = {
       sessions: tuiSessionRows(config, live),
       todos: tuiTodoRows(filterTodos(readTodos()), Date.now()),
       preview: { title: "—", lines: [] },
       focus: "sessions",
-      footer: " pp tui --once ",
+      footer: " pp tui --once  (--left 30 adjusts the sessions column) ",
     };
     for (const line of renderFrame(model, layout)) ui.out(line);
     return;
@@ -882,8 +893,10 @@ async function cmdTui(config, options, ui) {
 
   const previewLines = () => Math.max(4, computeLayout(process.stdout.columns || 100, process.stdout.rows || 30).preview.h - 2);
 
-  const tui = createTui({
+  let tui = null;
+  tui = createTui({
     version: options.version ?? "",
+    leftWidth,
     io: {
       input: process.stdin,
       output: process.stdout,
@@ -912,7 +925,8 @@ async function cmdTui(config, options, ui) {
       },
       async attach(name) {
         if (!tmux.sessionExists(name)) {
-          ui.warn(`${name} is not running; start it with pp up ${name}`);
+          // no ui.warn here: printing into a live alt screen tears the frame
+          tui?.noteFromAttach(`${name} is not running — start it with pp up ${name}`);
           await new Promise((resolve) => setTimeout(resolve, 600));
           return;
         }

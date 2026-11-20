@@ -271,7 +271,7 @@ pp todo ls --all --json       # 连已完成的、机器可读
 │ 6 risk-01  running                     │ │   a1b2c3d fix: ...                                    │
 │ 7 risk-02  running                     │ │ ⏳ Working...                                          │
 └────────────────────────────────────────┘ └───────────────────────────────────────────────────────┘
- ↑↓ move   Tab panel   Enter attach   d done   r refresh   q quit
+ ↑↓ move   Tab panel   Enter attach   d done   [ ] width   r refresh   q quit
 ```
 
 按键：
@@ -282,6 +282,7 @@ pp todo ls --all --json       # 连已完成的、机器可读
 | `Tab` | 切换列表（会话 ↔ 待办） |
 | `Enter` | 进入（会话：在 tmux 里 `switch-client`，在 tmux 外 `tmux attach`）；从待办进则进它所属的会话 |
 | `d` | 把选中的待办标记完成 |
+| `[` / `]` | 左列变窄 / 变宽（每按一次 4 列） |
 | `r` | 立即重绘 |
 | `q` / `Esc` / `Ctrl-C` | 退出 |
 
@@ -290,8 +291,13 @@ pp todo ls --all --json       # 连已完成的、机器可读
 **它不是终端模拟器**：右侧下半部分是 `capture-pane` 的快照（每秒刷新），不是活终端。
 真正接管终端的是 tmux，这也是它只有 ~400 行、不容易出玄学 bug 的原因。
 
+渲染上还有一条硬规则：每一行都用绝对光标定位（`ESC[{row};1H`）重画、写完关掉自动折行。
+这样即使某行宽度算错一个字符（中文、双宽 emoji 最常见），最多脏自己那一行，
+不会让终端折行、多占一行、把整屏往上滚 —— 也就是不会出现"每刷新一次就多一帧"的样子。
+
 ```bash
 pp tui                 # 交互
+pp tui --left 24       # 左列固定 24 列（也能写 30%）
 pp tui --once          # 打印一帧就退出（管道/CI 里也能用）
 pp tui -c ./pi-plus.yml --socket work
 ```

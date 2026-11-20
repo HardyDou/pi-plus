@@ -242,17 +242,21 @@ pp cron install
 | `Tab` | 切换列表 |
 | `Enter` | 进入会话（tmux 内 `switch-client`，tmux 外 `tmux attach`） |
 | `d` | 待办标记完成 |
+| `[` / `]` | 左列变窄 / 变宽（每按一次 4 列） |
 | `r` | 重绘 |
 | `q` / `Esc` / `Ctrl-C` | 退出 |
 
 ```bash
 pp tui
+pp tui --left 24              # 左列固定 24 列
+pp tui --left 30%             # 左列占终端 30%
 pp tui --once                 # 一帧输出后退出，不需要 tty
 pp tui --socket work
 ```
 
 | 选项 | 说明 |
 |---|---|
+| `--left <n\|N%>` | 左列宽度，默认终端的 34%（最小 18 列，右侧至少留 26 列）；运行时 `[` `]` 也能改 |
 | `--once` | 打印一帧就退出（管道里可用；`stdout` 不是 tty 时也只有这条路） |
 | `--socket <name>` | 看哪个 tmux server |
 

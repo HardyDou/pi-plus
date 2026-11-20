@@ -20,6 +20,9 @@ const HIDE_CURSOR = `${ESC}?25l`;
 const SHOW_CURSOR = `${ESC}?25h`;
 const ALT_SCREEN = `${ESC}?1049h`;
 const MAIN_SCREEN = `${ESC}?1049l`;
+/** Trailers keep the cursor from ever wrapping onto a new line. */
+const WRAP_OFF = `${ESC}?7l`;
+const WRAP_ON = `${ESC}?7h`;
 
 const ANSI = /\u001b\[[0-9;?]*[A-Za-z]/g;
 
@@ -123,6 +126,8 @@ export function parseKeys(input) {
       else if (char === "d") keys.push("done");
       else if (char === "r") keys.push("refresh");
       else if (char === "?") keys.push("help");
+      else if (char === "[") keys.push("narrower");
+      else if (char === "]") keys.push("wider");
       else if (char === "g") keys.push("top");
       else if (char === "G") keys.push("bottom");
       i += 1;
@@ -131,12 +136,43 @@ export function parseKeys(input) {
   return keys;
 }
 
-export function computeLayout(cols, rows) {
+/** Narrowest sensible sessions column, and how much the todo column needs. */
+export const MIN_LEFT_WIDTH = 18;
+export const RIGHT_MIN_WIDTH = 26;
+export const DEFAULT_LEFT_RATIO = 0.34;
+export const LEFT_STEP = 4;
+
+export function clampLeftWidth(value, cols) {
+  const width = Math.max(40, cols);
+  return Math.min(Math.max(Math.round(Number(value) || 0), MIN_LEFT_WIDTH), Math.max(MIN_LEFT_WIDTH, width - RIGHT_MIN_WIDTH - 1));
+}
+
+/**
+ * `--left 30` (columns) or `--left 28%` → a column count for this terminal.
+ */
+export function parseLeftOption(text, cols = 100) {
+  const value = String(text ?? "").trim();
+  if (!value) throw new Error("--left needs a width (e.g. 30 or 28%)");
+  if (value.endsWith("%")) {
+    const percent = Number(value.slice(0, -1));
+    if (!Number.isFinite(percent) || percent <= 0 || percent >= 100) {
+      throw new Error(`--left ${value} is not a percentage between 1 and 99`);
+    }
+    return clampLeftWidth((Math.max(40, cols) * percent) / 100, cols);
+  }
+  const columns = Number(value);
+  if (!Number.isFinite(columns) || columns < MIN_LEFT_WIDTH) {
+    throw new Error(`--left must be at least ${MIN_LEFT_WIDTH} columns (or a percentage such as 30%)`);
+  }
+  return clampLeftWidth(columns, cols);
+}
+
+export function computeLayout(cols, rows, { leftWidth: wanted = 0 } = {}) {
   const width = Math.max(40, cols);
   const height = Math.max(10, rows);
   const footer = 1;
   const body = height - footer;
-  const leftWidth = Math.min(Math.max(Math.floor(width * 0.42), 24), width - 26);
+  const leftWidth = clampLeftWidth(wanted || Math.floor(width * DEFAULT_LEFT_RATIO), width);
   const rightWidth = width - leftWidth - 1;
   const todoHeight = Math.max(4, Math.ceil(body * 0.45));
   const previewHeight = body - todoHeight;
@@ -204,6 +240,24 @@ export function renderFrame(state, layout) {
   return out;
 }
 
+/**
+ * Paint a whole frame with absolute cursor addressing.
+ *
+ * This is deliberately paranoid: a control panel that paints with `\n` and
+ * relies on the terminal not to wrap will scroll (and look like it is appending
+ * frames) the moment one line is a column too wide — CJK previews are exactly
+ * that case. Addressing every row and erasing the tail of each line means a
+ * mis-measured glyph can only dirty its own row, never scroll the pane.
+ */
+export function paintFrame(lines, width) {
+  let out = `${CLEAR}${WRAP_OFF}`;
+  for (let i = 0; i < lines.length; i += 1) {
+    // erase the row *before* writing: EL after a full-width line would eat its last cell
+    out += `${ESC}${i + 1};1H${ESC}K${truncateWidth(lines[i], width)}`;
+  }
+  return out;
+}
+
 /** Keep a selection inside a list and the list scrolled to it. */
 export function moveSelection(index, length, delta) {
   if (length <= 0) return 0;
@@ -216,15 +270,18 @@ export function moveSelection(index, length, delta) {
  *   io.onResize(cb)  io.refresh() -> {sessions, todos, preview}
  *   io.attach(name) -> promise settled when tmux gives the terminal back
  */
-export function createTui({ io, version = "" }) {
-  let state = { sessions: [], todos: [], preview: { title: "—", lines: [] }, focus: "sessions", footer: "", todoOffset: 0, sessionIndex: 0, todoIndex: 0 };
+export function createTui({ io, version = "", leftWidth = 0 }) {
+  let state = { sessions: [], todos: [], preview: { title: "—", lines: [] }, focus: "sessions", footer: "", todoOffset: 0, sessionIndex: 0, todoIndex: 0, leftWidth: 0 };
   let running = false;
   let timer = null;
+  /** an attach() problem is shown in the footer: printing mid-frame would tear the screen */
+  let attachNote = "";
+  state.leftWidth = leftWidth;
 
   function footerText(extra = "") {
-    const base = " ↑↓ move   Tab panel   Enter attach   d done   r refresh   q quit ";
-    const hint = extra ? `  ${extra}` : "";
-    return `${DIM}${padWidth(base + hint, io.size().cols)}${RESET}`;
+    const base = " ↑↓ move · Tab panel · Enter attach · d done · [ ] width · r refresh · q quit ";
+    const text = extra ? `${extra}  ${base}` : base;
+    return `${DIM}${padWidth(text, io.size().cols)}${RESET}`;
   }
 
   function indexItems() {
@@ -236,21 +293,25 @@ export function createTui({ io, version = "" }) {
 
   function draw() {
     const { cols, rows } = io.size();
-    const layout = computeLayout(cols, rows);
+    const layout = computeLayout(cols, rows, { leftWidth: state.leftWidth });
     const model = indexItems();
-    model.footer = footerText();
-    const lines = renderFrame(model, layout);
-    io.output.write(`${CLEAR}${lines.join("\n")}`);
+    model.footer = footerText(state.note ?? "");
+    // never paint more rows than the terminal actually has
+    const lines = renderFrame(model, layout).slice(0, Math.max(1, rows || layout.height));
+    io.output.write(paintFrame(lines, layout.width));
   }
 
   async function refresh(extra = "") {
     const data = await io.refresh({ index: state.sessionIndex, focus: state.focus });
+    const note = [extra, attachNote].filter(Boolean).join(" · ");
+    attachNote = "";
     state.sessions = data.sessions ?? [];
     state.todos = data.todos ?? [];
     state.preview = data.preview ?? { title: "—", lines: [] };
     state.sessionIndex = Math.min(state.sessionIndex, Math.max(0, state.sessions.length - 1));
     state.todoIndex = Math.min(state.todoIndex, Math.max(0, state.todos.length - 1));
-    state.footer = footerText(extra);
+    state.note = note;
+    state.footer = footerText(state.note);
     draw();
   }
 
@@ -258,7 +319,16 @@ export function createTui({ io, version = "" }) {
     running = false;
     if (timer) clearInterval(timer);
     timer = null;
-    io.output.write(`${SHOW_CURSOR}${MAIN_SCREEN}`);
+    io.output.write(`${SHOW_CURSOR}${WRAP_ON}${MAIN_SCREEN}`);
+  }
+
+  function enterScreen() {
+    io.output.write(`${ALT_SCREEN}${HIDE_CURSOR}${WRAP_OFF}`);
+  }
+
+  /** attach() ran into a problem: say it in the footer instead of on the screen. */
+  function noteFromAttach(text) {
+    attachNote = text;
   }
 
   async function handle(key) {
@@ -269,6 +339,14 @@ export function createTui({ io, version = "" }) {
     if (key === "tab") {
       state.focus = state.focus === "sessions" ? "todos" : "sessions";
       draw();
+      return;
+    }
+    if (key === "narrower" || key === "wider") {
+      const { cols } = io.size();
+      const current = state.leftWidth || clampLeftWidth(Math.floor(Math.max(40, cols) * DEFAULT_LEFT_RATIO), cols);
+      const next = current + (key === "wider" ? LEFT_STEP : -LEFT_STEP);
+      state.leftWidth = clampLeftWidth(next, cols);
+      await refresh(`sessions column: ${state.leftWidth} columns`);
       return;
     }
     if (key === "up" || key === "down") {
@@ -308,7 +386,7 @@ export function createTui({ io, version = "" }) {
       // tmux gave the terminal back: take it again and redraw
       if (!running) {
         running = true;
-        io.output.write(`${ALT_SCREEN}${HIDE_CURSOR}`);
+        enterScreen();
         timer = setInterval(() => {
           refresh().catch(() => {});
         }, 1000);
@@ -320,7 +398,7 @@ export function createTui({ io, version = "" }) {
   return {
     async start() {
       running = true;
-      io.output.write(`${ALT_SCREEN}${HIDE_CURSOR}`);
+      enterScreen();
       io.onResize(() => draw());
       io.input.setRawMode?.(true);
       io.input.resume();
@@ -354,6 +432,7 @@ export function createTui({ io, version = "" }) {
       await refresh(extra);
       return state;
     },
+    noteFromAttach,
   };
 }
 

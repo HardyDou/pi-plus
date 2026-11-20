@@ -2,12 +2,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { EventEmitter } from "node:events";
 import {
+  clampLeftWidth,
   computeLayout,
   createTui,
+  parseLeftOption,
   displayWidth,
   moveSelection,
   padWidth,
   parseKeys,
+  paintFrame,
   renderFrame,
   stripAnsi,
   truncateWidth,
@@ -41,6 +44,7 @@ test("parseKeys understands arrows, vi keys and control keys", () => {
   assert.deepEqual(parseKeys("q"), ["quit"]);
   assert.deepEqual(parseKeys("?"), ["help"]);
   assert.deepEqual(parseKeys("xy"), []);
+  assert.deepEqual(parseKeys("[]"), ["narrower", "wider"]);
 });
 
 test("computeLayout splits the screen without overlaps", () => {
@@ -80,6 +84,42 @@ test("renderFrame fills the screen exactly and shows both panels", () => {
   assert.match(text, /q quit/);
   assert.match(lines[1], /\u001b\[7m/, "selected row is reversed");
   assert.match(lines[2], /\u001b\[2m/, "dim row is dimmed");
+});
+
+test("the sessions column can be set, clamped and parsed", () => {
+  assert.equal(computeLayout(100, 26).sessions.w, 34, "default is a third of the width");
+  assert.equal(computeLayout(100, 26, { leftWidth: 24 }).sessions.w, 24);
+  assert.equal(computeLayout(100, 26, { leftWidth: 400 }).sessions.w, 73, "never eats the todo column");
+  assert.equal(clampLeftWidth(5, 100), 18, "floor");
+  assert.equal(clampLeftWidth(30, 100), 30);
+  assert.equal(parseLeftOption("30", 100), 30);
+  assert.equal(parseLeftOption("25%", 100), 25);
+  assert.equal(parseLeftOption("30%", 80), 24);
+  assert.equal(parseLeftOption("34%", 80), 27);
+  assert.throws(() => parseLeftOption("abc", 100), /at least 18 columns/);
+  assert.throws(() => parseLeftOption("0%", 100), /not a percentage/);
+  assert.throws(() => parseLeftOption("100%", 100), /not a percentage/);
+  assert.equal(parseLeftOption("4%", 100), 18, "tiny percentages clamp instead of failing");
+  assert.throws(() => parseLeftOption("", 100), /needs a width/);
+});
+
+test("brackets resize the sessions column", async () => {
+  const { input, io, text } = fakeIo({
+    sessions: [{ label: "1 alpha", name: "alpha" }],
+    todos: [],
+    preview: [],
+  });
+  const tui = createTui({ io, version: "9.9.9" });
+  const done = tui.start();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  input.emit("data", "]");
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  input.emit("data", "[");
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  input.emit("data", "q");
+  await done;
+  assert.match(text(), /sessions column: 31 columns/, "grows by four");
+  assert.match(text(), /sessions column: 27 columns/, "and shrinks back");
 });
 
 test("renderFrame scrolls the todo list with todoOffset", () => {
@@ -174,4 +214,35 @@ test("createTui hands the terminal to tmux on Enter", async () => {
   input.emit("data", "q");
   await done;
   assert.deepEqual(calls, ["alpha"]);
+});
+
+test("paintFrame addresses every row so a wide line can never scroll the pane", () => {
+  const lines = ["a", "b".repeat(3), "c"];
+  const out = paintFrame(lines, 10);
+  assert.match(out, /\u001b\[\?7l/, "autowrap is off while the panel owns the screen");
+  for (let row = 1; row <= 3; row += 1) {
+    assert.ok(out.includes(`\u001b[${row};1H`), `row ${row} is positioned absolutely`);
+  }
+  assert.ok(!out.includes("\u001b[0J"), "no cursor moves past the last row (that would erase it)");
+  assert.ok(!out.includes("\n"), "frames are not painted with newlines");
+});
+
+test("a CJK preview never produces a line wider than the screen", () => {
+  const layout = computeLayout(60, 12);
+  const chinese = "任务 8a 落地（当前任务，已完成待复核）b172 (T2) 37.7K·544 553 msgs age=5 old";
+  const lines = renderFrame(
+    {
+      sessions: [{ label: "1 risk-01  running", selected: true }],
+      todos: [{ label: `1. mano-dev-01 — ${chinese}` }],
+      preview: { title: "risk-01", lines: [chinese, chinese + chinese] },
+      focus: "sessions",
+      footer: " ↑↓ move · q quit ",
+    },
+    layout,
+  );
+  assert.equal(lines.length, layout.height);
+  for (const line of lines) {
+    assert.ok(displayWidth(line) <= layout.width, `line overflows: ${JSON.stringify(line)}`);
+    assert.ok(!line.includes("\n"));
+  }
 });
