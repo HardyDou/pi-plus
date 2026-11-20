@@ -49,6 +49,7 @@ function parseArgs(argv) {
         case "--json": options.json = true; break;
         case "--dry-run": options.dryRun = true; break;
         case "--drift": options.drift = true; break;
+        case "--heal": options.heal = true; break;
         case "--force": options.force = true; break;
         case "--once": options.once = true; break;
         case "--left": options.left = takeValue(flag, inline); break;

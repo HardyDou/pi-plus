@@ -85,6 +85,7 @@ _pp() {
     '--cron[repeat on a crontab expression]:expr:' \
     '--command[run a shell command]:cmd:' \
     '--catch-up[how late a missed run may be]:duration:' \
+    '--heal[no prompt: run pp up --drift]' \
     '--start[start the session if it is not running]' \
     '--via[install backend]:backend:(crond)' \
     '--all[ls: include finished todos]' \

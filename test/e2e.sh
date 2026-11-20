@@ -382,6 +382,17 @@ check "cron status json"          0 '"installed"'              bash -c "cd $E2E 
 check "cron install --print"      0 '@reboot.*cron tick'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron install --print | tr '\n' ' ' | grep -o '@reboot.*cron tick'"
 check "cron rm removes job"       0 'removed [0-9a-f]'                  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $CMD_ID"
 check "cron help page"            0 'crontab expression'       bash -c "cd $E2E && $ROOT/bin/pp.js help cron"
+# --heal: put back whatever died, and leave a hand-stopped session alone
+check "cron add --heal"               0 'heal \(up --drift\)'    bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --heal --every 5m"
+check "cron add --heal rejects a session" 1 'needs no session'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --heal --session e-always --every 5m"
+check "cron add --heal rejects a prompt"  1 'no prompt'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --heal --every 5m 'hi'"
+check "cron ls names the heal job"    0 'drift \(up --drift\)'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
+HEAL_ID=$(cd "$E2E" && "$ROOT/bin/pp.js" -c "$CFG" cron ls --json | grep -B3 '"action": "heal"' | grep -o '"id": "[0-9a-f]*"' | head -1 | cut -d'"' -f4)
+check "heal restarts a dead session"  0 'delivered'              bash -c "tmux -L $SOCK kill-session -t e-onfail 2>/dev/null; cd $E2E && $ROOT/bin/pp.js -c $CFG cron run $HEAL_ID"
+check "heal brought it back"          0 'e-onfail'               bash -c "tmux -L $SOCK ls -F '#{session_name}'"
+check "heal audit trail recorded"     0 'heal'                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG audit --action heal"
+check "heal drops a hand-stopped one" 0 'delivered'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG down e-unless --force >/dev/null; $ROOT/bin/pp.js -c $CFG cron run $HEAL_ID"
+check "stopped session stayed down"   1 'can.t find session|no server'  bash -c "tmux -L $SOCK has-session -t '=e-unless:'"
 # a session that is only running in tmux (not in the config) is a valid target
 check "cron targets a running session" 0 'scheduled [0-9a-f]'   bash -c "cd $E2E && tmux -L $SOCK new-session -d -s adhoc-$SOCK -c /tmp 'bash' && $ROOT/bin/pp.js -c $CFG cron add --session adhoc-$SOCK --in 5m 'echo adhoc'"
 check "cron rejects a session that is nowhere" 1 'not in .* and not running' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session nope-$SOCK --in 5m 'x'"

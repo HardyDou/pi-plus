@@ -3454,7 +3454,59 @@ function deliverToEverySession(tmux, job) {
   return { status: "delivered", text: `to ${detail.join(", ")}` };
 }
 
+/**
+ * `pp cron add --heal` — put the config back where it belongs, unattended.
+ *
+ * A session that dies at 3am (OOM, a crashed agent, a closed laptop) is the
+ * one failure nobody notices until morning. Restarting it is safe by
+ * construction: `up --drift` only starts what is missing and it respects a
+ * session somebody stopped on purpose, so this can run every few minutes.
+ */
+function healDrift(job, options) {
+  let config = null;
+  try {
+    config = loadConfig({ configPath: job.configPath ?? undefined, cwd: process.cwd() });
+  } catch (error) {
+    return { status: `failed: ${error.message}` };
+  }
+  if (!config) return { status: "failed: no config to heal from" };
+  const liveCache = new Map();
+  const liveFor = (session) => {
+    const key = session.node ?? "";
+    if (!liveCache.has(key)) {
+      try {
+        liveCache.set(key, makeTmux(config, options, session).listSessions());
+      } catch {
+        liveCache.set(key, new Map());
+      }
+    }
+    return liveCache.get(key);
+  };
+  const missing = config.sessions.filter(
+    (session) => !liveFor(session).has(session.tmuxName) && !isStopped(config.path, session.name),
+  );
+  if (!missing.length) return { status: "delivered", text: "nothing needed starting" };
+  const started = [];
+  const failed = [];
+  for (const session of missing) {
+    if (session.restart === "no") continue;
+    try {
+      const tmux = makeTmux(config, options, session);
+      const spec = prepareSession(session, options);
+      tmux.create(session, launchSpec(session, tmux, spec));
+      started.push(session.name);
+      note("heal", session.name, { node: session.node ?? null, detail: "restarted by cron --heal", result: "ok" });
+    } catch (error) {
+      failed.push(`${session.name} (${error.message.split("\n")[0]})`);
+    }
+  }
+  if (!started.length && failed.length) return { status: `failed: could not start ${failed.join(", ")}` };
+  const detail = started.length ? `started ${started.join(", ")}` : "nothing needed starting";
+  return { status: "delivered", text: failed.length ? `${detail}, failed ${failed.join(", ")}` : detail };
+}
+
 function deliverJob(job, options) {
+  if (job.action === "heal") return healDrift(job, options);
   if (job.action === "command") {
     const result = spawnSync("sh", ["-c", job.command], { encoding: "utf8" });
     if (result.error) return { status: `failed: ${result.error.message}` };
@@ -3515,6 +3567,8 @@ function cronRow(job, now = new Date()) {
   return {
     id: job.id,
     session: job.action === "command" ? `$ ${job.command}` : job.session === ALL_SESSIONS ? "all sessions" : job.session,
+    action: job.action,
+    session: job.session ?? null,
     schedule: describeSchedule(job.schedule),
     next: due ? localStamp(due) : "-",
     runs: job.runs ?? 0,
@@ -3529,8 +3583,16 @@ function printCronJobs(jobs, ui, now = new Date()) {
   }
   const records = jobs.map((job) => cronRow(job, now));
   const headers = ["ID", "TARGET", "SCHEDULE", "NEXT", "RUNS", "LAST"];
-  const target = (session) => (session === ALL_SESSIONS ? "all sessions" : session);
-  const table = records.map((row) => [row.id, target(row.session), row.schedule, row.next, String(row.runs), row.last]);
+  // a command job has no session at all, so this has to survive null
+  const target = (session, action) =>
+    action === "heal"
+      ? "drift (up --drift)"
+      : action === "command"
+        ? "$ (localhost)"
+        : session === ALL_SESSIONS
+          ? "all sessions"
+          : session ?? "-";
+  const table = records.map((row) => [row.id, target(row.session, row.action), row.schedule, row.next, String(row.runs), row.last]);
   const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
   const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
   ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
@@ -3545,15 +3607,24 @@ function printCronJobs(jobs, ui, now = new Date()) {
 async function cmdCronAdd(config, options, ui) {
   const text = options.names.join(" ").trim();
   const command = options.command;
-  if (!text && !command) throw new CronError('nothing to say at that time — pass the prompt: pp cron add --at ... "check the build"');
-  if (text && command) throw new CronError("give either a prompt or --command, not both");
+  const healing = Boolean(options.heal);
+  if (healing) {
+    if (options.session || options.all) throw new CronError("--heal needs no session — it starts whatever is missing");
+    if (command) throw new CronError("--heal takes no command — it runs: pp up --drift");
+    if (text) throw new CronError("--heal takes no prompt — it runs: pp up --drift");
+  } else {
+    if (!text && !command) throw new CronError('nothing to say at that time — pass the prompt: pp cron add --at ... "check the build"');
+    if (text && command) throw new CronError("give either a prompt or --command, not both");
+  }
 
   const schedule = buildSchedule({ at: options.in ? new Date(Date.now() + parseDuration(options.in, { what: "--in" }) * 1000).toISOString() : options.at, every: options.every, cron: options.cronExpr });
 
   let session = null;
   let socket = options.socket ?? config?.tmuxSocket ?? null;
   let configPath = config?.path ?? null;
-  if (options.all) {
+  if (healing) {
+    session = null;
+  } else if (options.all) {
     if (options.session) throw new CronError("give either --session <name|#> or --all, not both");
     if (command) throw new CronError("--all takes a prompt — a command runs once, not per session");
     session = ALL_SESSIONS;
@@ -3593,8 +3664,8 @@ async function cmdCronAdd(config, options, ui) {
   const jobs = readJobs();
   const job = {
     id: newJobId(jobs),
-    action: command ? "command" : "prompt",
-    ...(command ? { command } : { prompt: text, session, socket }),
+    action: healing ? "heal" : command ? "command" : "prompt",
+    ...(healing ? {} : command ? { command } : { prompt: text, session, socket }),
     schedule,
     catchUp: options.catchUp ? parseDuration(options.catchUp, { what: "--catch-up" }) : DEFAULT_CATCH_UP_SECONDS,
     startSession: Boolean(options.start),
@@ -3605,7 +3676,7 @@ async function cmdCronAdd(config, options, ui) {
 
   const due = nextRun(job);
   if (options.dryRun) {
-    ui.out(`[dry-run] would schedule ${job.id}: ${describeSchedule(schedule)} → ${job.action === "command" ? `$ ${command}` : `session ${session}`}`);
+    ui.out(`[dry-run] would schedule ${job.id}: ${describeSchedule(schedule)} → ${job.action === "heal" ? "heal (up --drift)" : job.action === "command" ? `$ ${command}` : `session ${session}`}`);
     ui.out(`[dry-run] first run ${due ? due.toISOString() : "never"}`);
     return;
   }
@@ -3621,7 +3692,7 @@ async function cmdCronAdd(config, options, ui) {
     detail: `${describeSchedule(schedule)} → ${job.action === "command" ? `$ ${command}` : session}`,
     result: "ok",
   });
-  ui.info(`${ui.paint("green", "scheduled")} ${job.id}  ${describeSchedule(schedule)}  →  ${job.action === "command" ? `$ ${command}` : `session ${session}`}`);
+  ui.info(`${ui.paint("green", "scheduled")} ${job.id}  ${describeSchedule(schedule)}  →  ${job.action === "heal" ? "heal (up --drift)" : job.action === "command" ? `$ ${command}` : `session ${session}`}`);
   ui.info(ui.paint("dim", `first run: ${due ? due.toLocaleString() : "never"}   cancel with: pp cron rm ${job.id}`));
   if (!options.start && job.action === "prompt" && session !== ALL_SESSIONS) {
     ui.info(ui.paint("dim", `the session must be running at that moment (add --start to bring it up first)`));

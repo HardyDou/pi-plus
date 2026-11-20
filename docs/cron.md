@@ -36,6 +36,24 @@ pp cron install / uninstall / status      crontab 托管块
 }
 ```
 
+## 自愈：`--heal`
+
+```bash
+pp cron add --heal --every 5m
+```
+
+它没有提示词，只是按点执行 `pp up --drift`。适合放在每台机器上：agent 半夜因为 OOM、
+磁盘满、或有人关掉笔记本而消失，早上你看到的应该是"它自己回来了"，而不是"它已经不在了"。
+
+三条性质让它能放心高频跑：
+
+- 只启动配置里有、但当前没在跑的会话，正在跑的一律不动；
+- 尊重"手工停过"的记录（`unless-stopped` / `on-failure`），`pp down` 掉的不会被它拉起；
+- `restart: "no"` 的会话永远不碰。
+
+每次真正拉起会话都会写一条 `heal` 审计，所以"谁把它拉起来的"有据可查：
+`pp audit --action heal`。
+
 ## 三种时间表
 
 ```bash
@@ -44,6 +62,7 @@ pp cron add --session backend --at 2026-11-21T09:00 "…"           # 一次性�
 pp cron add --session docs    --every 2h "…"                      # 固定间隔（30s…1d）
 pp cron add --session docs    --cron "0 9 * * 1-5" "…"            # crontab 表达式
 pp cron add --all --every 10m "忽略我的心跳检测，请继续你的任务"      # 所有在跑的会话
+pp cron add --heal --every 5m                                  # 只补"该在没在的"会话（自愈）
 ```
 
 - **时区**：一律按**本机本地时间**解释，`cron.json` 里存的是 UTC（`once` 存 ISO 串，
