@@ -139,11 +139,25 @@ rewritten, so the diff stays small.
 ### `pp status` 的尾行
 
 ```
-2/3 running  1 down  1 unmanaged (stray-x) — pp adopt  config: ~/.pi/plus.yml
+2/3 running  2 down (1 cwd is gone, 1 stopped by hand)  1 unmanaged (stray-x) — pp adopt
 ```
 
 `down` = 配置里有、现在没在跑（`pp up` 能修）；`unmanaged` = 在跑、但配置里没有（`pp adopt` 能收）。
 两数都为 0 时这行只显示 `N/N running`。`pp doctor` 里同一条信息叫 `drift`。
+
+括号里是**为什么**，按"多该动手"排序（最多显示三类，剩下的写 `N more`）：
+
+| 说法 | 意思 | 下一步 |
+| --- | --- | --- |
+| `cwd is gone` | 本地工作目录不存在 | `pp check`，改 `cwd` 或建目录 |
+| `machine unreachable` | 那台机器 ssh 不上 | `pp node test <name>` |
+| `agent exited` | pane 还在、agent 退出了 | `pp logs <name>` |
+| `on a drained machine` | 维护窗口里被有意按住 | `pp node undrain <name>` |
+| `stopped by hand` | 有人手工停的 | `pp up <name>` |
+| `not started` | 该在但没人起过 | `pp up` 或 `pp up --drift` |
+
+`--json` 里同一份信息是 `drift.reasons: [{ why, count }]`，顺序同上；远程会话的 `cwd` 不在这里判断
+（只在那台机器上存在），归到 `not started`，要看真因用 `pp check --remote`。
 
 ### `pp doctor --nodes` 的 `CONFIG` 列
 

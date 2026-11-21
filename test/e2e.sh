@@ -161,6 +161,8 @@ check "ls sorts by idle"              0 'e-always'              bash -c "$ROOT/b
 check "ls rejects an unknown sort"    2 'unknown --sort'        bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK ls --sort sideways"
 check "ls --idle-over filters"        0 'quiet for|e-always'    bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK ls --idle-over 30d"
 check "status shows restart col" 0 'RESTART'                    PFc status
+check "status footer says why a session is down" 0 'down \('  bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK status | tail -3"
+check "status --json carries the reasons"     0 '"reasons"'     bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK status --json | tail -25"
 check "status --json valid"      0 '"sessions"|e-always'        bash -c "pp -c $CFG --socket $SOCK status --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d)[:40])'"
 check "status named row only"    0 'e-always'                   bash -c "pp -c $CFG --socket $SOCK status e-always | sed -n 2p"
 check "status unknown name"      2 'unknown session'            PFc status nosuch

@@ -1717,6 +1717,45 @@ async function cmdNode(config, options, ui) {
   process.exit(2);
 }
 
+/**
+ * Why a session is down, in the words an operator would use. The table footer
+ * only had a count ("2 down"), which answers "is anything wrong" but not "what
+ * do I type next" -- `pp check` was the only way to find out.
+ */
+export function downReasons(rows) {
+  const groups = new Map();
+  for (const row of rows) {
+    if (!["off", "stopped", "dead", "unreachable"].includes(row.state)) continue;
+    const why =
+      row.reason === "drain"
+        ? "on a drained machine"
+        : row.reason === "hand"
+          ? "stopped by hand"
+          : row.state === "unreachable"
+            ? "machine unreachable"
+            : row.state === "dead"
+              ? "agent exited"
+              : row.cwdMissing
+                ? "cwd is gone"
+                : "not started";
+    groups.set(why, (groups.get(why) ?? 0) + 1);
+  }
+  // most actionable first: a broken cwd or an unreachable box is something to
+  // fix now, "not started" usually just means nobody got to it
+  const order = ["cwd is gone", "machine unreachable", "agent exited", "on a drained machine", "stopped by hand", "not started"];
+  const rank = (why) => (order.includes(why) ? order.indexOf(why) : order.length);
+  return [...groups.entries()]
+    .sort((a, b) => rank(a[0]) - rank(b[0]) || b[1] - a[1])
+    .map(([why, count]) => ({ why, count }));
+}
+
+export function formatDownReasons(reasons, most = 3) {
+  const shown = reasons.slice(0, most).map((entry) => `${entry.count} ${entry.why}`);
+  const rest = reasons.length - shown.length;
+  const total = reasons.reduce((sum, entry) => sum + entry.count, 0);
+  return `${total} down (${shown.join(", ")}${rest > 0 ? `, ${rest} more` : ""})`;
+}
+
 function cmdStatus(config, options, ui) {
   // status lists every configured session, whatever its restart policy.
   const sessions = selectSessions(config, options.names, ui, { all: true, options });
@@ -1859,6 +1898,9 @@ function cmdStatus(config, options, ui) {
       cron: cronFor(session.tmuxName),
       // things still waiting inside: unanswered questions, unread turns
       todos: todoFor(session.tmuxName),
+      // a local cwd that vanished is the most common reason a session will not
+      // come up, and the only one we can see without asking the machine
+      cwdMissing: session.node ? false : !existsSync(expandPath(session.cwd)),
       // who put it back up, and why — "did it come back by itself?" in one column
       lastStart: startedOf(config.path, session.name),
       // "who is looking at this" — the question before `pp down` on a shared box
@@ -1894,7 +1936,16 @@ function cmdStatus(config, options, ui) {
       const nodeName = key === "local" ? "" : key;
       for (const name of map.keys()) if (!jsonConfigured.has(`${nodeName}:${name}`)) jsonStrays.push(name);
     }
-    ui.out(JSON.stringify({ sessions: shown, drift: { down: jsonDown, unmanaged: jsonStrays.length, stray: jsonStrays } }, null, 2));
+    ui.out(
+      JSON.stringify(
+        {
+          sessions: shown,
+          drift: { down: jsonDown, unmanaged: jsonStrays.length, stray: jsonStrays, reasons: downReasons(rows) },
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
 
@@ -1997,7 +2048,7 @@ function cmdStatus(config, options, ui) {
     }
     ui.out(
       `\n${running}/${shown.length} running` +
-        (down ? `  ${ui.paint("yellow", `${down} down`)}` : "") +
+        (down ? `  ${ui.paint("yellow", formatDownReasons(downReasons(rows)))}` : "") +
         (unmanaged.length
           ? `  ${ui.paint("yellow", `${unmanaged.length} unmanaged`)} ${ui.paint("dim", `(${unmanaged.slice(0, 3).join(", ")}${unmanaged.length > 3 ? ", …" : ""}) — pp adopt`)}`
           : "") +
