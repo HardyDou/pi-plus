@@ -92,6 +92,7 @@ human   nothing — nothing is off, stuck or late
 
 - `changed` 来自 `pp audit`，**不含 `send`**（那是工作本身，会把要紧的七行淹掉）
 - `now` = 配置期望多少、本地几个活着、定时任务数与 tick 是否还在
+- `waiting` = 会话里等回答的问题（`pp todo` 里未完成的），按时间从旧到新，最多列 3 条，附 `pp todo attach <id>`
 - `human` = 需要人做决定的：没起的、没登记的、卡住的、迟到的，每条都带修它的命令
 
 只读。`--since` 与其他命令同一套窗口写法（`24h`、`90m`、`7d`），默认 24 小时。

@@ -3502,6 +3502,11 @@ async function cmdHandover(config, options, ui) {
     }
   })();
   const late = overdueJobs(jobs, now);
+  // a question waiting inside a session is work the next shift has to pick up,
+  // so it belongs on the handover page next to everything else that is pending
+  const waiting = readTodos()
+    .filter((todo) => String(todo.state ?? "new") !== "done" && todo.session)
+    .sort((a, b) => String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")));
   const total = config.sessions.length;
   const local = config.sessions.filter((session) => !session.node);
 
@@ -3521,6 +3526,7 @@ async function cmdHandover(config, options, ui) {
             actor: entry.actor ?? null,
           })),
           now: { sessions: total, problems: problems.map((item) => item.text), cron: jobs.length, late },
+          todos: waiting.map((todo) => ({ id: todo.id, session: todo.session, title: todo.title })),
         },
         null,
         2,
@@ -3556,6 +3562,14 @@ async function cmdHandover(config, options, ui) {
       }
     })();
     line("cron", `${jobs.length} job(s), tick ${installed ? "installed" : "missing \u2014 pp install"}, ${late.length ? ui.paint("yellow", `${late.length} late`) : "none late"}`);
+  }
+
+  if (waiting.length) {
+    const shown = waiting.slice(0, 3);
+    line("waiting", `${waiting.length} question(s) in a session${waiting.length > shown.length ? ui.paint("dim", ` (3 of ${waiting.length})`) : ""}`);
+    for (const todo of shown) {
+      line("", `  ${String(todo.session).padEnd(20)} ${ui.paint("dim", `\u201c${String(todo.title ?? "").slice(0, 46)}\u201d`)}  \u2014 pp todo attach ${todo.id}`);
+    }
   }
 
   const needs = [];
