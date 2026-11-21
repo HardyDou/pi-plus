@@ -203,6 +203,15 @@ check "clearing removes the line"      0 '^1$'           bash -c "grep -c 'role:
 # sort: name in the config means risk-2 and risk-10 sit in numeric order
 check "config sort orders by name"     0 'alpha'         bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK status | sed -n '2p'"
 
+# --role is a filter for the fan-out verbs too, not just for the table
+check "send --role only reaches that role" 0 'risk-10:' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role pm send --dry-run 'hey' 2>&1"
+check "send --role skips other roles"  0 '^1$'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role pm send --dry-run 'hey' 2>&1 | grep -c 'send-keys'"
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK up risk-10" >/dev/null 2>&1
+check "logs --role reads that role"    0 '' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role pm logs -n 2 2>&1"
+check "logs --role with no match says so" 2 'no session has role' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role qa logs -n 2 2>&1"
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK down risk-10 --force" >/dev/null 2>&1
+check "up --role starts that role"     0 'risk-10' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role pm up --dry-run 2>&1"
+
 section "ready"
 # bash never draws pi's input box, so --wait has to time out honestly, with a
 # reason, instead of pretending the pane is ready. Its own config keeps this out

@@ -634,6 +634,15 @@ $ pp role risk-01            # 看当前标签
 $ pp role risk-01 -          # 清除
 ```
 
+`--role` 也能收窄任何"批量"动作（过滤发生在 `selectSessions`，与 `--node`/`--tag` 同一个关卡）：
+
+```bash
+$ pp send --role pm "站会十分钟后开始"   # 只发给 pm，忙的会跳过
+$ pp logs --role dev -f                  # 只看开发会话
+$ pp up --role qa                        # 只拉起 qa
+$ pp restart --role ops
+```
+
 任一会话带 role 时 `pp status` 才多出 `ROLE` 列（没有就保持老表格宽度）；`pp tui` 把角色跟在名字后面，
 `/` 过滤也会匹配角色。写入配置文件里的 `role:` 字段，并记进 `pp audit --action config.changed`。
 

@@ -2755,13 +2755,15 @@ export function grepLines(text, pattern, { context = 0, ignoreCase = false } = {
 
 function cmdLogs(config, options, ui) {
   const names = (options.names ?? []).filter((name) => name !== undefined);
-  if (names.length === 0 && !options.all) {
-    ui.error("usage: pp logs <name...> [--lines N] [--follow]   (or --all)");
+  if (names.length === 0 && !options.all && !options.role) {
+    ui.error("usage: pp logs <name...> [--lines N] [--follow]   (or --all, --role <label>)");
     process.exit(2);
   }
   // --all means all of them, including the ones whose restart policy says
   // "do not touch" — reading a pane is not touching it
-  const sessions = options.all ? config.sessions : names.flatMap((name) => selectSessions(config, [name], ui));
+  const sessions = options.all || (!names.length && options.role)
+    ? selectSessions(config, [], ui, { all: true, options })
+    : names.flatMap((name) => selectSessions(config, [name], ui));
   if (sessions.length === 0) {
     ui.error("nothing to show");
     process.exit(1);
@@ -2891,9 +2893,9 @@ function cmdSend(config, options, ui) {
   // --all: one sentence into every session, the same fan-out pp cron uses.
   // Busy sessions are skipped on purpose: queueing a second prompt into an
   // agent that is mid-turn is how you get it to lose the thread.
-  if (options.all || options.tags?.length || options.node) {
+  if (options.all || options.tags?.length || options.node || options.role) {
     if (options.names.length < 1) {
-      ui.error('usage: pp send --all "text" [--dry-run]');
+      ui.error('usage: pp send --all|--tag|--node|--role "text" [--dry-run]');
       process.exit(2);
     }
     const text = options.names.join(" ");
