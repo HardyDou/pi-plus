@@ -650,7 +650,7 @@ export const COMMANDS = [
     name: "audit",
     aliases: [],
     summary: "Show what changed on this machine, and when",
-    usage: "pp audit [target] [--limit N] [--action VERB] [--since 2h] [--json] [--prune 30d]",
+    usage: "pp audit [target] [--role <label>] [--limit N] [--action VERB] [--since 2h] [--json] [--prune 30d]",
     details: [
       "An append-only trail of every change `pp` makes: up, down, restart, rm,",
       "send, cron add/rm, node add/rm. One JSON object per line in",
@@ -667,6 +667,7 @@ export const COMMANDS = [
       ["--limit N", "show the last N entries (default 30)"],
       ["--action VERB", "only this verb: up, down, restart, rm, send, cron.add, node.add, config.changed …"],
       ["--since 2h", "only entries newer than that (30m, 6h, 3d)"],
+      ["--role <label>", "only entries about sessions carrying that label (pp role --list)"],
       ["--prune 30d", "drop entries older than that, then report how many were kept"],
       ["--file PATH", "read another trail (a colleague's copy, a mounted disk)"],
       ["--json", "print the entries as objects"],
@@ -674,6 +675,7 @@ export const COMMANDS = [
     examples: [
       ["pp audit", "the last 30 changes, newest last"],
       ["pp audit risk-01", "what happened to that session"],
+      ["pp audit --role dev --since 1d", "what happened to everything labelled dev"],
       ["pp audit --action down --since 12h", "who stopped things overnight"],
       ["pp audit --action config.changed", "which field of which session/node changed"],
       ["pp audit --prune 90d", "keep a quarter of history"],

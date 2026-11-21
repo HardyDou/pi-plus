@@ -128,3 +128,23 @@ test("a job aimed at a label nobody carries is reported, not silently empty", ()
   assert.equal(steps[0].command, "pp cron rm bbbbbb", "the fix names the job");
   assert.match(steps[0].why, /reaches nobody/);
 });
+
+test("audit --role narrows to the sessions carrying the label", () => {
+  const config = {
+    sessions: [
+      { name: "web", tmuxName: "web", role: "dev" },
+      { name: "api", tmuxName: "api-2", role: "dev" },
+      { name: "db", tmuxName: "db" },
+    ],
+  };
+  const names = new Set(roleTargets(config, "dev").flatMap((session) => [session.name, session.tmuxName]));
+  const entries = [
+    { action: "up", target: "web" },
+    { action: "down", target: "db" },
+    { action: "restart", target: "api-2" },
+    { action: "send", target: "*" },
+  ];
+  const got = entries.filter((entry) => names.has(entry.target)).map((entry) => entry.action);
+  // tmux name and config name both match; a broadcast is not "dev"
+  assert.deepEqual(got, ["up", "restart"]);
+});

@@ -6144,14 +6144,50 @@ function cmdAudit(config, options, ui) {
     since = new Date(Date.now() - seconds * 1000);
   }
   const target = options.names[0] ?? null;
-  const entries = readAudit({ limit: options.lines ?? 30, action: options.action ?? null, actor: options.actor ?? null, target, since, file });
+  let role = null;
+  if (options.role) {
+    if (!config) {
+      ui.error("--role needs a config to read the labels from");
+      process.exit(2);
+    }
+    const members = roleTargets(config, options.role);
+    if (!members.length) {
+      const inUse = [...new Set(config.sessions.map((entry) => entry.role).filter(Boolean))];
+      ui.error(`no session has role "${options.role}"${inUse.length ? ` — roles in use: ${inUse.join(", ")}` : " (pp role --list)"}`);
+      process.exit(2);
+    }
+    // the trail records the name a command was given, so look for both
+    const names = new Set(members.flatMap((session) => [session.name, session.tmuxName]));
+    role = { label: members[0].role, names, label2: [...names].sort() };
+  }
+  const wanted = role ? (entry) => role.names.has(entry.target ?? "") : null;
+  const want = options.lines ?? 30;
+  const entries = readAudit({
+    // filtering by role happens here, so read the whole trail and cut after —
+    // otherwise the newest 30 entries may contain none of that role at all
+    limit: wanted ? 0 : want,
+    action: options.action ?? null,
+    actor: options.actor ?? null,
+    target,
+    since,
+    file,
+  })
+    .filter((entry) => !wanted || wanted(entry))
+    .slice(-want);
 
   if (ui.json) {
     ui.out(JSON.stringify(entries, null, 2));
     return;
   }
   if (!entries.length) {
-    ui.info(ui.paint("dim", `nothing recorded${target ? ` for ${target}` : ""}${options.action ? ` (action ${options.action})` : ""} — the trail starts with the next change`));
+    ui.info(
+      ui.paint(
+        "dim",
+        `nothing recorded${role ? ` for role "${role.label}" (${role.label2.join(", ")})` : target ? ` for ${target}` : ""}${
+          options.action ? ` (action ${options.action})` : ""
+        } — the trail starts with the next change`,
+      ),
+    );
     ui.info(ui.paint("dim", `file: ${file}`));
     return;
   }

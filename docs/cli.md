@@ -67,6 +67,7 @@ pp <command> [names...] [options]
 ```bash
 pp audit                            # 最近 30 条改动，最新在最后
 pp audit risk-01                    # 只这一个会话
+pp audit --role dev --since 1d      # 标签是 dev 的所有会话（按名或 tmux 名匹配）
 pp audit --action down --since 12h  # 昨晚谁停了东西
 pp audit --json --limit 200         # 交给 jq 汇总
 pp audit --prune 90d                # 只留一个季度
