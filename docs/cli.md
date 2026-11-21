@@ -679,6 +679,20 @@ when you are ready to change something: pp clean
 场景可以按 id 或标题片段查（`pp runbook quiet`）。`--markdown` 输出整本手册 —— `docs/runbook.md`
 就是它生成的（e2e 里有一条 `diff` 检查，所以文档不可能和代码走散）。pp 不会替你执行任何步骤。
 
+## `--json` 的形状是契约
+
+脚本会解析这些输出，所以键名和类型被 `test/json.test.js` 钉住：**多一个键要显式改测试（并在 release notes 里说），少一个键立刻红**。
+测试只钉形状不钉取值。
+
+| 命令 | 顶层 | 备注 |
+| --- | --- | --- |
+| `pp status --json` | `{ sessions: [], drift: {} }` | `drift.down`/`drift.unmanaged` 是**数字**（配 `reasons` 解释），`drift.stray` 是名字列表 |
+| `pp plan --json` | `{ steps: [], facts: {} }` | `steps[].{priority,title,command,why}` |
+| `pp why --json` | `{ name, tmux, node, role, state, verdict, reason, cwd, agent, restart, lastStart, restarts, busy, cron, todos }` | `todos` **是数字**（未完成待办的条数） |
+| `pp doctor --json` | `{ checks: [], failed: [], warnings: [] }` | `checks[].{label,ok,detail,fix}`；`failed` = 非 ok 的 label |
+| `pp check --json` | `{ ok, problems, notes, config }` | |
+| `pp cron ls --json` / `pp node ls --json` / `pp audit --json` / `pp runbook --json` | 数组 | `runbook[].{id,title,symptom,means,steps,fix}` |
+
 ### `pp`（不带参数）
 
 第一屏：三行事实 + 六个习惯。不是 30 条命令的清单（那是 `pp help`）——打开终端想知道"现在怎么样"的人，
