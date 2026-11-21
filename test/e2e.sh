@@ -213,6 +213,13 @@ check "status grows a ROLE column"     0 'ROLE'          bash -c "cd $E2E && $RO
 check "status --role filters"          0 'risk-2.*dev'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role dev status"
 check "status --role is case-insensitive" 0 'risk-10.*pm' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role PM status"
 check "an unknown role says so"        2 'no session has role "qa"' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role qa status"
+# free-text labels drift: catch the typo where it is created
+check "a case-only label is refused"   2 'already "pm"'    bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role alpha PM 2>&1"
+# two-letter labels are one edit apart all the time (pm/po, qa/qe): only
+# labels of three characters or more get the near-miss guard
+check "a one-edit label is refused"    2 'one edit away'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role alpha dve 2>&1"
+check "--force creates it anyway"      0 'dve'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role alpha dve --force 2>&1"
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role alpha - >/dev/null 2>&1"
 check "role - clears the label"        0 'no role'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role risk-2 -"
 check "clearing removes the line"      0 '^1$'           bash -c "grep -c 'role:' $ROLECFG"
 # "what words do we use?" — the list has to be readable, not machine-only

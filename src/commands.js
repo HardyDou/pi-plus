@@ -126,7 +126,7 @@ import {
   renderBlock as renderCrondBlock,
   uninstallBlock as uninstallCrondBlock,
 } from "./crond.js";
-import { findCommand, suggestCommand } from "./help.js";
+import { editDistance, findCommand, suggestCommand } from "./help.js";
 import { EXAMPLE_CONFIG } from "./example.js";
 import {
   addTodo,
@@ -5470,6 +5470,21 @@ function deliverJob(job, options) {
  * The role is a label for people ("what is this one for?"), so it never changes
  * how pp schedules or heals anything.
  */
+/**
+ * Is `candidate` plausibly a typo of `role`? One edit away, or the two middle
+ * characters swapped — "dve" for "dev" is a transposition, and Levenshtein
+ * counts it as two edits, which would let the most common typo through.
+ */
+function isTypoOf(role, candidate) {
+  const a = String(role).toLowerCase();
+  const b = String(candidate).toLowerCase();
+  if (a === b || a.length < 3 || b.length < 3) return false;
+  if (editDistance(a, b) <= 1) return true;
+  if (a.length !== b.length) return false;
+  const diff = [...a].map((ch, i) => (ch === b[i] ? null : i)).filter((i) => i !== null);
+  return diff.length === 2 && diff[1] === diff[0] + 1 && a[diff[0]] === b[diff[1]] && a[diff[1]] === b[diff[0]];
+}
+
 export function rolesInUse(config) {
   // what can go into --role: the labels actually written down, with how many
   // sessions carry each — `pp role --list` answers "what words do we use?".
@@ -5527,6 +5542,25 @@ export function cmdRole(config, options, ui) {
   }
   const clearing = wanted === "-" || wanted.toLowerCase() === "none";
   const next = clearing ? null : wanted;
+  if (next && !options.force) {
+    // "same thing, four spellings" is the failure mode of free-text labels:
+    // catch the typo at the moment it is created, not when a filter misses
+    const known = rolesInUse(config).map((entry) => entry.role);
+    const same = known.find((role) => role.toLowerCase() === next.toLowerCase() && role !== next);
+    const near = same ? null : known.find((role) => isTypoOf(role, next));
+    if (same) {
+      ui.error(`there is already "${same}" — labels differ by case ("${next}" would be a second one)`);
+      ui.info(`use the one you have: pp role ${session.name} ${same}   (or --force to add "${next}")`);
+      process.exitCode = 2;
+      return;
+    }
+    if (near) {
+      ui.error(`"${next}" is one edit away from "${near}" — did you mean it?`);
+      ui.info(`pp role ${session.name} ${near}   (or --force to add "${next}" as a new label)`);
+      process.exitCode = 2;
+      return;
+    }
+  }
   if (next === current) {
     ui.info(`${session.name} already has that role`);
     return;

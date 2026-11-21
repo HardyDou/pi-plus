@@ -381,6 +381,11 @@ export const COMMANDS = [
       "restart --role qa`. Filtering happens in `selectSessions`, the same gate",
       "`--node` and `--tag` use, so any verb that takes sessions honours it.",
       "",
+      "A label one typo away from an existing one is refused (`dve` for `dev`, or",
+      "`DEV` for `dev`) — the second spelling is how `--role` starts missing",
+      "sessions. `--force` creates it anyway. Labels of two characters are exempt",
+      "(pm/po, qa/qe are one edit apart all the time).",
+      "",
       "Free text, case-insensitive when filtering (`--role PM` finds `pm`), kept",
       "short on purpose (24 characters). Stored as `role:` in the session entry,",
       "and every change lands in `pp audit --action config.changed`.",
@@ -1377,7 +1382,7 @@ export function suggestCommand(input) {
   return best?.name ?? null;
 }
 
-function editDistance(a, b) {
+export function editDistance(a, b) {
   const rows = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
   for (let j = 1; j <= b.length; j++) rows[0][j] = j;
   for (let i = 1; i <= a.length; i++) {

@@ -903,6 +903,23 @@ $ pp role --list             # 我们到底用了哪些词？
 2 roles · 1 session without one — pp role <name> <role>
 ```
 
+标签是自由文本，所以"同一个东西四种拼法"是必然的失败模式。`pp role` 在你**创建**第二个拼法时
+就会拦住：
+
+```bash
+$ pp role web DEV
+error: there is already "dev" — labels differ by case ("DEV" would be a second one)
+use the one you have: pp role web dev   (or --force to add "DEV")
+
+$ pp role web dve
+error: "dve" is one edit away from "dev" — did you mean it?
+pp role web dev   (or --force to add "dve" as a new label)
+```
+
+`dve` 这种相邻字符颠倒也算一次编辑（Levenshtein 会算成两次，那就漏掉了最常见的输入错误）。
+两个字以上的标签才启用这个近似判断 —— `pm`/`po`、`qa`/`qe` 本来就只差一个字符，拦它们只会烦人。
+`--force` 永远可以真的新建一个标签。
+
 `pp role --list` 是 `--role` 的另一半：它把**实际写过**的标签连同成员一起列出来（按用得多少排序），
 末尾告诉你还有几个会话没标签。`--json` 给机器：`[{ "role": "risk", "sessions": ["risk-01", "risk-02"], "count": 2 }]`。
 
