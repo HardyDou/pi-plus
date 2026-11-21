@@ -214,3 +214,19 @@ fleet health (pp cron 41cf3e): 2 problems — off: risk-02 (pp up risk-02); stuc
 | 想跑完就删 | 用 `--at`/`--in`（`once` 跑完自动从 `cron.json` 消失） |
 | 时区不对 | 全部按本机本地时间；容器/WSL 里先确认 `date` 与 `timedatectl` |
 | `cron.json.lock` 残留 | 超过 10 分钟会被当作陈旧自动接管；急的话删掉它 |
+
+## 下次什么时候跑
+
+```bash
+$ pp cron ls
+ID      TARGET         SCHEDULE        NEXT              RUNS  LAST
+2bbb6e  all sessions   every 10m       in 3m (10:40)     13    delivered
+0eed5f  mango-release-01  */10 * * * *  late 15m (10:20)  9     delivered
+```
+
+`NEXT` 用词说时间（`in 3m`），括号里是本地钟点——3am 做减法容易错，而且**过去的时刻和将来的时刻
+长得一样**。一个超过一分钟还没跑的任务显示黄色的 `late 15m`：这是"tick 不再触发"的签名（crontab
+被清掉、机器刚醒、`pp install` 被卸载），列表末尾还会提示 `pp install (or: pp cron tick)`。
+
+`--json` 里是 `nextRun`（ISO）与 `late`（布尔）。
+

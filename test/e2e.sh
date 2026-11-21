@@ -334,7 +334,9 @@ check "alias rm"                  0 'removed'            pp alias rm pif --bin-d
 check "alias rm again is quiet"   0 'nothing to remove'  pp alias rm pif --bin-dir "$E2E/aliasbin"
 check "help alias page"           0 'bin-dir'            pp help alias
 check "doctor explains stalls as quiet time" 0 'no agent|no new output'     bash -c 'pp doctor 2>&1 || true'
-check "doctor --brief gives an order of work" 1 'first: '   bash -c 'pp doctor --brief 2>&1'
+# either "first: ..." or "ok N checks": which one depends on the machine, the
+# shape of the answer does not
+check "doctor --brief gives a one-line answer" 0 'first: |ok [0-9]+ checks' bash -c 'pp doctor --brief 2>&1 || true'
 # the exit code depends on whether this machine happens to be healthy; the
 # contract under test is that the json always names the failed checks
 check "doctor --json lists the failed checks" 0 '"failed"'  bash -c 'pp doctor --json 2>&1; true'
@@ -435,6 +437,8 @@ check "cron add command job"      0 'scheduled [0-9a-f]'           bash -c "cd $
 CMD_ID=$(cd "$E2E" && "$ROOT/bin/pp.js" -c "$CFG" cron ls --json | grep -o '"id": "[0-9a-f]*"' | head -1 | cut -d'"' -f4)
 check "cron add once job"         0 'scheduled [0-9a-f]'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-always --in 1m 'echo from-cron'"
 check "cron ls lists both"        0 'every 5m'                 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
+check "cron ls says when next"    0 'in [0-9]+[smh] \('        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
+check "cron ls --json has nextRun" 0 'nextRun'                 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls --json"
 check "cron rejects --every 0"    1 'must be positive'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-always --every 0 --command true"
 NEXT=$(node -e 'console.log(new Date(Date.now()+180000).toISOString())')
 check "cron tick delivers"        0 'delivered'                bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron tick --now $NEXT"

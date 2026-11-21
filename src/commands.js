@@ -4551,15 +4551,42 @@ function localStamp(date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
+/**
+ * "in 3m (10:40)" instead of a bare timestamp.
+ *
+ * A bare `10:40` makes you do arithmetic at 3am, and — worse — a job whose next
+ * run is *in the past* looks exactly like a healthy one. `late 12m` is the
+ * signature of a tick that stopped firing, which no absolute timestamp shows.
+ */
+export function describeNext(due, now = new Date()) {
+  if (!due) return { text: "-", late: false };
+  const delta = Math.round((due.getTime() - now.getTime()) / 1000);
+  const clock = localStamp(due).slice(11);
+  // coarse on purpose: "in 3m" is what you act on, seconds are noise
+  const rough = (seconds) => {
+    const abs = Math.abs(seconds);
+    if (abs < 60) return `${abs}s`;
+    if (abs < 3600) return `${Math.round(abs / 60)}m`;
+    if (abs < 86400) return `${Math.round(abs / 3600)}h`;
+    return `${Math.round(abs / 86400)}d`;
+  };
+  if (delta < -60) return { text: `late ${rough(delta)} (${clock})`, late: true };
+  if (delta < 0) return { text: `due now (${clock})`, late: true };
+  return { text: `in ${rough(delta)} (${clock})`, late: false };
+}
+
 function cronRow(job, now = new Date()) {
   const due = nextRun(job, now);
+  const next = describeNext(due, now);
   return {
     id: job.id,
     session: job.action === "command" ? `$ ${job.command}` : job.session === ALL_SESSIONS ? "all sessions" : job.session,
     action: job.action,
     session: job.session ?? null,
     schedule: describeSchedule(job.schedule),
-    next: due ? localStamp(due) : "-",
+    next: next.text,
+    late: next.late,
+    nextRun: due ? due.toISOString() : null,
     runs: job.runs ?? 0,
     last: job.lastStatus ?? "-",
   };
@@ -4590,9 +4617,16 @@ function printCronJobs(jobs, ui, now = new Date()) {
   table.forEach((row) => {
     const colored = [...row];
     colored[0] = ui.paint("dim", colored[0]);
-    colored[3] = ui.paint("cyan", colored[3]);
+    colored[3] = records[table.indexOf(row)].late ? ui.paint("yellow", colored[3]) : ui.paint("cyan", colored[3]);
     ui.out(colored.map((cell, index) => pad(cell, widths[index])).join("  ").trimEnd());
   });
+  const late = records.filter((row) => row.late).length;
+  if (late) {
+    ui.out(
+      ui.paint("yellow", `${late} job${late === 1 ? "" : "s"} past due — `) +
+        ui.paint("dim", "the tick may not be firing: pp install (or: pp cron tick)"),
+    );
+  }
 }
 
 async function cmdCronAdd(config, options, ui) {
