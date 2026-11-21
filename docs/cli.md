@@ -236,6 +236,31 @@ $ pp send --all "stand up, I am back"          # 空闲的都收到
 $ pp send --all --dry-run "make check"         # 只看会敲什么
 ```
 
+### 维护窗口里的破坏性操作：`drained` + `--yes`
+
+`pp node drain <machine>` 之后，`pp up`、自启单元、`pp restart`、`cron --heal` 都不会去碰那台机器上的会话。
+但"自动拉起"只是风险的一半 —— 另一半是有人（或脚本）在你打补丁时**停掉/删掉**了别人的会话：
+
+```bash
+$ pp down --force far-x
+warning: far-x runs on a drained machine (far) — maintenance window: add --yes to stop it anyway
+
+0 stopped, 0 not running. 1 needs --yes (drained machine).
+$ pp down --force --yes far-x
+1 stopped, 0 not running.
+```
+
+规则只有一条：**机器在 drain 状态时，`--force` 不再是万能钥匙，`down`/`rm` 都要额外加 `--yes`**。
+被拦住的会话会计入 `pp status` 的 blocked 数，不会静默失败。
+
+审计里分得更细：借 `--yes` 通过的停机记成 `down.forced`、删除记成 `rm.forced`，事后能查
+"维护窗口里到底谁动了手"：
+
+```bash
+$ pp audit --action down.forced
+2m ago  down.forced  far-x — 1 stopped, 0 not running (drained machine, --yes given) (force)
+```
+
 ### `pp up --drift`
 
 只补缺口：配置里该在、现在没在的会话才起，已经在跑的完全不碰；没有缺口时输出

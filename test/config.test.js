@@ -274,3 +274,16 @@ nodes:
   assert.match(empty, /sessions:\n {2}- name: x/);
   assert.equal(appendSessionBlock("version: 1\n", renderSessionEntry({ name: "x", cwd: "/tmp" })), null);
 });
+
+test("removing the last session leaves a list, not a null section", () => {
+  const text = "version: 1\nsessions:\n  - name: only\n    cwd: /tmp\n";
+  const result = removeSessionBlock(text, "only");
+  assert.equal(result.removed, true);
+  assert.match(result.text, /^sessions: \[\]$/m);
+  // and the neighbours survive: the old bug here cut the file at the next section
+  const two = "sessions:\n  - name: a\n    cwd: /tmp\nnodes:\n  - name: n\n    host: h\n";
+  const after = removeSessionBlock(two, "a");
+  assert.match(after.text, /sessions: \[\]/);
+  assert.match(after.text, /nodes:/);
+  assert.match(after.text, /host: h/);
+});

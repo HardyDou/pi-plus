@@ -613,6 +613,15 @@ check "drained machine refuses to start" 0 'drained machine far'   bash -c "cd $
 check "drained machine starts nothing" 0 '0 would start'           bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK --dry-run up far-x 2>&1"
 check "--force still starts it"       0 '1 would start'            bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK --dry-run --force up far-x 2>&1"
 check "drain is in the audit trail"   0 'node.drain'               bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK audit --action node.drain"
+# --force is not a licence to kill things on a box that is being patched
+check "down --force needs --yes on a drained machine" 0 'needs --yes' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK up --force far-x >/dev/null 2>&1; PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK down --force far-x 2>&1 | tail -2"
+check "the blocked stop really did not stop it" 0 'running'       bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls far-x | sed -n 2p"
+check "down --force --yes stops it"   0 '1 stopped'                bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK down --force --yes far-x 2>&1 | tail -2"
+check "a forced stop is its own audit action" 0 'down.forced'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK audit --action down.forced | head -2"
+check "rm needs --yes on a drained machine" 2 'pass --yes'         bash -c "cd $E2E && cp $NODECFG $E2E/rm.yml && $ROOT/bin/pp.js -c $E2E/rm.yml --socket $SOCK rm far-x --force 2>&1"
+check "rm.forced lands in the audit trail" 0 'rm.forced'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/rm.yml --socket $SOCK rm far-x --force --yes >/dev/null 2>&1; $ROOT/bin/pp.js -c $E2E/rm.yml audit --action rm.forced | head -2"
+# put the session back: the sections after this one expect it running
+check "far-x is back for the next section" 0 '1 started'           bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK up --force far-x 2>&1 | grep -E '1 started'"
 check "undrain gives the machine back" 0 'undrained far'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node undrain far"
 ncheck "undrained machine is not skipped" 'drained machine'       bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK --dry-run up far-x 2>&1"
 check "the drained flag left the file" 0 ''                   bash -c "cd $E2E && ! grep -q drained nodes.yml"

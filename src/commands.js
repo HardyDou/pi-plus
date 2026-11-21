@@ -741,9 +741,22 @@ function cmdDown(config, options, ui) {
   // Stopping is always safe: a bare "down" stops everything, enabled or not.
   const picked = selectSessions(config, options.names, ui, { all: true, options });
   // `guarded: true` on the machine: stopping its sessions is deliberate work.
-  const blocked = options.force || options.reconcile ? [] : picked.filter((session) => guardOf(config, session));
-  const sessions = options.force || options.reconcile ? picked : picked.filter((session) => !guardOf(config, session));
-  for (const session of blocked) {
+  // a drained machine is under maintenance: forcing (or the reconcile loop)
+  // past that on someone else's box has to be said out loud, not implied by --force
+  const lockedDrained = picked.filter(
+    (session) => (options.force || options.reconcile) && !options.yes && drainOf(config, session),
+  );
+  const guarded = options.force || options.reconcile ? [] : picked.filter((session) => guardOf(config, session));
+  const blocked = [...lockedDrained, ...guarded.filter((session) => !lockedDrained.includes(session))];
+  const sessions = picked.filter(
+    (session) => !lockedDrained.includes(session) && (options.force || options.reconcile || !guardOf(config, session)),
+  );
+  for (const session of lockedDrained) {
+    ui.warn(
+      `${session.tmuxName} runs on a drained machine (${session.node}) — maintenance window: add --yes to stop it anyway`,
+    );
+  }
+  for (const session of guarded.filter((entry) => !lockedDrained.includes(entry))) {
     ui.warn(`${session.tmuxName} runs on a guarded machine — stop it with: pp down ${session.tmuxName} --force`);
   }
   let killed = 0;
@@ -764,9 +777,17 @@ function cmdDown(config, options, ui) {
     ui.info(`${ui.paint("red", "stopped")} ${session.tmuxName}`);
   }
   if (ui.json) ui.out(JSON.stringify({ killed, missing, blocked: blocked.length }, null, 2));
-  else if (!options.quiet) ui.info(`\n${killed} stopped, ${missing} not running.${blocked.length ? ` ${blocked.length} blocked by a guard.` : ""}`);
-  note("down", sessions.map((session) => session.name).join(","), {
+  else if (!options.quiet) {
+    const why = [
+      lockedDrained.length ? `${lockedDrained.length} needs --yes (drained machine)` : "",
+      guarded.length ? `${guarded.length} blocked by a guard` : "",
+    ].filter(Boolean).join(", ");
+    ui.info(`\n${killed} stopped, ${missing} not running.${why ? ` ${why}.` : ""}`);
+  }
+  const drainedHit = sessions.some((session) => drainOf(config, session));
+  note(drainedHit ? "down.forced" : "down", sessions.map((session) => session.name).join(","), {
     detail: `${killed} stopped, ${missing} not running${blocked.length ? `, ${blocked.length} guarded` : ""}`,
+    detail: `${killed} stopped, ${missing} not running${blocked.length ? `, ${blocked.length} guarded` : ""}${drainedHit ? " (drained machine, --yes given)" : ""}`,
     result: options.force ? "force" : "ok",
     dryRun: options.dryRun,
   });
@@ -1091,6 +1112,16 @@ async function cmdRm(config, options, ui) {
     return { session, running };
   });
   const names = target.map((row) => row.session.tmuxName).join(", ");
+  // deleting a session off a machine somebody is patching right now is not a
+  // side effect --force should be able to carry on its own
+  const drained = target.filter((row) => drainOf(config, row.session)).map((row) => row.session.tmuxName);
+  if (drained.length && !options.yes && !options.dryRun) {
+    ui.error(
+      `refusing to delete ${drained.join(", ")}: drained machine (maintenance) — pass --yes if you really mean it`,
+    );
+    process.exitCode = 2;
+    return;
+  }
 
   if (!options.force && !options.dryRun) {
     if (!process.stdin.isTTY) {
@@ -1128,7 +1159,7 @@ async function cmdRm(config, options, ui) {
     ui.info(`${ui.paint("red", label)} ${session.tmuxName}  ${ui.paint("dim", `(${bits.join(", ")})`)}`);
   }
 
-  note("rm", target.map((row) => row.session.name).join(","), {
+  note(drained.length ? "rm.forced" : "rm", target.map((row) => row.session.name).join(","), {
     detail: `${killed} killed, ${removed} config entr${removed === 1 ? "y" : "ies"} deleted`,
     result: options.force ? "force" : "ok",
     dryRun: options.dryRun,

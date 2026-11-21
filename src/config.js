@@ -545,6 +545,19 @@ export function removeSessionBlock(text, name) {
     cleaned.push(line);
   }
   if (cleaned.length && cleaned[cleaned.length - 1].trim() === "" && cleaned.length > 1) cleaned.pop();
+  // removing the last session leaves a bare `sessions:` behind, which parses as
+  // null and then fails as "must be a list" on the next command
+  const header = cleaned.findIndex((line) => /^sessions\s*:/.test(line));
+  if (header >= 0) {
+    // only look inside this section: the next top-level key starts another one
+    const section = [];
+    for (const line of cleaned.slice(header + 1)) {
+      if (/^\S/.test(line)) break;
+      section.push(line);
+    }
+    const hasItems = section.some((line) => /^(\s*)-\s/.test(line));
+    if (!hasItems) cleaned[header] = `${cleaned[header].replace(/\s*:\s*$/, "")}: []`;
+  }
   return { text: `${cleaned.join("\n").replace(/\n*$/, "")}\n`, removed: true };
 }
 
