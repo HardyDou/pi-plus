@@ -164,6 +164,25 @@ rewritten, so the diff stays small.
 `3/4` = 你为这台机器列了 4 个会话、3 个在跑；`+1` = 它上面还有一个没写进配置的会话。
 两个符号分别对应 `pp up` 和 `pp adopt`。
 
+### `pp audit --action config.changed`：改了什么字段
+
+```bash
+$ pp audit --action config.changed --limit 3
+2m ago   config.changed prod on prod — 1 change: +nodes.prod (changed)
+5m ago   config.changed box on box — 1 change: nodes.box drained: (absent) -> true (changed)
+9m ago   config.changed alpha — 1 change: -sessions.alpha (changed)
+```
+
+审计原本只说"谁执行了 `pp node add`"，而事后真正要回答的是"**它改了什么**"。所以每次写
+`plus.yml` 的工具（`pp node add/rm/drain/undrain`、`pp adopt`、`pp mv`、`pp rm`、`pp new --save`）
+都会在写盘前后各读一遍文件、做字段级 diff，把前 6 条差异写进同一条审计记录：
+
+- 新增/删除：`+nodes.prod`、`-sessions.alpha`
+- 字段改动：`sessions.api cwd: /srv/api -> /srv/api-v2`，删除写成 `-> (removed)`
+- 嵌套映射（`env`、`defaults`）算一个值：`nodes.box defaults: {"restart":"no"} -> {...}`
+
+写盘但内容没变（比如重复执行同样的 `node add`）不产生记录；`--dry-run` 也不产生。
+
 ### `pp status --watch`：变化的记录，而不是重画的表格
 
 ```bash

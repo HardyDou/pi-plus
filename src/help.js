@@ -411,7 +411,7 @@ export const COMMANDS = [
     ].join("\n"),
     options: [
       ["--limit N", "show the last N entries (default 30)"],
-      ["--action VERB", "only this verb: up, down, restart, rm, send, cron.add, node.add …"],
+      ["--action VERB", "only this verb: up, down, restart, rm, send, cron.add, node.add, config.changed …"],
       ["--since 2h", "only entries newer than that (30m, 6h, 3d)"],
       ["--prune 30d", "drop entries older than that, then report how many were kept"],
       ["--file PATH", "read another trail (a colleague's copy, a mounted disk)"],
@@ -421,6 +421,7 @@ export const COMMANDS = [
       ["pp audit", "the last 30 changes, newest last"],
       ["pp audit risk-01", "what happened to that session"],
       ["pp audit --action down --since 12h", "who stopped things overnight"],
+      ["pp audit --action config.changed", "which field of which session/node changed"],
       ["pp audit --prune 90d", "keep a quarter of history"],
     ],
     see: ["cron", "status", "doctor"],

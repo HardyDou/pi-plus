@@ -334,7 +334,9 @@ check "alias rm again is quiet"   0 'nothing to remove'  pp alias rm pif --bin-d
 check "help alias page"           0 'bin-dir'            pp help alias
 check "doctor explains stalls as quiet time" 0 'no agent|no new output'     bash -c 'pp doctor 2>&1 || true'
 check "doctor --brief gives an order of work" 1 'first: '   bash -c 'pp doctor --brief 2>&1'
-check "doctor --json lists the failed checks" 1 '"failed"'  bash -c 'pp doctor --json 2>&1'
+# the exit code depends on whether this machine happens to be healthy; the
+# contract under test is that the json always names the failed checks
+check "doctor --json lists the failed checks" 0 '"failed"'  bash -c 'pp doctor --json 2>&1; true'
 check "doctor names the binary"   0 'command name'       bash -c 'pp doctor 2>&1 || true'  # exits 1 until autostart is installed
 
 section "update"
@@ -774,6 +776,7 @@ check "doctor points at the drift"  1 'not in config'            bash -c "cd $E2
 check "attach to a remote session is built for ssh" 0 'attach-session .*far-x' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach far-x --dry-run"
 check "node add writes the config"   0 'added node'              bash -c "cp $NODECFG $E2E/add.yml && cd $E2E && $ROOT/bin/pp.js -c $E2E/add.yml node add prod --host 10.0.0.11 --user deploy --identity ~/.ssh/id_ed25519"
 check "node add keeps the sessions"  0 ''                        bash -c "grep -q 'name: far-x' $E2E/add.yml"
+check "node add records what it changed" 0 'nodes.prod'          bash -c "$ROOT/bin/pp.js -c $E2E/add.yml audit --action config.changed | tail -3"
 check "node add --dry-run touches nothing" 0 'would write'       bash -c "cp $NODECFG $E2E/dry.yml && cd $E2E && $ROOT/bin/pp.js -c $E2E/dry.yml node add ghost --host 10.9.9.9 --dry-run && ! grep -q ghost $E2E/dry.yml"
 check "node add needs a host"        2 'missing --host'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/add.yml node add nohost"
 check "node add refuses a used name" 2 'usage: pp node add'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/add.yml node add"

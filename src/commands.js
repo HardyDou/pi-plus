@@ -1,4 +1,5 @@
 import { closeSync, existsSync, ftruncateSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync, writeSync } from "node:fs";
+import { configChanges } from "./configdiff.js";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -379,6 +380,38 @@ function note(action, target, { detail = null, result = null, node = null, dryRu
   recordAudit({ action, target, detail, result, node });
 }
 
+function readConfigText(path) {
+  if (!path) return null;
+  try {
+    return readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Run a config write and record what it actually changed.
+ *
+ * The audit already says "pp node add p201"; the question people actually ask
+ * later is "what did it change" — so diff the file around the write and keep the
+ * first few field-level lines. Writes that change nothing record nothing.
+ */
+function auditedWrite({ config, action, target, node = null, dryRun = false }, write) {
+  const before = dryRun ? null : readConfigText(config?.path);
+  const result = write();
+  if (dryRun || before === null) return result;
+  const after = readConfigText(config.path);
+  if (after === null || after === before) return result;
+  const { total, lines } = configChanges(before, after);
+  if (!total) return result;
+  note(action, target, {
+    node,
+    detail: `${total} change${total === 1 ? "" : "s"}: ${lines.join("; ")}`,
+    result: "changed",
+  });
+  return result;
+}
+
 function adHocSession({ name, cwd, agent, log, remotePiName, remotePiMode, node = null }) {
   const argv = splitCommand(agent);
   const pi = basename(argv[0] ?? "") === "pi";
@@ -599,8 +632,10 @@ async function cmdMv(config, options, ui) {
   }
 
   const yamlValue = (value) => (/^[A-Za-z0-9._/~@%+-]+$/.test(value) ? value : JSON.stringify(value));
-  setSessionFieldInFile(config.path, session.name, "node", target ? yamlValue(target) : null);
-  if (options.sessionCwd) setSessionFieldInFile(config.path, session.name, "cwd", yamlValue(options.sessionCwd));
+  auditedWrite({ config, action: "config.changed", target: session.name, dryRun: options.dryRun }, () => {
+    setSessionFieldInFile(config.path, session.name, "node", target ? yamlValue(target) : null);
+    if (options.sessionCwd) setSessionFieldInFile(config.path, session.name, "cwd", yamlValue(options.sessionCwd));
+  });
 
   const fresh = loadConfig({ configPath: config.path, cwd: process.cwd() });
   const moved = fresh?.sessions.find((entry) => entry.name === session.name);
@@ -1094,7 +1129,9 @@ async function cmdAdopt(config, options, ui) {
     }
     text = next;
   }
-  writeFileSync(config.path, text);
+  auditedWrite({ config, action: "config.changed", target: good.map((row) => row.session.name).join(","), node: nodeName }, () =>
+    writeFileSync(config.path, text),
+  );
   note("adopt", good.map((row) => row.session.name).join(","), { node: nodeName, detail: `${good.length} session(s)` });
   ui.info(`adopted ${good.length}: ${good.map((row) => row.session.name).join(", ")} → ${config.path}`);
   ui.info(`take effect on restart: pp restart ${good.map((row) => row.session.name).join(" ")}`);
@@ -1162,7 +1199,13 @@ async function cmdRm(config, options, ui) {
     }
     clearStopped(config.path, session.name);
     const dropEntry = Boolean(config.path) && !options.noConfig;
-    const gone = dropEntry ? (options.dryRun ? true : removeSessionFromFile(config.path, session.name)) : false;
+    const gone = dropEntry
+      ? options.dryRun
+        ? true
+        : auditedWrite({ config, action: "config.changed", target: session.name }, () =>
+            removeSessionFromFile(config.path, session.name),
+          )
+      : false;
     if (gone) removed += 1;
     const bits = [
       running ? "tmux session" : "no tmux session",
@@ -1482,7 +1525,9 @@ async function cmdNodeAdd(config, options, ui) {
     for (const line of renderNodeBlock(node).split("\n")) ui.info(ui.paint("dim", line));
     return;
   }
-  const action = upsertNodeInFile(config.path, node);
+  const action = auditedWrite({ config, action: "config.changed", target: node.name, node: node.name, dryRun: options.dryRun }, () =>
+    upsertNodeInFile(config.path, node),
+  );
   if (node.password) {
     tightenConfigMode(config.path);
     ui.warn(
@@ -1508,7 +1553,9 @@ function cmdNodeRm(config, options, ui) {
     );
     process.exit(1);
   }
-  const removed = removeNodeFromFile(config.path, node.name);
+  const removed = auditedWrite({ config, action: "config.changed", target: node.name, node: node.name }, () =>
+    removeNodeFromFile(config.path, node.name),
+  );
   if (!removed) {
     ui.error(`could not find "${node.name}" in ${config.path}`);
     process.exit(1);
@@ -1691,7 +1738,9 @@ function cmdNodeDrain(config, options, ui, { drained = true } = {}) {
   if (options.dryRun) {
     ui.out(`[dry-run] would set ${drained ? "drained: true" : "drained: false"} on node "${name}"`);
   } else {
-    setNodeFieldInFile(config.path, name, "drained", drained ? "true" : null);
+    auditedWrite({ config, action: "config.changed", target: name, node: name }, () =>
+      setNodeFieldInFile(config.path, name, "drained", drained ? "true" : null),
+    );
     note(drained ? "node.drain" : "node.undrain", name, {
       detail: `${behind.length} session${behind.length === 1 ? "" : "s"} on it`,
     });
