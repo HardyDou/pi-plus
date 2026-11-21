@@ -173,7 +173,9 @@ test("doctor --json: every check carries the command that fixes it", () => {
   const box = sandbox();
   try {
     const result = box.pp(["doctor", "--json"]);
-    assert.equal(result.status, 0, `doctor --json exited ${result.status}: ${result.stderr}`);
+    // 1 is a legitimate exit code here: doctor exits 1 when a check fails, and a
+    // CI runner has no tmux/pi/autostart. The contract under test is the shape.
+    assert.ok([0, 1].includes(result.status), `doctor --json exited ${result.status}: ${result.stderr}`);
     assert.notEqual(result.text.trim(), "", `doctor --json printed nothing (stderr: ${result.stderr})`);
     const payload = JSON.parse(result.text);
     shape(payload, { checks: "array", failed: "array", warnings: "array" }, "doctor");
