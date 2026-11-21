@@ -3033,7 +3033,7 @@ async function cmdWhyNode(config, options, ui) {
  * it, a drained machine makes every `up` a no-op, and so on. Read-only.
  */
 export function planSteps(facts) {
-  const { reach = [], drift = [], unmanaged = [], stuck = [], cron = [], logs = [], autostart = null, extension = null } = facts;
+  const { reach = [], drift = [], unmanaged = [], stuck = [], cron = [], dangling = [], logs = [], autostart = null, extension = null } = facts;
   const steps = [];
   const add = (priority, title, command, why) => steps.push({ priority, title, command, why });
 
@@ -3062,6 +3062,14 @@ export function planSteps(facts) {
   }
   if (extension && extension.stale) {
     add(3, `upgrade the pi extension to ${extension.want}`, extension.command, "the /pp-* commands come from the extension, not the cli");
+  }
+  for (const job of dangling) {
+    add(
+      4,
+      `${job.id} is aimed at role "${job.role}", which nothing carries`,
+      `pp cron rm ${job.id}`,
+      `no session is labelled "${job.role}" any more, so this job ticks and reaches nobody — pp role --list`,
+    );
   }
   for (const job of cron) {
     add(4, `${job.id} is ${job.late} late`, `pp cron run ${job.id}`, "the tick may not be firing, or this one is stuck behind a busy target");
@@ -3099,7 +3107,7 @@ export function planSteps(facts) {
 /** The facts `pp plan` needs, gathered from the same helpers the other commands use. */
 export async function planFacts(config, options) {
   const env = options?.env ?? process.env;
-  const facts = { reach: [], drift: [], unmanaged: [], stuck: [], cron: [], logs: [], autostart: null, extension: null };
+  const facts = { reach: [], drift: [], unmanaged: [], stuck: [], cron: [], dangling: [], logs: [], autostart: null, extension: null };
   const only = options?.node ?? null;
   const scoped = (name) => !only || name === only;
 
@@ -3192,7 +3200,11 @@ export async function planFacts(config, options) {
     }
   }
 
-  facts.cron = overdueJobs(readJobs(), new Date());
+  const jobsNow = readJobs();
+  facts.dangling = danglingRoleJobs(jobsNow, config);
+  // a dangling job is reported once: the label is the problem, not the tick
+  const danglingIds = new Set(facts.dangling.map((job) => job.id));
+  facts.cron = overdueJobs(jobsNow, new Date()).filter((job) => !danglingIds.has(job.id));
   // only the ones worth acting on: a 3 MB log is fine, a 60 MB one is tomorrow's outage
   facts.logs = logTargets(config, env)
     .map((entry) => {
@@ -3347,7 +3359,7 @@ async function cmdPlan(config, options, ui) {
   const facts = await planFacts(config, options);
   const steps = planSteps(facts);
   if (ui.json) {
-    process.stdout.write(`${JSON.stringify({ steps, facts: { reach: facts.reach, drift: facts.drift, unmanaged: facts.unmanaged, stuck: facts.stuck, cron: facts.cron, logs: facts.logs, autostart: facts.autostart, extension: facts.extension } }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ steps, facts: { reach: facts.reach, drift: facts.drift, unmanaged: facts.unmanaged, stuck: facts.stuck, cron: facts.cron, dangling: facts.dangling, logs: facts.logs, autostart: facts.autostart, extension: facts.extension } }, null, 2)}\n`);
     return;
   }
   if (!steps.length) {
@@ -4584,16 +4596,28 @@ function cmdDoctor(config, options, ui) {
     const lastTick = jobs.reduce((newest, job) => Math.max(newest, Date.parse(job.lastRun ?? "") || 0), 0);
     const ageMinutes = lastTick ? Math.round((Date.now() - lastTick) / 60000) : null;
     const overdue = overdueJobs(jobs);
+    const dangling = config ? danglingRoleJobs(jobs, config) : [];
     const detail = !jobs.length
       ? "no jobs — pp cron add --every 10m \"…\""
-      : overdue.length
-        ? `${overdue[0].id} is ${overdue[0].late} late — pp cron run ${overdue[0].id}` +
-          (overdue.length > 1 ? ` (+${overdue.length - 1} more)` : "")
-        : `${jobs.length} job${jobs.length === 1 ? "" : "s"}, tick ${ticked ? "installed" : "not installed"}` +
-          (ageMinutes === null ? "" : `, last fired ${ageMinutes}m ago`);
+      : dangling.length
+        ? `${dangling[0].id} targets role "${dangling[0].role}" — nothing carries it (pp role --list)` +
+          (dangling.length > 1 ? ` (+${dangling.length - 1} more)` : "")
+        : overdue.length
+          ? `${overdue[0].id} is ${overdue[0].late} late — pp cron run ${overdue[0].id}` +
+            (overdue.length > 1 ? ` (+${overdue.length - 1} more)` : "")
+          : `${jobs.length} job${jobs.length === 1 ? "" : "s"}, tick ${ticked ? "installed" : "not installed"}` +
+            (ageMinutes === null ? "" : `, last fired ${ageMinutes}m ago`);
     const healthy =
-      !jobs.length || (ticked && (ageMinutes === null || ageMinutes < 60) && overdue.length === 0);
-    add("cron", healthy, detail, overdue.length ? `pp cron run ${overdue[0].id}` : "pp install");
+      !jobs.length ||
+      (ticked && (ageMinutes === null || ageMinutes < 60) && overdue.length === 0 && dangling.length === 0);
+    // a job aimed at a label nobody carries is the quietest possible failure:
+    // it ticks, it succeeds, it reaches nobody
+    add(
+      "cron",
+      healthy,
+      detail,
+      dangling.length ? `pp cron rm ${dangling[0].id}` : overdue.length ? `pp cron run ${overdue[0].id}` : "pp install",
+    );
     // orientation, not a verdict: where the last copy is and how old
     const backups = listBackups(backupDir(process.env));
     const newest = backups[backups.length - 1];
@@ -5199,6 +5223,17 @@ export function roleTargets(config, role) {
   const wanted = String(role ?? "").trim().toLowerCase();
   if (!wanted) return [];
   return (config?.sessions ?? []).filter((session) => String(session.role ?? "").toLowerCase() === wanted);
+}
+
+/**
+ * Jobs aimed at a label that no session carries.
+ *
+ * `pp cron add --role dev` is validated when it is created, but labels get
+ * renamed and cleared later — and then the job ticks, reports `delivered`…
+ * to nobody. Nothing else in pp would ever notice.
+ */
+export function danglingRoleJobs(jobs, config) {
+  return (jobs ?? []).filter((job) => job.role && roleTargets(config, job.role).length === 0);
 }
 
 function deliverToRole(job, options) {

@@ -130,6 +130,7 @@ test("plan --json: ordered steps and the facts they came from", () => {
       unmanaged: "array",
       stuck: "array",
       cron: "array",
+      dangling: "array",
       logs: "array",
       autostart: "object|null",
       extension: "object|null",

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { compareNames, rolesInUse } from "../src/commands.js";
-import { cmdRole, roleTargets } from "../src/commands.js";
+import { cmdRole, danglingRoleJobs, planSteps, roleTargets } from "../src/commands.js";
 
 test("names sort the way a person reads them, families stay together", () => {
   const names = ["risk-pm", "risk-10", "alpha", "risk-2", "risk-01", "Risk-02"];
@@ -113,4 +113,18 @@ test("roleTargets is the join cron --role and status --role share", () => {
   assert.deepEqual(roleTargets(config, "dev ops").map((s) => s.name), ["ops"], "labels with a space work");
   assert.deepEqual(roleTargets(config, "qa"), [], "an unused label targets nothing");
   assert.deepEqual(roleTargets({ sessions: [] }, "dev"), [], "no config, no targets");
+});
+
+test("a job aimed at a label nobody carries is reported, not silently empty", () => {
+  const config = { sessions: [{ name: "web", tmuxName: "web", role: "dev" }] };
+  const jobs = [
+    { id: "aaaaaa", role: "dev", schedule: { kind: "every", seconds: 600 } },
+    { id: "bbbbbb", role: "dve", schedule: { kind: "every", seconds: 600 } },
+    { id: "cccccc", session: "web", prompt: "x", schedule: { kind: "every", seconds: 600 } },
+  ];
+  assert.deepEqual(danglingRoleJobs(jobs, config).map((job) => job.id), ["bbbbbb"]);
+
+  const steps = planSteps({ dangling: danglingRoleJobs(jobs, config) });
+  assert.equal(steps[0].command, "pp cron rm bbbbbb", "the fix names the job");
+  assert.match(steps[0].why, /reaches nobody/);
 });

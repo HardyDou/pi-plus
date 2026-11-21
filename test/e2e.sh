@@ -222,6 +222,22 @@ check "a one-edit label is refused"    2 'one edit away'   bash -c "cd $E2E && $
 check "cron add --role targets a label" 0 'role pm'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron add --role pm --every 10m 'standup' 2>&1"
 check "cron ls shows the role target"   0 'role pm'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron ls 2>&1"
 check "cron add --role rejects an unused label" 1 'no session has role "qa"' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron add --role qa --every 10m 'x' 2>&1"
+# a label that disappears later turns a job into a silent no-op: it ticks,
+# it "delivers", and it reaches nobody. doctor has to say so.
+DGC=$E2E/lostlabel
+mkdir -p "$DGC/state"
+printf 'version: 1\nsessions:\n  - name: g\n    cwd: /tmp\n    agent: bash\n' > "$DGC/plus.yml"
+XDG_STATE_HOME=$DGC/state "$ROOT/bin/pp.js" -c "$DGC/plus.yml" cron add --session g --every 10m "x" >/dev/null 2>&1
+env XDG_STATE_HOME=$DGC/state node -e '
+  const fs = require("fs");
+  const path = process.env.XDG_STATE_HOME + "/pi-plus/cron.json";
+  const data = JSON.parse(fs.readFileSync(path, "utf8"));
+  data.jobs[0].role = "pm";
+  delete data.jobs[0].session;
+  fs.writeFileSync(path, JSON.stringify(data, null, 2));
+' 
+check "doctor names a job aimed at a lost label" 1 'targets role "pm" — nothing carries it' bash -c "XDG_STATE_HOME=$DGC/state $ROOT/bin/pp.js -c $DGC/plus.yml doctor 2>&1"
+check "plan removes the job that reaches nobody" 0 'pp cron rm' bash -c "XDG_STATE_HOME=$DGC/state $ROOT/bin/pp.js -c $DGC/plus.yml plan 2>&1"
 check "cron add --role rejects --session" 1 'not both' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron add --role pm --session alpha --every 10m 'x' 2>&1"
 bash -c "cd $E2E && for id in \$( $ROOT/bin/pp.js -c $ROLECFG cron ls --json | tr -d ' ,\"' | awk -F: '/^id:/{print \$2}' ); do $ROOT/bin/pp.js -c $ROLECFG cron rm \$id >/dev/null 2>&1; done"
 check "--force creates it anyway"      0 'dve'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role alpha dve --force 2>&1"
