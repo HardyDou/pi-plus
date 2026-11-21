@@ -3066,7 +3066,7 @@ async function cmdWhyNode(config, options, ui) {
  * it, a drained machine makes every `up` a no-op, and so on. Read-only.
  */
 export function planSteps(facts) {
-  const { reach = [], drift = [], unmanaged = [], stuck = [], cron = [], dangling = [], logs = [], autostart = null, extension = null } = facts;
+  const { reach = [], drift = [], unmanaged = [], stuck = [], cron = [], dangling = [], waiting = [], logs = [], autostart = null, extension = null } = facts;
   const steps = [];
   const add = (priority, title, command, why) => steps.push({ priority, title, command, why });
 
@@ -3131,8 +3131,17 @@ export function planSteps(facts) {
   for (const item of stuck) {
     add(7, `${item.name} has been quiet for ${item.quiet}m`, `pp logs ${item.name}`, "the agent is mid-turn and may be waiting on a tool");
   }
+  if (waiting.length) {
+    const oldest = waiting[0];
+    add(
+      8,
+      `${waiting.length} question(s) are waiting for an answer — oldest ${oldest.age}`,
+      "pp todo ls",
+      "an agent asked something and is still holding the thread; the answer is the only thing that unblocks it",
+    );
+  }
   for (const file of logs) {
-    add(8, `${file.label} is ${file.size}`, "pp clean", `nothing rotates it; a full disk breaks everything`);
+    add(9, `${file.label} is ${file.size}`, "pp clean", `nothing rotates it; a full disk breaks everything`);
   }
   return steps.sort((a, b) => a.priority - b.priority);
 }
@@ -3140,7 +3149,24 @@ export function planSteps(facts) {
 /** The facts `pp plan` needs, gathered from the same helpers the other commands use. */
 export async function planFacts(config, options) {
   const env = options?.env ?? process.env;
-  const facts = { reach: [], drift: [], unmanaged: [], stuck: [], cron: [], dangling: [], logs: [], autostart: null, extension: null };
+  const facts = { reach: [], drift: [], unmanaged: [], stuck: [], cron: [], dangling: [], waiting: [], logs: [], autostart: null, extension: null };
+  // A todo is work blocked on a human. One that has been sitting for a day is the
+  // thing that quietly rots, so plan counts them oldest first.
+  {
+    const staleHours = (() => {
+      const raw = Number(process.env.PP_TODO_STALE_HOURS ?? 24);
+      return Number.isFinite(raw) && raw > 0 ? raw : 24;
+    })();
+    const cutoff = Date.now() - staleHours * 3600 * 1000;
+    facts.waiting = readTodos()
+      .filter((todo) => String(todo.state ?? "new") !== "done" && todo.session)
+      .filter((todo) => {
+        const at = Date.parse(String(todo.createdAt ?? ""));
+        return Number.isFinite(at) && at <= cutoff;
+      })
+      .sort((a, b) => String(a.createdAt ?? "").localeCompare(String(b.createdAt ?? "")))
+      .map((todo) => ({ id: todo.id, session: todo.session, title: todo.title ?? "", age: agoText(todo.createdAt) }));
+  }
   const only = options?.node ?? null;
   const scoped = (name) => !only || name === only;
 

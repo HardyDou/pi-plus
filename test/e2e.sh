@@ -295,7 +295,7 @@ check "the first screen points at handover" 0 'pp handover' bash -c "cd $E2E && 
 check "the first screen points at why"     0 'pp why <name>' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK 2>&1"
 check "handover rejects a bad window"   2 'not a duration' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --since soon 2>&1"
 # a question left in a session is what the next shift has to pick up
-check "handover lists the questions waiting" 0 'waiting 1 question' bash -c "mkdir -p $E2E/state/pi-plus && printf '{\"version\":1,\"todos\":[{\"id\":\"aaa111\",\"session\":\"e-always\",\"kind\":\"manual\",\"title\":\"do we ship?\",\"state\":\"new\",\"createdAt\":\"2020-01-01T00:00:00.000Z\"}]}' > $E2E/state/pi-plus/todos.json && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --since 7d 2>&1"
+check "handover lists the questions waiting" 0 'waiting 1 question' bash -c "mkdir -p "$XDG_STATE_HOME/pi-plus" && printf '{\"version\":1,\"todos\":[{\"id\":\"aaa111\",\"session\":\"e-always\",\"kind\":\"manual\",\"title\":\"do we ship?\",\"state\":\"new\",\"createdAt\":\"2020-01-01T00:00:00.000Z\"}]}' > $XDG_STATE_HOME/pi-plus/todos.json && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --since 7d 2>&1"
 check "handover names the todo command" 0 'pp todo attach aaa111' bash -c "$ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --since 7d 2>&1"
 
 # sort: role groups by label, and leaves the unlabelled at the bottom
@@ -1156,6 +1156,10 @@ PLF up plan-off >/dev/null 2>&1
 # still a step here; what must be gone is the drift step for plan.yml itself
 ncheck "plan stops asking for a drift once both are up" 'pp up --drift' PLF plan
 check "plan has a help page"            0 'pp plan'             bash -c "cd $E2E && $ROOT/bin/pp.js help plan"
+# a question nobody answered is exactly what a to-do list is for
+check "plan names the questions waiting" 0 'pp todo ls' bash -c "mkdir -p \"$XDG_STATE_HOME/pi-plus\" && printf '{\"version\":1,\"todos\":[{\"id\":\"stale01\",\"session\":\"plan-on\",\"kind\":\"manual\",\"title\":\"ship it?\",\"state\":\"new\",\"createdAt\":\"2020-01-01T00:00:00.000Z\"}]}' > $XDG_STATE_HOME/pi-plus/todos.json && $ROOT/bin/pp.js -c $PLANCFG --socket $SOCK plan 2>&1"
+check "plan ages the oldest question" 0 'oldest' bash -c "$ROOT/bin/pp.js -c $PLANCFG --socket $SOCK plan 2>&1"
+rm -f "$XDG_STATE_HOME/pi-plus/todos.json"
 
 section "no crash on --json"
 # Every read-only verb claims a JSON shape. A script that pipes one of them into

@@ -99,3 +99,24 @@ test("an unknown machine points at the list", () => {
   const [step] = planSteps({ reach: [{ name: "nope", how: "unknown" }] });
   assert.equal(step.command, "pp node ls");
 });
+
+test("a question waiting for an answer is a step, oldest first", () => {
+  const steps = planSteps({
+    waiting: [
+      { id: "aaa111", session: "api", title: "ship it?", age: "2d ago" },
+      { id: "bbb222", session: "web", title: "which branch?", age: "3h ago" },
+    ],
+  });
+  assert.equal(steps.length, 1);
+  assert.equal(steps[0].command, "pp todo ls");
+  assert.equal(steps[0].priority, 8);
+  assert.match(steps[0].title, /2 question\(s\) are waiting for an answer — oldest 2d ago/);
+});
+
+test("logs come after the questions, not before", () => {
+  const steps = planSteps({
+    waiting: [{ id: "aaa111", session: "api", title: "x", age: "2d ago" }],
+    logs: [{ label: "info.log", size: "57.2 MB" }],
+  });
+  assert.deepEqual(steps.map((step) => step.command), ["pp todo ls", "pp clean"]);
+});
