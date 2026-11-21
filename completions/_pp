@@ -94,7 +94,7 @@ _pp() {
     '--bin-dir[directory for pp alias symlinks]:dir:_files -/' \
     '--check[report only; exit 1 when an update is available]' \
     '--registry[npm registry for pp update]:url:' \
-    '--watch[reconcile interval for install]:seconds:' \
+    '--watch[reconcile interval for install; pp status --watch redraws and reports changes]:seconds:' \
     '--print[print autostart unit and exit]' \
     '1:command:->command' \
     '*:session:->session'

@@ -128,6 +128,26 @@ check "check --brief says ok in one line" 0 'ok [0-9]+ session'  pp check --brie
 check "check --brief names the problem"   1 '1 problem'         pp check --brief -c "$E2E/init.yml"
 check "check --json ok"          0 '"ok": true'                pp check -c "$CFG" --json
 
+section "watch"
+# the point of a watch is the transition, not the table
+WATCHLOG=$E2E/watch.log
+# something has to be running, or there is no transition to report
+"$ROOT/bin/pp.js" -c "$CFG" --socket "$SOCK" up e-always > /dev/null 2>&1
+( exec "$ROOT/bin/pp.js" -c "$CFG" --socket "$SOCK" status --watch 2 > "$WATCHLOG" 2>&1 ) &
+WATCHPID=$!
+sleep 3
+# --force: e2e has no tty to confirm at
+"$ROOT/bin/pp.js" -c "$CFG" --socket "$SOCK" down e-always --force > /dev/null 2>&1
+sleep 3
+kill -INT "$WATCHPID" 2> /dev/null
+wait "$WATCHPID" 2> /dev/null
+# the pattern is matched against the command's output, so print the line
+check "status --watch draws the table"     0 'watching'   bash -c "grep watching $WATCHLOG | head -1"
+check "status --watch reports a stop"      0 'went off'   bash -c "grep 'went off' $WATCHLOG | head -1"
+check "status --watch says nothing changed" 0 'no changes yet' bash -c "grep 'no changes yet' $WATCHLOG | head -1"
+# leave the world as we found it: the up section below counts what it starts
+"$ROOT/bin/pp.js" -c "$CFG" --socket "$SOCK" down e-always --force > /dev/null 2>&1
+
 section "clean"
 mkdir -p "$E2E/state/pi-plus" "$E2E/logs"
 printf 'line-A\nline-B\nline-C\n' > "$E2E/logs/app.log"

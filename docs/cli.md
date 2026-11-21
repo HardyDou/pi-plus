@@ -164,6 +164,27 @@ rewritten, so the diff stays small.
 `3/4` = 你为这台机器列了 4 个会话、3 个在跑；`+1` = 它上面还有一个没写进配置的会话。
 两个符号分别对应 `pp up` 和 `pp adopt`。
 
+### `pp status --watch`：变化的记录，而不是重画的表格
+
+```bash
+$ pp status --watch 5
+watching ~/.pi/plus.yml — every 5s, ctrl-c to stop  10:31:04
+
+#  NAME   NODE  STATE    IDLE  ...
+1  api    -     running  12s   ...
+2  web    t114  off (hand) —   ...
+
+10:31:09  api went off
+10:31:14  web came back
+```
+
+只重画的表只有人盯着才有用；**变化**才是要处理的东西。所以 `--watch` 记住上一拍的样子，
+在表下打出跃迁：`went off` / `came back` / `stuck — quiet 95m` / `moving again` /
+`node t114 unreachable`，保留最近六条，没有变化时显示 `no changes yet`。
+
+两个刻意的边界：只看**本机** pane 的静默（远端每个会话一次 ssh 太贵），远端只报 `unreachable`；
+退出用 `ctrl-c`（SIGINT/SIGTERM 都会让当前画面收尾再退出）。
+
 ### `pp doctor --brief`：先做哪一件
 
 ```bash

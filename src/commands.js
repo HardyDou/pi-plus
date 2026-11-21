@@ -1769,6 +1769,7 @@ export function formatDownReasons(reasons, most = 3) {
 }
 
 function cmdStatus(config, options, ui) {
+  if (options.watch !== undefined && !options.json) return cmdStatusWatch(config, options, ui);
   // status lists every configured session, whatever its restart policy.
   const sessions = selectSessions(config, options.names, ui, { all: true, options });
   if (!sessions.length && options.node) {
@@ -3823,6 +3824,112 @@ function cmdDoctor(config, options, ui) {
     for (const warning of config.warnings) ui.warn(warning);
   }
   if (checks.some((c) => !c.ok)) process.exitCode = 1;
+}
+
+/**
+ * The watch loop: the same table as `pp status`, plus a record of what changed.
+ * Redrawing every second only helps someone staring at it; the point of a watch
+ * is the *transition* — "web went off at 10:31" is the thing you act on.
+ */
+async function cmdStatusWatch(config, options, ui) {
+  const seconds = options.watch === true ? 10 : Math.max(2, Number(options.watch) || 10);
+  const clear = "\u001b[H\u001b[2J";
+  const events = [];
+  let stopping = false;
+  const stop = () => {
+    stopping = true;
+  };
+  process.once("SIGINT", stop);
+  process.once("SIGTERM", stop);
+
+  const snapshot = () => {
+    const states = new Map();
+    const stuck = new Map();
+    const unreachable = new Set();
+    const byNode = new Map();
+    for (const session of config.sessions) {
+      const key = session.node ?? "";
+      if (!byNode.has(key)) byNode.set(key, []);
+      byNode.get(key).push(session);
+    }
+    for (const [nodeName, list] of byNode) {
+      let live = new Map();
+      let handle = null;
+      try {
+        handle = makeTmux(config, options, nodeName ? { node: nodeName } : undefined);
+        if (nodeName && !handle.reachable()) unreachable.add(nodeName);
+        else live = handle.listSessions();
+      } catch {
+        if (nodeName) unreachable.add(nodeName);
+      }
+      for (const session of list) {
+        const running = live.has(session.tmuxName);
+        states.set(session.name, running ? "running" : "off");
+        // only this machine's panes are cheap enough to read every cycle
+        if (running && !nodeName && handle) {
+          try {
+            const reading = stallWatch(config, handle, session);
+            if (reading?.busy && reading.quiet > 0) stuck.set(session.name, reading.quiet);
+          } catch {
+            /* a pane that vanishes between the two calls is not news */
+          }
+        }
+      }
+    }
+    return { states, stuck, unreachable };
+  };
+
+  const clock = () => new Date().toTimeString().slice(0, 8);
+
+  const diff = (before, after) => {
+    for (const [name, state] of after.states) {
+      const was = before.states.get(name);
+      if (was === "running" && state !== "running") events.push(`${clock()}  ${name} went off`);
+      if (was && was !== "running" && state === "running") events.push(`${clock()}  ${name} came back`);
+    }
+    for (const [name, quiet] of after.stuck) {
+      if (!before.stuck.has(name)) events.push(`${clock()}  ${name} stuck — quiet ${quiet}m`);
+    }
+    for (const name of before.stuck.keys()) {
+      if (!after.stuck.has(name)) events.push(`${clock()}  ${name} moving again`);
+    }
+    for (const node of after.unreachable) {
+      if (!before.unreachable.has(node)) events.push(`${clock()}  node ${node} unreachable`);
+    }
+  };
+
+  const render = (now) => {
+    const buffer = [];
+    const captured = {
+      json: false,
+      quiet: false,
+      paint: ui.paint,
+      out: (line = "") => buffer.push(String(line)),
+      info: (line = "") => buffer.push(String(line)),
+      warn: (line = "") => buffer.push(ui.paint("yellow", `warning: ${line}`)),
+      error: (line = "") => buffer.push(ui.paint("red", `error: ${line}`)),
+    };
+    cmdStatus(config, { ...options, watch: undefined }, captured);
+    const head =
+      `${ui.paint("bold", "watching")} ` +
+      ui.paint("dim", `${config.path} — every ${seconds}s, ctrl-c to stop`) +
+      "  " +
+      ui.paint("dim", clock());
+    const tail = events.slice(-6).map((line) => ui.paint("dim", line));
+    return [head, "", ...buffer, "", ...(tail.length ? tail : [ui.paint("dim", "no changes yet")])];
+  };
+
+  let previous = snapshot();
+  process.stdout.write(`${clear}${render(previous).join("\n")}\n`);
+  while (!stopping) {
+    await new Promise((resolve) => setTimeout(resolve, seconds * 1000));
+    if (stopping) break;
+    const now = snapshot();
+    diff(previous, now);
+    previous = now;
+    process.stdout.write(`${clear}${render(now).join("\n")}\n`);
+  }
+  process.stdout.write("\n");
 }
 
 function cmdInit(options, ui) {

@@ -107,9 +107,11 @@ function parseArgs(argv) {
         case "--log": options.log = takeValue(flag, inline); break;
         case "--print": options.print = true; break;
         case "--watch": {
-          if (inline !== undefined) options.watch = Number(inline) || 300;
+          // `true` means "the default interval for this command": 300s for the
+          // autostart timer, 10s for `pp status --watch`. Each caller decides.
+          if (inline !== undefined) options.watch = Number(inline) || true;
           else if (args.length > 0 && /^\d+$/.test(args[0])) options.watch = Number(args.shift());
-          else options.watch = 300;
+          else options.watch = true;
           break;
         }
         case "--dir": options.dir = takeValue(flag, inline); break;
