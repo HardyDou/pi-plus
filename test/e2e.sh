@@ -994,6 +994,7 @@ check "runbook finds a scenario by title" 0 'pp logs'            bash -c "cd $E2
 check "runbook --json is data"          0 '"steps"'             bash -c "cd $E2E && $ROOT/bin/pp.js runbook --json | grep -m1 '\"steps\"'"
 check "runbook --markdown is the manual" 0 '^# 事故处理手册'      bash -c "cd $E2E && $ROOT/bin/pp.js runbook --markdown | head -1"
 check "runbook refuses an unknown scenario" 2 'no scenario'      bash -c "cd $E2E && $ROOT/bin/pp.js runbook nonsense"
+check "the manual reaches pp restore"    0 'pp restore latest'  bash -c "cd $E2E && $ROOT/bin/pp.js runbook config-broken"
 check "the manual is generated from the code" 0 ''               bash -c "cd $ROOT && $ROOT/bin/pp.js runbook --markdown | diff -q - docs/runbook.md"
 
 section "new --from (clone a session)"

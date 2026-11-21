@@ -3,7 +3,7 @@
 > 这份文件由 `src/runbook.js` 生成：`pp runbook --markdown > docs/runbook.md`。
 > 每一步都是先**只读**地看清楚，再决定要不要动。
 
-场景一览：`nothing-runs` · `no-delivery` · `session-dies` · `machine-unreachable` · `disk-full` · `agent-stuck` · `after-reboot`
+场景一览：`nothing-runs` · `no-delivery` · `session-dies` · `machine-unreachable` · `disk-full` · `agent-stuck` · `after-reboot` · `config-broken`
 
 ## Every session is gone（`nothing-runs`）
 
@@ -112,4 +112,20 @@ Autostart has three parts and all three must hold: the unit is installed, it is 
 | 5 | `pp up --drift` | the sessions that should be up and are not, started |
 
 准备好动的时候：`pp install`
+
+## Somebody edited the config and now it is not right（`config-broken`）
+
+**症状**：a command fails with a yaml/session error, sessions went missing from the list, or the file is shorter than you remember
+
+plus.yml is a file people edit by hand. The previous copy of it is on disk — pp keeps one before any change it makes, and pp backup makes one before any change a human makes.
+
+| # | 跑什么 | 应该看到 |
+| --- | --- | --- |
+| 1 | `pp check` | error: <file>:<line>: … — the first line that does not parse, not the last |
+| 2 | `pp backup --list` | 2026-05-01T10-00-12-345  6 file(s)  334.7 KB — the newest is on top of the list |
+| 3 | `pp restore latest --dry-run` | the diff it would apply, in the same shape as pp audit --action config.changed |
+| 4 | `pp restore latest --force` | restored 1 file(s) — and the broken one is kept as a backup of its own |
+| 5 | `pp check` | ok config looks usable, and pp ls lists the sessions you remember |
+
+准备好动的时候：`pp restore latest`
 

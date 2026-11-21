@@ -60,3 +60,13 @@ test("the manual covers every scenario", () => {
   // the doc is generated; say so, or somebody will edit it by hand
   assert.match(markdown, /pp runbook --markdown > docs\/runbook\.md/);
 });
+
+test("the manual covers the case where the config itself was the casualty", () => {
+  // pp restore only earns its keep if the manual points at it at 3am
+  const scenario = findScenario("config-broken");
+  assert.ok(scenario, "config-broken should exist");
+  const commands = scenario.steps.map((step) => step.do);
+  assert.ok(commands.some((cmd) => cmd.startsWith("pp restore")), "steps should reach pp restore");
+  assert.match(scenario.fix, /pp restore/);
+  assert.equal(findScenario("config"), scenario, "a title fragment should find it");
+});

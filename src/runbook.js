@@ -114,6 +114,21 @@ export const RUNBOOK = [
     ],
     fix: "pp install",
   },
+  {
+    id: "config-broken",
+    title: "Somebody edited the config and now it is not right",
+    symptom: "a command fails with a yaml/session error, sessions went missing from the list, or the file is shorter than you remember",
+    means:
+      "plus.yml is a file people edit by hand. The previous copy of it is on disk — pp keeps one before any change it makes, and pp backup makes one before any change a human makes.",
+    steps: [
+      { do: "pp check", see: "error: <file>:<line>: … — the first line that does not parse, not the last" },
+      { do: "pp backup --list", see: "2026-05-01T10-00-12-345  6 file(s)  334.7 KB — the newest is on top of the list" },
+      { do: "pp restore latest --dry-run", see: "the diff it would apply, in the same shape as pp audit --action config.changed" },
+      { do: "pp restore latest --force", see: "restored 1 file(s) — and the broken one is kept as a backup of its own" },
+      { do: "pp check", see: "ok config looks usable, and pp ls lists the sessions you remember" },
+    ],
+    fix: "pp restore latest",
+  },
 ];
 
 export function findScenario(id) {
