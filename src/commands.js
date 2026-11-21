@@ -4360,7 +4360,14 @@ function cmdDoctor(config, options, ui) {
   // the machine park, not this machine: a different question, a different table
   if (options.nodes) return doctorNodes(config, options, ui);
   if (options.quarantine) return doctorQuarantine(ui, options);
-  const tmux = makeTmux(config, options);
+  let tmux = null;
+  try {
+    tmux = makeTmux(config, options);
+  } catch (error) {
+    // doctor has to survive the thing it diagnoses: on a machine without tmux
+    // this used to exit 1 with "tmux is not installed" and no table at all
+    ui.info(`note: ${error.message}`);
+  }
   const checks = [];
   // `fix` is the command that makes the check pass: at 3am "what do I type" beats
   // "what is wrong", and `--brief` is built out of these.
@@ -4368,6 +4375,7 @@ function cmdDoctor(config, options, ui) {
 
   add("node", true, process.version);
   const tmuxVersion = (() => {
+    if (!tmux) return null;
     try {
       return tmux.run(["-V"], { readOnly: true }).stdout.trim();
     } catch {
@@ -4375,10 +4383,14 @@ function cmdDoctor(config, options, ui) {
     }
   })();
   add("tmux", Boolean(tmuxVersion), tmuxVersion ?? "not found", "install tmux (apt install tmux)");
-  const hasServer = tmux.hasServer();
+  // everything below that would ask tmux something is gated on this: a missing
+  // binary is a check on the table, not a reason to stop printing it
+  const tmuxUsable = Boolean(tmuxVersion);
+  const hasServer = tmuxUsable ? (() => { try { return tmux.hasServer(); } catch { return false; } })() : false;
   // A missing server is normal (tmux starts on demand) — not a failure.
   add("tmux server", true, hasServer ? "running" : "not running (starts on demand)");
-  add("pi", commandExists("pi"), resolveExecutable("pi"), "npm i -g @earendil-works/pi-coding-agent");
+  const piFound = commandExists("pi");
+  add("pi", piFound, piFound ? resolveExecutable("pi") : "not on PATH", "npm i -g @earendil-works/pi-coding-agent");
   const extension = installedExtension();
   const own = ownVersion();
   add(
@@ -4427,12 +4439,15 @@ function cmdDoctor(config, options, ui) {
   if (config) {
     // Does the config still describe this machine? Two drifts matter: parked
     // sessions that should be up, and live ones nobody wrote down.
-    const live = tmux.listSessions();
+    const live = tmuxUsable ? (() => { try { return tmux.listSessions(); } catch { return new Map(); } })() : new Map();
     const local = config.sessions.filter((session) => !session.node);
     const mine = new Set(local.map((session) => session.tmuxName));
     const parked = local.filter((session) => !live.has(session.tmuxName) && session.restart !== "no").map((session) => session.name);
     const strays = [...live.keys()].filter((name) => !mine.has(name));
-    add(
+    if (!tmuxUsable) {
+      // without tmux nothing can be running; the `tmux` check above already says why
+      add("drift", true, "not checked (tmux is missing)");
+    } else add(
       "drift",
       parked.length === 0 && strays.length === 0,
       [parked.length ? `off: ${parked.join(", ")} — pp up` : null, strays.length ? `not in config: ${strays.join(", ")} — pp adopt` : null]
@@ -4446,7 +4461,7 @@ function cmdDoctor(config, options, ui) {
     // turn that has been open for hours looks exactly like a busy one, and the
     // only difference is how long we have seen it busy.
     const limitMinutes = stallMinutes(process.env);
-    const live = tmux.listSessions();
+    const live = tmuxUsable ? (() => { try { return tmux.listSessions(); } catch { return new Map(); } })() : new Map();
     const stuck = [];
     const seen = [];
     for (const session of config.sessions.filter((s) => !s.node)) {

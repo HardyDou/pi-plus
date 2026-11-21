@@ -437,6 +437,14 @@ pp up backend --dry-run -v                    # 打印最终 argv + env
 [dry-run] tmux new-session -d -s backend -c /home/you/code/backend -- env ... pi --name backend
 ```
 
+## `pp doctor` 本身不工作
+
+`pp doctor` 的价值在于"什么坏了都能告诉你"，包括 **tmux 没装**（0.70.0 之前它在这种情况下直接 `exit 1` 并只打一行
+`tmux is not installed`，什么表都没有 —— 检查工具被它检查的东西挡住了）。
+
+现在的行为：tmux 缺失时 `tmux` 检查打 ✗ 并给出 `install tmux (apt install tmux)`，`drift` 检查显示 `not checked (tmux is missing)`，
+其余（node / pi / 扩展 / 自启 / cron / 状态文件 / 日志）照常检查。
+
 ## 状态文件类（`pp doctor` 报 `own files`）
 
 pp 自己的文件在 `~/.local/state/pi-plus/`：`state.json`（谁被手工停过、上次谁拉起的、几次重启）、

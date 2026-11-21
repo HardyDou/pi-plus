@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
@@ -204,6 +204,27 @@ test("check/ls surfaces keep their shape, empty or not", () => {
       shape(scenario, { id: "string", title: "string", symptom: "string", means: "string", steps: "array", fix: "string" }, `runbook[${scenario.id}]`);
       for (const step of scenario.steps) shape(step, { do: "string", see: "string" }, `runbook[${scenario.id}].steps`);
     }
+  } finally {
+    box.stop();
+  }
+});
+
+test("doctor prints its table even where tmux is missing — that is what it is for", () => {
+  // reproduce the CI runner: node, and nothing else on PATH
+  const box = sandbox();
+  try {
+    const bare = mkdtempSync(join(tmpdir(), "pp-bare-"));
+    symlinkSync(process.execPath, join(bare, "node"));
+    const result = spawnSync(process.execPath, [BIN, "-c", join(box.root, "plus.yml"), "doctor", "--json"], {
+      encoding: "utf8",
+      env: { ...process.env, PATH: bare, XDG_STATE_HOME: join(box.root, "bare-state") },
+    });
+    assert.ok([0, 1].includes(result.status), `exited ${result.status}: ${result.stderr}`);
+    const payload = JSON.parse(result.stdout);
+    const tmux = payload.checks.find((check) => check.label === "tmux");
+    assert.equal(tmux.ok, false);
+    assert.match(tmux.fix, /install tmux/);
+    assert.ok(payload.failed.includes("tmux"));
   } finally {
     box.stop();
   }
