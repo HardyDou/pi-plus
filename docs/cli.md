@@ -73,6 +73,29 @@ pp snapshot --json | jq -r .text
 只读、不 ssh、半坏也能用：坏掉的 `cron.json` 变成块里的一行（提示 `pp doctor --quarantine`）、
 没有配置就直说。适合往 ticket / 群里贴一整段上下文。
 
+### `pp handover [--since <窗口>] [--json]`
+
+换班贴到群里的那一页。三段，按接手人需要的顺序：
+
+```
+handover  last 24h, up to 2026-11-22T06:39Z  ·  pp 0.73.19  ·  ~/.pi/plus.yml
+
+changed 7 recorded — up ×4, down ×1, restart ×1, config.changed ×1
+           2h ago  up             api
+           5h ago  config.changed risk-01 — 1 change: sessions.risk-01 role: (absent) -> risk  (user@host#812)
+
+now     9 session(s) configured, 9/9 local up
+cron    3 job(s), tick installed, none late
+
+human   nothing — nothing is off, stuck or late
+```
+
+- `changed` 来自 `pp audit`，**不含 `send`**（那是工作本身，会把要紧的七行淹掉）
+- `now` = 配置期望多少、本地几个活着、定时任务数与 tick 是否还在
+- `human` = 需要人做决定的：没起的、没登记的、卡住的、迟到的，每条都带修它的命令
+
+只读。`--since` 与其他命令同一套窗口写法（`24h`、`90m`、`7d`），默认 24 小时。
+
 ### `pp audit [target]`
 
 ```bash

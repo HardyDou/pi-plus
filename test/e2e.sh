@@ -284,6 +284,12 @@ check "config sort orders by name"     0 'alpha'         bash -c "cd $E2E && $RO
 printf "version: 1\ntmux:\n  socket: $SOCK\nsessions:\n  - {name: case-a, cwd: $E2E, agent: bash, role: prod}\n  - {name: case-b, cwd: $E2E, agent: bash, role: Prod}\n" > "$E2E/rolecase.yml"
 check "check catches one label in two spellings" 1 'differ only by case' bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/rolecase.yml check 2>&1"
 
+# the handover page names the three sections and stays read-only
+check "handover has its three sections" 0 'changed' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --since 7d 2>&1"
+check "handover says who needs a human" 0 'human'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --since 7d 2>&1"
+check "handover --json is an object"    0 '"changes"' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --json 2>&1"
+check "handover rejects a bad window"   2 'not a duration' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --since soon 2>&1"
+
 # sort: role groups by label, and leaves the unlabelled at the bottom
 check "sort role puts one label together" 0 'risk-10'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --sort role status | grep -E 'risk-10|alpha' | head -1"
 # the last row must be one without a label (its ROLE column is a bare dash)

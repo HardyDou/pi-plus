@@ -3456,6 +3456,115 @@ function cmdSnapshot(config, options, ui) {
 }
 
 /** `pp runbook [scenario] [--markdown] [--json]`: the incident table, one scenario at a time. */
+// one page a shift can be handed over with: what changed, what is wrong now,
+// and what a human still has to decide
+async function cmdHandover(config, options, ui) {
+  let windowSeconds = 24 * 60 * 60;
+  try {
+    windowSeconds = parseDuration(options.since ?? "24h", { what: "--since" });
+  } catch (err) {
+    // a typo in a window is a usage mistake, not a crash
+    ui.error(err.message);
+    process.exit(2);
+  }
+  const now = new Date();
+  const since = new Date(now.getTime() - windowSeconds * 1000);
+  let entries = [];
+  try {
+    entries = readAudit({ since: since.toISOString(), limit: 0 }, process.env);
+  } catch {
+    entries = [];
+  }
+  // typing a sentence into a pane is not a change to the machine — it is the
+  // work itself, and it would drown the lines that matter
+  const noisy = new Set(["send"]);
+  const changes = entries.filter((entry) => !noisy.has(String(entry.action)));
+  const counts = new Map();
+  for (const entry of changes) counts.set(entry.action, (counts.get(entry.action) ?? 0) + 1);
+
+  const problems = fleetProblems(config, options);
+  const jobs = (() => {
+    try {
+      return readJobs();
+    } catch {
+      return [];
+    }
+  })();
+  const late = overdueJobs(jobs, now);
+  const total = config.sessions.length;
+  const local = config.sessions.filter((session) => !session.node);
+
+  if (ui.json) {
+    ui.out(
+      JSON.stringify(
+        {
+          since: since.toISOString(),
+          window: options.since ?? "24h",
+          counts: Object.fromEntries(counts),
+          changes: changes.slice(-40).map((entry) => ({
+            at: entry.ts,
+            action: entry.action,
+            target: entry.target ?? null,
+            node: entry.node ?? null,
+            detail: entry.detail ?? null,
+            actor: entry.actor ?? null,
+          })),
+          now: { sessions: total, problems: problems.map((item) => item.text), cron: jobs.length, late },
+        },
+        null,
+        2,
+      ),
+      null,
+    );
+    return;
+  }
+
+  const span = windowSeconds >= 3600 ? `${Math.round(windowSeconds / 3600)}h` : `${Math.round(windowSeconds / 60)}m`;
+  ui.out(`${ui.paint("bold", "handover")}  ${ui.paint("dim", `last ${span}, up to ${now.toISOString().slice(0, 16).replace("T", " ")}Z  ·  pp ${ownVersion()}  ·  ${config.path}`)}`);
+  ui.out("");
+
+  const line = (label, text) => ui.out(`${ui.paint("dim", label.padEnd(8))}${text}`);
+  const summary = [...counts].sort((a, b) => b[1] - a[1]).map(([action, n]) => `${action} \u00d7${n}`);
+  line("changed", changes.length ? `${changes.length} recorded \u2014 ${summary.join(", ")}` : "nothing recorded");
+  for (const entry of changes.slice(-6)) {
+    line("", `  ${ui.paint("dim", agoText(entry.ts, now).padStart(8))}  ${String(entry.action).padEnd(14)} ${entry.target ?? "-"}${entry.node ? ui.paint("dim", ` on ${entry.node}`) : ""}${entry.detail ? ui.paint("dim", ` \u2014 ${entry.detail}`) : ""}${entry.actor ? ui.paint("dim", `  (${entry.actor})`) : ""}`);
+  }
+
+  ui.out("");
+  const off = problems.filter((item) => item.kind === "off");
+  const unmanaged = problems.filter((item) => item.kind === "unmanaged");
+  const tmuxDown = problems.find((item) => item.kind === "tmux");
+  const upLocal = tmuxDown ? null : local.length - off.length;
+  line("now", `${total} session(s) configured${upLocal === null ? "" : `, ${upLocal}/${local.length} local up`}${unmanaged.length ? `, ${unmanaged.length} unmanaged` : ""}`);
+  if (jobs.length) {
+    const installed = (() => {
+      try {
+        return crondHasBlock(readCrontab());
+      } catch {
+        return false;
+      }
+    })();
+    line("cron", `${jobs.length} job(s), tick ${installed ? "installed" : "missing \u2014 pp install"}, ${late.length ? ui.paint("yellow", `${late.length} late`) : "none late"}`);
+  }
+
+  const needs = [];
+  if (tmuxDown) needs.push(tmuxDown.text);
+  for (const item of problems) if (item.kind === "stuck") needs.push(item.text);
+  for (const item of off) needs.push(item.text);
+  for (const item of unmanaged) needs.push(item.text);
+  for (const job of late) needs.push(`${job.id} is ${job.late} late \u2014 pp cron run ${job.id}`);
+  ui.out("");
+  if (!needs.length) {
+    line("human", ui.paint("green", "nothing \u2014 nothing is off, stuck or late"));
+  } else {
+    line("human", `${needs.length} thing(s) to look at`);
+    for (const text of needs.slice(0, 8)) line("", `  ${text}`);
+    if (needs.length > 8) line("", ui.paint("dim", `  and ${needs.length - 8} more \u2014 pp plan`));
+  }
+  ui.out("");
+  ui.out(ui.paint("dim", "  pp audit --since <window> for the whole trail \u00b7 pp why <name> for one session \u00b7 pp plan for the ordered list"));
+}
+
 async function cmdRunbook(config, options, ui) {
   if (options.markdown) {
     process.stdout.write(`${renderMarkdown()}\n`);
@@ -6712,6 +6821,9 @@ export async function runCommand(command, options) {
         if (options.config) throw error;
       }
       return cmdSnapshot(config, options, ui);
+    }
+    case "handover": {
+      return cmdHandover(requireConfig(options, ui), options, ui);
     }
     case "runbook": {
       // works without a config: the manual is worth reading before you have one

@@ -17,6 +17,7 @@ _pp() {
     'stop:alias for down'
     'restart:restart sessions'
     'plan:what to do next, in the order that unblocks the most'
+    'handover:one page for the next shift (changed / now / needs a human)'
     'snapshot:print the whole state as one pastable block'
     'runbook:work through an incident the way a calm person would'
     'why:say why a session is in the state it is in (alias explain)'
