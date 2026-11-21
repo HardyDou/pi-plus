@@ -505,6 +505,8 @@ export const COMMANDS = [
       "--idle-over 30m  only sessions quiet that long (s/m/h/d)",
       "--sort name      order rows: config, idle (quietest first), name",
       "                 (the config can set a default with a top-level `sort:`)",
+      "                 sorted rows keep their # from the config order — the table",
+      "                 says so in the footer, because #3 has to mean one session",
       "--role pm        only sessions carrying that label (pp role)",
       "--node <name>    only sessions on that machine",
       "--started        add a STARTED column (who last started it, and why)",

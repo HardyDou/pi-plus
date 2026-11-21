@@ -360,6 +360,14 @@ last start 4m ago by heal (ops@dev#4121) — pp audit --action up
 
 `--started` 只是加一列；查单个会话时不加也会在表下多打一行。完整历史仍在 `pp audit --action up`。
 
+### 排序与 `#` 列
+
+`--sort name`（或配置里 `sort: name`）按名字排，`risk-01`/`risk-02`/`risk-pm` 会挨在一起，`risk-2` 排在 `risk-10` 前面。
+
+`#` 列**始终是配置里的顺序**，不随排序变 —— 否则 `pp attach 3` 会悄悄指向另一台会话。
+所以排序后表格会在 footer 里写明 `rows are sorted by name; # stays the config order`，
+脚本里要稳的引用就用名字（`pp attach risk-pm`），名字永远不歧义。
+
 ### `pp status --json`
 
 ```json

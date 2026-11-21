@@ -2229,6 +2229,9 @@ function cmdStatus(config, options, ui) {
           ? `  ${ui.paint("dim", "(drain) = machine under maintenance; pp node undrain <name> lets it start")}`
           : "") +
         (showCron ? `  ${ui.paint("dim", "cron: jobs aimed here (* = every session)")}` : "") +
+        (sortKey !== "config" && shown.length
+          ? `  ${ui.paint("dim", `rows are sorted by ${sortKey}; # stays the config order (pp attach <name> is unambiguous)`)}`
+          : "") +
         (unreachableNodes.length ? `  ${ui.paint("red", `unreachable: ${unreachableNodes.join(", ")}`)}` : "") +
         `  ${ui.paint("dim", `config: ${config.path}`)}`,
     );
@@ -2442,7 +2445,10 @@ async function cmdTui(config, options, ui) {
   if (once) {
     const cols = process.stdout.columns || 100;
     const rows = process.stdout.rows || 30;
-    const layout = computeLayout(cols, rows, { leftWidth });
+    // the todo box grows with its content, so its size has to be known before
+    // the layout: the snapshot used to clip the second todo and say nothing
+    const onceTodos = tuiTodoRows(filterTodos(readTodos()), Date.now());
+    const layout = computeLayout(cols, rows, { leftWidth, todoCount: onceTodos.length });
     const { live } = readLive();
     const sortKey = options.sort ?? config.sort ?? "config";
     const sessionRows = ordered(tuiSessionRows(config, live), sortKey);
@@ -2458,7 +2464,7 @@ async function cmdTui(config, options, ui) {
     const onceDrift = [onceOff ? `${onceOff} off` : null, onceStrays ? `${onceStrays} unmanaged` : null].filter(Boolean).join(" · ");
     const model = {
       sessions: sessionRows,
-      todos: tuiTodoRows(filterTodos(readTodos()), Date.now()),
+      todos: onceTodos,
       preview: { title: "—", lines: [] },
       focus: "sessions",
       footer: `${onceDrift ? `${onceDrift} · ` : ""}pp tui --once  (--left 30 adjusts the sessions column)`,

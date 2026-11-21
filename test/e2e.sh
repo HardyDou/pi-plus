@@ -643,11 +643,18 @@ check "todo attach marks seen"     0 '"state": "seen"'          bash -c "cd $E2E
 check "status counts the open todos" 0 'TODOS'                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK status"
 check "the count lands on its session" 0 'e-always .* [0-9]+$'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK status | grep e-always"
 check "the panel shows it too"     0 'e-always .*[0-9]+\?'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
+
 check "todo done 1"                0 'done #[0-9a-f]'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo done 1"
 check "todo ls hides done"         0 'nothing needs you'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo ls"
 check "todo ls --all shows done"   0 'review the plan'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo ls --all"
 check "todo done rejects a bad ref" 2 'no todo #9'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo done 9"
 check "todo clear drops finished"  0 'cleared 1 finished'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo clear"
+# two open todos must both fit: the snapshot computed its layout without the
+# todo count, so the second one was silently clipped (0.73.4)
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo add 'first thing' --session e-always" > /dev/null 2>&1
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo add 'second thing' --session e-unless" > /dev/null 2>&1
+check "the panel makes room for both"  0 '^2$'                  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once | grep -c 'thing'"
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo rm 1 > /dev/null 2>&1; $ROOT/bin/pp.js -c $CFG todo rm 1 > /dev/null 2>&1"
 check "todo rm needs a ref"        2 'usage: pp todo rm'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo rm"
 check "todo unknown subcommand"    2 'unknown todo subcommand'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo bogus"
 check "todo help page"             0 'One list of everything'   bash -c "cd $E2E && $ROOT/bin/pp.js help todo"
