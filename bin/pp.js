@@ -109,6 +109,8 @@ function parseArgs(argv) {
         case "--brief": options.brief = true; break;
         case "--quarantine": options.quarantine = true; break;
         case "--keep": options.keep = takeValue(flag, inline); break;
+        case "--out": options.out = takeValue(flag, inline); break;
+        case "--list": options.list = true; break;
         case "--grep": options.grep = takeValue(flag, inline); break;
         case "--context": options.context = takeValue(flag, inline); break;
         case "--ignore-case": options.ignoreCase = true; break;

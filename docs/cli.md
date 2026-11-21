@@ -784,6 +784,36 @@ t114 — what to type, in this order
 - "该起没起"用 `pp up --node <机器>`；"没写进配置"用 `pp adopt --node <机器>`；
 - 机器没装 tmux 会说 `apt install tmux (on p202)`，而不是含糊的 "ssh failed"；名字写错会说 `pp node ls`。
 
+### `pp backup` / `pp restore`
+
+改配置之前、升级之前、在别人的机器上折腾之前，先留一份。
+
+```bash
+$ pp backup
+/home/you/.local/state/pi-plus/backups/2026-05-01T10-00-12-345  5 file(s), 42.1 KB
+  plus.yml     3.1 KB
+  state.json   1.1 KB
+  cron.json    2.4 KB
+  todos.json   612 B
+  audit.log    34.8 KB
+
+$ pp restore latest --dry-run
+2026-05-01T10-00-12-345  →  2 file(s)
+  plus.yml     will change
+  sessions.api cwd: /srv/api -> /srv/api-v2
+dry run — nothing was written
+```
+
+它是一份**普通目录拷贝**，不是压缩包 —— 凌晨用 `ls` 和 `cat` 就能看，`pp restore` 也不依赖任何东西。
+
+- `--keep <n>`（默认 10）写完顺手清掉最旧的；`--list` 看已有；`--out <dir>` 存到别处（NAS、仓库）
+- `pp restore` 先给 diff（就是 `pp audit --action config.changed` 那份），要 `--force` 才真写
+- 覆盖之前会**再备份一次**，所以"恢复错了"本身也能恢复
+- 目录名带毫秒：同一秒内跑两次不会互相覆盖（早期版本会，导致"恢复回来的还是错的"）
+- 恢复只改文件，不动 tmux；配置是问题根源时接着 `pp restart <name>`
+
+pp 不会定时备份。没取的备份等于没有备份 —— 在改动之前跑，不是之后。
+
 ### `pp why <会话|机器|任务号> [--json]`
 
 三种对象，同一个问题（"为什么是这样"）：

@@ -1,4 +1,4 @@
-import { closeSync, existsSync, ftruncateSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, ftruncateSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { configChanges } from "./configdiff.js";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -20,6 +20,7 @@ import {
   shellQuote,
 } from "./config.js";
 import { agoText, auditActor, auditPath, pruneAudit, readAudit, recordAudit, stateDir } from "./audit.js";
+import { BACKUP_KEEP, backupDir, backupPlan, describeBackup, listBackups, pruneBackups, restorePlan, writeBackup } from "./backup.js";
 import { clearPanel, findPanelPane, loadPanel, panelAlive, savePanel } from "./panel.js";
 import { readRemotePiConfig, remotePiConfigPath, writeRemotePiName } from "./remote-pi.js";
 import {
@@ -4579,6 +4580,16 @@ function cmdDoctor(config, options, ui) {
     const healthy =
       !jobs.length || (ticked && (ageMinutes === null || ageMinutes < 60) && overdue.length === 0);
     add("cron", healthy, detail, overdue.length ? `pp cron run ${overdue[0].id}` : "pp install");
+    // orientation, not a verdict: where the last copy is and how old
+    const backups = listBackups(backupDir(process.env));
+    const newest = backups[backups.length - 1];
+    const newestAt = newest ? describeBackup(newest.path).at : null;
+    add(
+      "backup",
+      true,
+      newest ? `last ${newestAt ? agoText(newestAt, new Date()) : newest.name} — ${newest.name}` : "none yet — pp backup before you edit the config",
+      "pp backup",
+    );
   }
   add("config", Boolean(config), config?.path ?? "not found", "pp init");
   if (config?.nodes?.length) {
@@ -5723,6 +5734,137 @@ async function cmdCronAdd(config, options, ui) {
  * The first question after an incident is "did anyone touch it?", and the first
  * answer anyone believes is one they can read without a database.
  */
+/**
+ * `pp backup [--keep N] [--list]`: one directory per run, holding what pp reads.
+ *
+ * Deliberately a plain copy, not a tarball: at 3am `ls` and `cat` should be
+ * enough, and a dependency-free restore is the point.
+ */
+async function cmdBackup(config, options, ui) {
+  const env = process.env;
+  const target = options.out ? expandPath(String(options.out), env) : backupDir(env);
+  if (options.list) {
+    const all = listBackups(target);
+    if (ui.json) {
+      ui.out(JSON.stringify({ dir: target, backups: all.map((entry) => ({ name: entry.name, ...describeBackup(entry.path) })) }, null, 2));
+      return;
+    }
+    if (!all.length) {
+      ui.info(`no backups in ${target}`);
+      return;
+    }
+    for (const entry of all) {
+      const { at, files } = describeBackup(entry.path);
+      const bytes = files.reduce((sum, file) => sum + (file.bytes ?? 0), 0);
+      ui.out(`${entry.name}  ${humanBytes(bytes).padStart(9)}  ${files.length} file(s)${at ? ui.paint("dim", `  ${at}`) : ""}`);
+    }
+    ui.out(ui.paint("dim", `${all.length} backup(s) in ${target}`));
+    return;
+  }
+
+  const plan = backupPlan(config?.path ?? null, env);
+  const keep = options.keep !== undefined ? Number(options.keep) : BACKUP_KEEP;
+  if (!Number.isFinite(keep) || keep < 1) {
+    ui.error(`--keep wants a positive number, got "${options.keep}"`);
+    process.exitCode = 2;
+    return;
+  }
+  if (options.dryRun) {
+    for (const entry of plan.filter((item) => existsSync(item.path))) ui.out(`[dry-run] would copy ${entry.name}  ${entry.path}`);
+    ui.out(`[dry-run] would write ${join(target, "<time>")}/ and keep ${keep}`);
+    return;
+  }
+  const written = writeBackup(target, plan);
+  if (ui.json) {
+    ui.out(JSON.stringify({ dir: written.dir, keep, files: written.files.map((file) => ({ name: file.name, bytes: file.bytes })) }, null, 2));
+  } else if (!written.files.length) {
+    ui.warn(`nothing to copy — no config and no state files (${target})`);
+  } else {
+    const bytes = written.files.reduce((sum, file) => sum + file.bytes, 0);
+    ui.out(`${ui.paint("bold", written.dir)}  ${written.files.length} file(s), ${humanBytes(bytes)}`);
+    for (const file of written.files) ui.out(`  ${file.name.padEnd(12)} ${humanBytes(file.bytes)}`);
+  }
+  const pruned = pruneBackups(target, keep);
+  if (pruned.length) ui.out(ui.paint("dim", `pruned ${pruned.length} older backup(s), keeping ${keep}`));
+  note("backup", config?.path ? basename(config.path) : "state files", { detail: `${written.files.length} file(s) → ${written.dir}` });
+}
+
+/** `pp restore <backup|latest>` — puts the files back, after showing what changes. */
+async function cmdRestore(config, options, ui) {
+  const env = process.env;
+  const target = options.out ? expandPath(String(options.out), env) : backupDir(env);
+  const ref = (options.names ?? [])[0] ?? "latest";
+  const all = listBackups(target);
+  const chosen =
+    ref === "latest"
+      ? all[all.length - 1]
+      : ref.includes("/")
+        ? { name: basename(ref), path: expandPath(ref, env) }
+        : all.find((entry) => entry.name === ref || entry.name.startsWith(ref));
+  if (!chosen) {
+    ui.error(`no backup "${ref}" — see: pp backup --list`);
+    process.exit(2);
+  }
+  const plan = restorePlan(config?.path ?? null, chosen.path, env);
+  if (!plan.length) {
+    ui.error(`${chosen.name} holds nothing pp knows how to restore — pp backup --list shows what it has`);
+    process.exit(2);
+  }
+  const configEntry = plan.find((entry) => entry.name === "plus.yml");
+  const changes =
+    configEntry && existsSync(configEntry.to) && existsSync(configEntry.from)
+      ? (() => {
+          try {
+            return configChanges(readConfigText(configEntry.to), readConfigText(configEntry.from), { limit: 5 });
+          } catch {
+            return null;
+          }
+        })()
+      : null;
+
+  if (ui.json) {
+    ui.out(JSON.stringify({ backup: chosen.name, dryRun: Boolean(options.dryRun), files: plan.map(({ name, to, bytes }) => ({ name, to, bytes })), config: changes }, null, 2));
+    if (options.dryRun) return;
+  } else {
+    ui.out(`${ui.paint("bold", chosen.name)}  →  ${plan.length} file(s)`);
+    for (const entry of plan) {
+      const same = existsSync(entry.to) && readFileSync(entry.to, "utf8") === readFileSync(entry.from, "utf8");
+      ui.out(`  ${entry.name.padEnd(12)} ${same ? ui.paint("dim", "unchanged") : ui.paint("yellow", "will change")}`);
+    }
+    if (changes && changes.total) {
+      ui.out("");
+      for (const line of changes.lines) ui.out(`  ${ui.paint("dim", line)}`);
+      if (changes.total > changes.lines.length) ui.out(ui.paint("dim", `  (+${changes.total - changes.lines.length} more)`));
+    }
+  }
+  if (options.dryRun) {
+    ui.out(ui.paint("dim", "dry run — nothing was written"));
+    return;
+  }
+  if (!options.force) {
+    ui.error(`restoring overwrites ${plan.length} file(s) — add --force, or --dry-run to look first`);
+    process.exit(1);
+  }
+  // the state we are about to destroy is worth one last copy
+  const safety = writeBackup(target, backupPlan(config?.path ?? null, env));
+  let restored = 0;
+  const failed = [];
+  for (const entry of plan) {
+    try {
+      mkdirSync(dirname(entry.to), { recursive: true });
+      copyFileSync(entry.from, entry.to);
+      restored += 1;
+    } catch (error) {
+      failed.push(`${entry.name}: ${error.message}`);
+    }
+  }
+  ui.out(`restored ${restored} file(s) from ${chosen.name}${failed.length ? ui.paint("red", `, ${failed.length} failed`) : ""}`);
+  for (const line of failed) ui.error(line);
+  ui.out(ui.paint("dim", `what was there before is in ${safety.dir}`));
+  note("restore", chosen.name, { detail: `${restored} file(s)`, result: failed.length ? "partial" : "changed" });
+  if (failed.length) process.exitCode = 1;
+}
+
 function cmdAudit(config, options, ui) {
   const file = options.file ? resolve(expandPath(options.file)) : auditPath();
   if (options.prune) {
@@ -6105,6 +6247,16 @@ export async function runCommand(command, options) {
         config = null;
       }
       return cmdNode(config, options, ui);
+    }
+    case "backup": {
+      // read-only unless it writes a new directory: a broken config must not
+      // stop you from taking a copy of it
+      const config = tryLoadConfig(options);
+      return cmdBackup(config, options, ui);
+    }
+    case "restore": {
+      const config = tryLoadConfig(options);
+      return cmdRestore(config, options, ui);
     }
     case "audit": {
       const config = tryLoadConfig(options);

@@ -941,6 +941,17 @@ check "quarantine moves it aside"        0 'broken-'                      bash -
 check "the broken copy is kept"          0 '^1$'                         bash -c "ls $XDG_STATE_HOME/pi-plus/state.json.broken-* | wc -l | tr -d ' '"
 check "afterwards it is clean"           0 'nothing to quarantine'        bash -c "cd $E2E && $ROOT/bin/pp.js doctor --quarantine"
 
+section "backup / restore"
+check "a backup copies the config"        0 'plus.yml'      bash -c "cd $E2E && PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG --socket $SOCK backup 2>&1"
+check "it lists what it took"             0 'backup.* in '   bash -c "cd $E2E && PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG backup --list 2>&1"
+check "restore shows the diff, writes nothing" 0 'dry run'   bash -c "cd $E2E && PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG restore latest --dry-run 2>&1"
+check "restore without --force refuses"   1 'add --force'    bash -c "cd $E2E && printf '\n# edited after the backup\n' >> $CFG && PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG restore latest 2>&1"
+check "restore --force puts it back"      0 'restored [0-9]+ file' bash -c "cd $E2E && PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG restore latest --force 2>&1"
+check "the edit is gone again"            0 ''              bash -c "cd $E2E && ! grep -q 'edited after the backup' $CFG"
+check "keep N prunes the oldest"          0 'pruned'        bash -c "cd $E2E && PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG backup >/dev/null 2>&1; PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG backup --keep 1 2>&1"
+check "one backup survives"               0 '^1 backup'   bash -c "cd $E2E && PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG backup --list 2>&1"
+check "an unknown backup is refused"      2 'no backup'     bash -c "cd $E2E && PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG restore 1999-01-01 --dry-run 2>&1"
+
 section "why a job (pp why <id>)"
 check "it says when the job runs next"   0 'next '        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron add --every 10m --session e-always 'why-job probe' | awk '{print \$2}' | tr -d ':' > $E2E/whyjob.id; $ROOT/bin/pp.js -c $CFG --socket $SOCK why \$(cat $E2E/whyjob.id) 2>&1"
 check "the verdict is a sentence"        0 'healthy|never|failed|waiting|overdue' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK why \$(cat $E2E/whyjob.id) 2>&1 | sed -n 2p"

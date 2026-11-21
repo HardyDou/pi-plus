@@ -4,7 +4,7 @@ _pp() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local commands="tui panel back new n create up start down stop rm remove delete adopt role plan runbook why explain mv restart status ls list attach a logs log send mesh audit cron todo todos node nodes check clean validate doctor init install autostart uninstall alias link update upgrade version help"
+  local commands="tui panel back new n create up start down stop rm remove delete adopt role plan runbook why explain mv restart status ls list attach a logs log send mesh audit backup restore cron todo todos node nodes check clean validate doctor init install autostart uninstall alias link update upgrade version help"
 
   case "$prev" in
     -c|--config)
@@ -21,6 +21,8 @@ _pp() {
       COMPREPLY=( $(compgen -W "ls list resolve send inbox listen watch" -- "$cur") )
       return 0
       ;;
+    backup)  opts="--list --keep --out --json --dry-run -c --socket" ;;
+    restore) opts="--dry-run --force --out --json -c --socket" ;;
     audit)
       COMPREPLY=($(compgen -W "--limit --action --since --prune --file --json" -- "$cur"))
       return 0

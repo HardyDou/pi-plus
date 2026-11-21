@@ -27,6 +27,8 @@ _pp() {
     'send:type text into a pane'
     'mesh:remote-pi mesh (ls/send/resolve/inbox)'
     'audit:what changed on this machine, and when'
+    'backup:copy the config and state files somewhere safe:((--list --keep --out --json --dry-run))' \
+    'restore:put a backup back:((--dry-run --force --out --json))' \
     'cron:schedule prompts and commands (once/every/crontab)'
     'todo:sessions waiting for a decision from you'
     'node:machines reached over ssh (ls/show/add/rm/test/exec/ssh/drain)'
