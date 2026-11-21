@@ -2754,6 +2754,139 @@ export function grepLines(text, pattern, { context = 0, ignoreCase = false } = {
 }
 
 /**
+ * `pp why --node t114`: the same question one level up — why is half this
+ * machine's fleet not up. Sessions are listed with their own verdict, so the
+ * answer reads top to bottom: the machine, then each session's reason.
+ */
+async function cmdWhyNode(config, options, ui) {
+  const node = nodeOrDie(config, options.node, ui);
+  const sessions = sessionsOnNode(config, node.name);
+  const started = Date.now();
+  const probeResult = await runOnNodeAsync(node, [PROBE_SCRIPT], { timeout: 15000 });
+  const ms = Date.now() - started;
+  const probe = probeResult.status === 0 && String(probeResult.stdout ?? "").trim() ? parseProbe(probeResult.stdout) : null;
+  const reachable = Boolean(probe) || (probeResult.status !== 255 && Boolean(String(probeResult.stdout ?? "").trim()));
+
+  let live = new Map();
+  let liveError = null;
+  if (reachable) {
+    try {
+      live = makeTmux(config, options, { node: node.name }).listSessions();
+    } catch (err) {
+      liveError = err.message;
+    }
+  }
+
+  const jobs = (() => {
+    try {
+      return readJobs().filter((job) => job.session === ALL_SESSIONS || sessions.some((s) => s.tmuxName === job.session));
+    } catch {
+      return [];
+    }
+  })();
+
+  const rows = sessions.map((session) => {
+    const entry = live.get(session.tmuxName);
+    const pane = entry?.panes?.[0];
+    const running = Boolean(entry && pane && !pane.dead);
+    const stopped = isStopped(config.path, session.name);
+    const why = !reachable
+      ? "machine unreachable"
+      : node.drained
+        ? `drained machine — pp node undrain ${node.name}`
+        : running
+          ? "up"
+          : stopped
+            ? "stopped on purpose — pp up " + session.name
+            : session.restart === "no"
+              ? "restart: no — pp up " + session.name
+              : "should be up but is not — pp up " + session.name;
+    return { session, running, why };
+  });
+  const strays = [...live.keys()].filter((name) => !sessions.some((s) => s.tmuxName === name));
+
+  const verdict = !reachable
+    ? `cannot ssh to ${nodeTarget(node)} — check the key/host, then: pp node test ${node.name}`
+    : liveError
+      ? `reachable, but tmux did not answer: ${liveError}`
+      : node.drained
+        ? `${node.name} is drained — none of its ${sessions.length} session(s) will start: pp node undrain ${node.name}`
+        : rows.length === 0
+          ? `no session is configured on ${node.name} — pp new --node ${node.name} -C /srv/app --save`
+          : rows.every((row) => row.running)
+            ? `all ${rows.length} session(s) up`
+            : `${rows.filter((row) => !row.running).length} of ${rows.length} session(s) down`;
+
+  if (ui.json) {
+    ui.out(
+      JSON.stringify(
+        {
+          node: node.name,
+          target: nodeTarget(node),
+          reachable,
+          ms,
+          drained: Boolean(node.drained),
+          guarded: Boolean(node.guarded),
+          verdict,
+          sessions: rows.map((row) => ({ name: row.session.name, running: row.running, why: row.why })),
+          strays,
+          cron: jobs.map((job) => job.id),
+          probe: probe ?? null,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  const line = (label, text) => ui.out(`${ui.paint("dim", label.padEnd(9))}${text}`);
+  ui.out(
+    `${ui.paint("bold", node.name)}  ${ui.paint("dim", [nodeTarget(node), node.tags?.length ? `tags:${node.tags.join(",")}` : "", node.drained ? "drained" : "", node.guarded ? "guarded" : ""].filter(Boolean).join(" · "))}`,
+  );
+  line("state", `${reachable ? ui.paint("green", "reachable") : ui.paint("red", "unreachable")} — ${verdict}${reachable ? ui.paint("dim", `  (${ms}ms)`) : ""}`);
+  if (probe) {
+    // the probe prints "-" for "not installed", and wraps a version's own name
+    const field = (raw) => {
+      const value = String(raw ?? "").trim().replace(/^\w+\s+/, "");
+      return value && value !== "-" ? value : "";
+    };
+    const version = (value) => (/^\d/.test(value) ? `v${value}` : value);
+    const tmuxVersion = field(probe.tmux);
+    const nodeVersion = field(probe.node);
+    const piVersion = field(probe.pi);
+    line(
+      "machine",
+      [
+        [probe.os, probe.arch].filter(Boolean).join(" "),
+        tmuxVersion ? `tmux ${version(tmuxVersion)}` : "no tmux",
+        nodeVersion ? `node ${version(nodeVersion)}` : "no node",
+        piVersion ? `pi ${piVersion.includes("/") ? "installed" : version(piVersion)}` : "no pi",
+      ]
+        .filter(Boolean)
+        .join(" · "),
+    );
+    const seconds = Number(probe.up);
+    const upText = Number.isFinite(seconds) && seconds > 0
+      ? seconds >= 86400 ? `${Math.floor(seconds / 86400)}d` : seconds >= 3600 ? `${Math.floor(seconds / 3600)}h` : `${Math.floor(seconds / 60)}m`
+      : "";
+    if (probe.load || upText) line("load", [probe.load, upText ? `up ${upText}` : ""].filter(Boolean).join(" · "));
+    if (!tmuxVersion) line("tmux", ui.paint("yellow", "not installed — nothing can run here"));
+    if (!piVersion) line("pi", ui.paint("yellow", "not installed — sessions here cannot use the pi agent"));
+  }
+  for (const row of rows) {
+    const mark = row.running ? ui.paint("green", "up  ") : ui.paint("yellow", "down");
+    line(mark, `${row.session.name}${row.session.role ? ui.paint("dim", ` (${row.session.role})`) : ""} — ${row.why}`);
+  }
+  if (strays.length) line("strays", `${strays.join(", ")} — pp adopt to write them down`);
+  if (jobs.length) {
+    const ids = jobs.map((job) => `${job.id}${job.session === ALL_SESSIONS ? " broadcast" : job.action ? ` ${job.action}` : ""}`);
+    line("cron", ids.join(" · "));
+  }
+  line("look", `pp node test ${node.name}  ·  pp status --node ${node.name}  ·  pp node exec ${node.name} -- uptime`);
+}
+
+/**
  * `pp why <session>`: one screen that answers "why is it like this".
  *
  * Every fact it prints already exists in state.json, the config, tmux and the
@@ -2762,6 +2895,7 @@ export function grepLines(text, pattern, { context = 0, ignoreCase = false } = {
  */
 async function cmdWhy(config, options, ui) {
   const ref = (options.names ?? [])[0];
+  if (!ref && options.node) return cmdWhyNode(config, options, ui);
   if (!ref) {
     ui.error("usage: pp why <name|#> [--json]");
     process.exit(2);

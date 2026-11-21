@@ -3,7 +3,14 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { homedir } from "node:os";
 import { dirname, join, sep } from "node:path";
 
-const SERVICE_NAME = "pi-plus";
+// The unit's name is a knob so tests (and anyone running two fleets on one
+// machine) cannot stop a service they do not own: `systemctl --user stop`
+// takes the unit's whole cgroup with it when KillMode says so.
+export function serviceName(env = process.env) {
+  const name = String(env.PP_UNIT_NAME ?? "").trim();
+  return name || "pi-plus";
+}
+
 
 export function isWsl(env = process.env) {
   if (env.WSL_DISTRO_NAME || env.WSL_INTEROP) return true;
@@ -97,7 +104,7 @@ WantedBy=default.target
 `;
 }
 
-export function renderSystemdTimer({ intervalSeconds = 300 }) {
+export function renderSystemdTimer({ intervalSeconds = 300, env = process.env } = {}) {
   return `[Unit]
 Description=pi-plus: reconcile tmux sessions
 
@@ -106,7 +113,7 @@ OnBootSec=45s
 OnUnitActiveSec=${Math.max(30, Math.floor(intervalSeconds))}s
 AccuracySec=30s
 Persistent=true
-Unit=${SERVICE_NAME}.service
+Unit=${serviceName(env)}.service
 
 [Install]
 WantedBy=timers.target
@@ -162,8 +169,9 @@ function run(command, args, { allowFailure = false } = {}) {
 
 export function autostartState(kind = autostartKind()) {
   if (kind === "systemd") {
-    const servicePath = join(systemdUserDir(), `${SERVICE_NAME}.service`);
-    const unit = `${SERVICE_NAME}.service`;
+    const unitName = serviceName();
+    const servicePath = join(systemdUserDir(), `${unitName}.service`);
+    const unit = `${unitName}.service`;
     if (!existsSync(servicePath)) {
       return { kind, installed: false, enabled: false, active: null, result: null, path: servicePath };
     }
@@ -211,13 +219,14 @@ export function installAutostart({ scriptPath, configPath, watch = false, print 
   if (!kind) throw new Error(`no autostart support for platform ${process.platform}`);
   if (kind === "systemd") {
     const dir = systemdUserDir();
-    const servicePath = join(dir, `${SERVICE_NAME}.service`);
-    const timerPath = join(dir, `${SERVICE_NAME}.timer`);
+    const unitName = serviceName();
+    const servicePath = join(dir, `${unitName}.service`);
+    const timerPath = join(dir, `${serviceName()}.timer`);
     const service = renderSystemdService({ scriptPath, configPath, watch });
     const timer = watch ? renderSystemdTimer({ intervalSeconds: watch }) : null;
     if (print || dryRun) {
       process.stdout.write(service);
-      if (timer) process.stdout.write(`\n# --- ${SERVICE_NAME}.timer ---\n${timer}`);
+      if (timer) process.stdout.write(`\n# --- ${serviceName()}.timer ---\n${timer}`);
       return { kind, servicePath, timerPath: timer ? timerPath : null, dryRun };
     }
     if (!dryRun) {
@@ -225,16 +234,16 @@ export function installAutostart({ scriptPath, configPath, watch = false, print 
       writeFileSync(servicePath, service, "utf8");
       if (timer) writeFileSync(timerPath, timer, "utf8");
       run("systemctl", ["--user", "daemon-reload"], { allowFailure: true });
-      run("systemctl", ["--user", "enable", `${SERVICE_NAME}.service`], { allowFailure: true });
+      run("systemctl", ["--user", "enable", `${serviceName()}.service`], { allowFailure: true });
       if (timer) {
-        run("systemctl", ["--user", "enable", "--now", `${SERVICE_NAME}.timer`], { allowFailure: true });
+        run("systemctl", ["--user", "enable", "--now", `${serviceName()}.timer`], { allowFailure: true });
       } else {
         // `restart` (not `start`): the oneshot stays "active (exited)" after a
         // run, so `start` would be a no-op when installing over an old unit —
         // which is exactly the "I ran `pp down`, then `pp install`" case.
-        const restarted = run("systemctl", ["--user", "restart", `${SERVICE_NAME}.service`], { allowFailure: true });
+        const restarted = run("systemctl", ["--user", "restart", `${serviceName()}.service`], { allowFailure: true });
         if (restarted.status !== 0) {
-          run("systemctl", ["--user", "start", `${SERVICE_NAME}.service`], { allowFailure: true });
+          run("systemctl", ["--user", "start", `${serviceName()}.service`], { allowFailure: true });
         }
       }
       run("loginctl", ["enable-linger", process.env.USER || ""], { allowFailure: true });
@@ -263,11 +272,12 @@ export function uninstallAutostart({ dryRun = false } = {}) {
   const kind = autostartKind();
   if (kind === "systemd") {
     const dir = systemdUserDir();
-    const servicePath = join(dir, `${SERVICE_NAME}.service`);
-    const timerPath = join(dir, `${SERVICE_NAME}.timer`);
+    const unitName = serviceName();
+    const servicePath = join(dir, `${unitName}.service`);
+    const timerPath = join(dir, `${serviceName()}.timer`);
     if (!dryRun) {
-      run("systemctl", ["--user", "disable", "--now", `${SERVICE_NAME}.timer`], { allowFailure: true });
-      run("systemctl", ["--user", "disable", "--now", `${SERVICE_NAME}.service`], { allowFailure: true });
+      run("systemctl", ["--user", "disable", "--now", `${serviceName()}.timer`], { allowFailure: true });
+      run("systemctl", ["--user", "disable", "--now", `${serviceName()}.service`], { allowFailure: true });
       for (const p of [servicePath, timerPath]) {
         if (existsSync(p)) rmSync(p, { force: true });
       }

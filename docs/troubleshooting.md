@@ -454,3 +454,17 @@ pp up <name> -v --dry-run
 | `pp doctor` 说 `0eed5f is 15m late — pp cron run 0eed5f` | tick 在跑但这条任务卡住（目标会话不存在、投递一直失败） | `pp cron log` 看它每次的结果；`pp cron run <id>` 手动跑一次；不再需要就 `pp cron rm <id>` |
 | 所有任务一起 late | tick 本身没跑：crontab 被清、机器刚醒 | `pp install`（或 `pp cron install`）重装 tick |
 | `last` 一直是 `deferred: … is working` | 目标会话的 agent 长期在 Working，pp 故意不打断 | `pp logs <会话>` 看那轮卡在哪；必要时在会话里 `Ctrl+C` |
+
+### 跑完 `./test/e2e.sh` 之后会话全没了 / 自启失效？
+
+e2e 会真的安装并卸载一个 systemd 用户单元来验证自启，因此：
+
+- 它用的是 **`pi-plus-e2e.service`**（`PP_UNIT_NAME=pi-plus-e2e`），不会碰你的 `pi-plus.service`；
+- 但它**仍然需要**在你机器上跑一次真实的 `systemctl`，所以跑完请补一次 `pp install`——
+  这会把真正的单元装回来并触发一次 `up --reconcile`；
+- 如果会话已经掉了而配置还在：`pp up` 会按配置把它们拉起来（`pi` 按原会话名 resume，正在跑的那一轮会丢）。
+
+**为什么以前更危险**：0.62.x 及更早的 e2e 直接安装/卸载 `pi-plus.service`。`systemctl --user stop`
+在 `KillMode` 不是 `none` 时会连带杀掉单元 cgroup 里的所有进程——tmux server 若属于该单元，一次
+`stop` 就会让全部会话消失（而且 `pp audit` 里没有任何记录，因为它不是 `pp down` 干的）。
+0.63.0 起 e2e 用自己的单元名，这类事故从构造上不可能再发生。

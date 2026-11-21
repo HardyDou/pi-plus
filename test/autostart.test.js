@@ -10,6 +10,7 @@ import {
   renderLaunchAgent,
   renderSystemdService,
   renderSystemdTimer,
+  serviceName,
 } from "../src/autostart.js";
 
 const GLOBAL = "/home/user/.nvm/versions/node/v26.13.1/lib/node_modules/pi-farm/bin/pp.js";
@@ -83,4 +84,18 @@ test("describeAutostart summarises install/enable/last-run state", () => {
     /systemd, disabled, last run exit-code/,
   );
   assert.equal(describeAutostart({ kind: null }), "unsupported platform");
+});
+
+test("the unit name is a knob, so a test run cannot stop the real service", () => {
+  // `systemctl --user stop` takes the unit's cgroup with it: if the e2e suite
+  // installed its unit under the production name, stopping it would kill the
+  // tmux server the user relies on. That is exactly what happened once.
+  assert.equal(serviceName({}), "pi-plus");
+  assert.equal(serviceName({ PP_UNIT_NAME: "" }), "pi-plus");
+  assert.equal(serviceName({ PP_UNIT_NAME: "  " }), "pi-plus");
+  assert.equal(serviceName({ PP_UNIT_NAME: "pi-plus-e2e" }), "pi-plus-e2e");
+  // rendered from an explicit env, so a PP_UNIT_NAME in the caller's shell
+  // cannot make this test lie
+  assert.match(renderSystemdTimer({ intervalSeconds: 60, env: {} }), /Unit=pi-plus\.service/);
+  assert.match(renderSystemdTimer({ intervalSeconds: 60, env: { PP_UNIT_NAME: "other" } }), /Unit=other\.service/);
 });
