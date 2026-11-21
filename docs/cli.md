@@ -720,7 +720,12 @@ t114 has no tmux, so sessions cannot run there — apt install tmux (on t114)
 | `pp why --json` | `{ name, tmux, node, role, state, verdict, reason, cwd, agent, restart, lastStart, restarts, busy, cron, todos }` | `todos` **是数字**（未完成待办的条数） |
 | `pp doctor --json` | `{ checks: [], failed: [], warnings: [] }` | `checks[].{label,ok,detail,fix}`；`failed` = 非 ok 的 label |
 | `pp check --json` | `{ ok, problems, notes, config }` | |
-| `pp cron ls --json` / `pp node ls --json` / `pp audit --json` / `pp runbook --json` | 数组 | `runbook[].{id,title,symptom,means,steps,fix}` |
+| `pp cron ls --json` | 数组 | `cron ls[].{id,schedule,next,nextRun,runs,last}` |
+| `pp node ls --json` | 数组 | `node ls[].{name,host,port,auth,tags}` |
+| `pp audit --json` | 数组 | `audit[].{action,target,actor,result,ts}`，`node`/`detail` 视情况出现 |
+| `pp role --list --json` | 数组 | `role list[].{role,count,sessions}` |
+| `pp todo ls --json` | 数组 | `todo ls[].{id,session,kind,title,state}`（`body` 等视情况出现） |
+| `pp runbook --json` | 数组 | `runbook[].{id,title,symptom,means,steps,fix}` |
 
 ### `pp`（不带参数）
 

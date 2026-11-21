@@ -67,6 +67,18 @@ function sandbox() {
   return { root, socket, pp, json, stop: () => spawnSync("tmux", ["-L", socket, "kill-server"], { encoding: "utf8" }) };
 }
 
+/**
+ * Same as `shape`, but extra keys are allowed — for entries where `detail` and
+ * `node` only appear when a command had something to say.
+ */
+function shapePart(value, contract, where) {
+  shape(value, "object", where);
+  for (const [key, sub] of Object.entries(contract)) {
+    assert.ok(Object.prototype.hasOwnProperty.call(value, key), `${where}: missing ${key}`);
+    shape(value[key], sub, `${where}.${key}`);
+  }
+}
+
 function shape(value, contract, where) {
   assert.equal(TYPES[contract] !== undefined || typeof contract === "object", true, `${where}: unknown contract ${contract}`);
   if (typeof contract === "string") {
@@ -198,12 +210,38 @@ test("check/ls surfaces keep their shape, empty or not", () => {
   const box = sandbox();
   try {
     shape(box.json(["check"]), { ok: "boolean", problems: "array", notes: "array", config: "string" }, "check");
-    assert.ok(Array.isArray(box.json(["cron", "ls"])));
-    assert.ok(Array.isArray(box.json(["node", "ls"])));
-    assert.ok(Array.isArray(box.json(["audit"])));
+    for (const job of box.json(["cron", "ls"])) {
+      shape(job, { id: "string", schedule: "string", next: "string", nextRun: "string|null", runs: "number", last: "string" }, "cron ls[]");
+    }
+    for (const node of box.json(["node", "ls"])) {
+      shape(node, { name: "string", host: "string", port: "number", auth: "string", tags: "array" }, "node ls[]");
+    }
+    for (const entry of box.json(["audit"])) {
+      shapePart(
+        entry,
+        { action: "string", target: "string", actor: "string", result: "string", ts: "string", node: "string|null", detail: "string|null" },
+        "audit[]",
+      );
+    }
     for (const scenario of box.json(["runbook"])) {
       shape(scenario, { id: "string", title: "string", symptom: "string", means: "string", steps: "array", fix: "string" }, `runbook[${scenario.id}]`);
       for (const step of scenario.steps) shape(step, { do: "string", see: "string" }, `runbook[${scenario.id}].steps`);
+    }
+  } finally {
+    box.stop();
+  }
+});
+
+test("role --list --json and todo ls --json keep their shape", () => {
+  const box = sandbox();
+  try {
+    const roles = box.json(["role", "--list"]);
+    assert.ok(Array.isArray(roles), "role --list --json is an array, empty or not");
+    for (const entry of roles) shape(entry, { role: "string", count: "number", sessions: "array" }, "role list[]");
+    const todos = box.json(["todo", "ls"]);
+    assert.ok(Array.isArray(todos), "todo ls --json is an array");
+    for (const entry of todos) {
+      shapePart(entry, { id: "string", session: "string", kind: "string", title: "string", state: "string" }, "todo ls[]");
     }
   } finally {
     box.stop();
