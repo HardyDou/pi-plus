@@ -1674,7 +1674,7 @@ function cmdNodeTest(config, options, ui) {
       probe = parseProbe(res.stdout);
     } catch (err) {
       failed++;
-      ui.error(`${node.name} (${nodeTarget(node)}): ${err.message}`);
+      ui.error(`${node.name} (${nodeTarget(node)}): ${err.message} — pp node show ${node.name} (host, user, identity)`);
       continue;
     }
     const ms = Date.now() - started;
@@ -1695,10 +1695,10 @@ function cmdNodeTest(config, options, ui) {
       `     ${ui.paint("dim", "sessions")} ${probe.sessions ?? "?"}   ${ui.paint("dim", "load")} ${probe.load ?? "?"}   ${ui.paint("dim", "up")} ${probe.up && probe.up !== "-" ? `${Math.floor(Number(probe.up) / 3600)}h` : "?"}`,
     );
     if (!probe.tmux || probe.tmux === "-") {
-      ui.warn(`${node.name} has no tmux — sessions cannot run there until it is installed (apt install tmux)`);
+      ui.warn(`${node.name} has no tmux, so sessions cannot run there — apt install tmux (on ${node.name})`);
     }
     if (!probe.pi || probe.pi === "-") {
-      ui.warn(`${node.name} has no pi on PATH for that user — agent sessions there will fail to start`);
+      ui.warn(`${node.name} has no pi on PATH for ${node.user ?? "that user"}, so agent sessions there will not start — npm i -g @earendil-works/pi-coding-agent (on ${node.name})`);
     }
   }
   if (failed) process.exitCode = 1;
@@ -4061,7 +4061,7 @@ async function cmdCheck(config, options, ui) {
       if (session.pi) {
         const exe = resolveExecutable(session.agent[0]);
         if (exe === session.agent[0] && !existsSync(session.agent[0])) {
-          problems.push(`"${session.name}": agent "${session.agent[0]}" not found on PATH`);
+          problems.push(`"${session.name}": agent "${session.agent[0]}" not found on PATH — install it, or set agent: in the config`);
         }
       }
       // Only worth a note when the name is persisted per directory: in env mode
@@ -4073,9 +4073,9 @@ async function cmdCheck(config, options, ui) {
         else seenCwd.set(key, session);
       }
       if (session.restart === "no") {
-        notes.push(`"${session.name}": restart: no (not started by bare "up"; start with up ${session.name})`);
+        notes.push(`"${session.name}": restart: no, so a bare "pp up" skips it — pp up ${session.name}`);
       } else if (isStopped(config.path, session.name)) {
-        notes.push(`"${session.name}": stopped by hand (restart: ${session.restart}); autostart will skip it`);
+        notes.push(`"${session.name}": stopped by hand (restart: ${session.restart}), autostart will skip it — pp up ${session.name}`);
       }
       if (session.remotePiName && session.remotePiMode === "config") {
         notes.push(`"${session.name}": writes ${remotePiConfigPath(session.cwd)}`);

@@ -679,6 +679,26 @@ when you are ready to change something: pp clean
 场景可以按 id 或标题片段查（`pp runbook quiet`）。`--markdown` 输出整本手册 —— `docs/runbook.md`
 就是它生成的（e2e 里有一条 `diff` 检查，所以文档不可能和代码走散）。pp 不会替你执行任何步骤。
 
+## 输出的语法
+
+一条规则，只用在"这一行是在告诉你要敲什么"的时候：
+
+> **给人看的每一行，如果要指一条命令，就用 ` — ` 引出，且那是一条能直接敲的命令。**
+
+```bash
+"jb": restart: no, so a bare "pp up" skips it — pp up jb
+✗ own files      cron.json 1 of 2 job(s) have no id or schedule — pp doctor --quarantine moves it aside
+t114 has no tmux, so sessions cannot run there — apt install tmux (on t114)
+3 off · 1 unmanaged — pp plan orders them
+```
+
+与之配套的两条：
+
+- **不是每条都加建议。** 事实型的行（`"jb": writes /tmp/.pi/remote-pi/config.json`）说完就停，不要凑一句命令。
+- **能一次说清的一条命令 > 三条建议。** `pp plan` 排序、`pp doctor --brief` 只给前两条，都是这个原则；散文在 3am 读不进去。
+
+`--brief` / `plan` / `start` 是对同一批事实的三种密度：一行结论、按顺序的编号、三行摘要。
+
 ## `--json` 的形状是契约
 
 脚本会解析这些输出，所以键名和类型被 `test/json.test.js` 钉住：**多一个键要显式改测试（并在 release notes 里说），少一个键立刻红**。
