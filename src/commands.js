@@ -32,7 +32,7 @@ import {
   listAliases,
   removeAlias,
 } from "./aliases.js";
-import { resolveExecutable, Tmux } from "./tmux.js";
+import { looksBusy, resolveExecutable, screenSignature, Tmux } from "./tmux.js";
 import {
   authSummary,
   DEFAULT_PORT,
@@ -61,7 +61,19 @@ import {
   launchAgentPath,
   systemdUserDir,
 } from "./autostart.js";
-import { busySinceOf, clearBusy, clearStopped, isStopped, markBusy, markStopped, markStarted, startedOf } from "./state.js";
+import {
+  activityOf,
+  busySinceOf,
+  clearActivity,
+  clearBusy,
+  clearStopped,
+  isStopped,
+  markBusy,
+  markStopped,
+  markStarted,
+  noteActivity,
+  startedOf,
+} from "./state.js";
 import {
   compareVersions,
   fetchLatestVersion,
@@ -3177,6 +3189,41 @@ function formatMeshBody(body) {
   }
 }
 
+/**
+ * One reading of "is this agent working, and is the screen still changing?".
+ *
+ * Total busy time is a poor signal: a 40-minute build is not stuck. A working
+ * agent keeps redrawing (spinner, counters, tool output); a hung one redraws
+ * nothing, so the pane is byte-identical frame after frame. We remember the last
+ * signature we saw and when, and report how long it has been quiet.
+ */
+export function stallWatch(config, tmux, session, { env = process.env, now = Date.now() } = {}) {
+  let text = "";
+  try {
+    text = tmux.capture(session.tmuxName, 40);
+  } catch {
+    return null;
+  }
+  if (!looksBusy(text)) {
+    clearBusy(config.path, session.name, env);
+    clearActivity(config.path, session.name, env);
+    return { name: session.name, busy: false, quiet: 0 };
+  }
+  const sinceBusy = busySinceOf(config.path, session.name, env) ?? markBusy(config.path, session.name, env, new Date(now).toISOString());
+  const signature = screenSignature(text);
+  const previous = activityOf(config.path, session.name, env);
+  if (!previous || previous.sig !== signature) {
+    noteActivity(config.path, session.name, { at: new Date(now).toISOString(), sig: signature }, env);
+    return { name: session.name, busy: true, quiet: 0, busyMinutes: Math.round((now - Date.parse(sinceBusy)) / 60000) };
+  }
+  return {
+    name: session.name,
+    busy: true,
+    quiet: Math.max(0, Math.round((now - Date.parse(previous.at)) / 60000)),
+    busyMinutes: Math.round((now - Date.parse(sinceBusy)) / 60000),
+  };
+}
+
 const CLEAN_KEEP_BYTES = 2 * 1024 * 1024;
 const LOG_WARN_BYTES = 50 * 1024 * 1024;
 
@@ -3653,22 +3700,12 @@ function cmdDoctor(config, options, ui) {
         clearBusy(config.path, session.name);
         continue;
       }
-      let busy = false;
-      try {
-        busy = tmux.isAgentBusy(session.tmuxName);
-      } catch {
-        busy = false;
-      }
-      if (!busy) {
-        clearBusy(config.path, session.name);
-        continue;
-      }
-      const since = busySinceOf(config.path, session.name) ?? markBusy(config.path, session.name);
-      const minutes = Math.max(0, Math.round((Date.now() - Date.parse(since)) / 60000));
-      seen.push({ name: session.name, minutes });
-      if (minutes >= limitMinutes) stuck.push({ name: session.name, minutes });
+      const watch = stallWatch(config, tmux, session);
+      if (!watch || !watch.busy) continue;
+      seen.push({ name: session.name, quiet: watch.quiet, busyMinutes: watch.busyMinutes });
+      if (watch.quiet >= limitMinutes) stuck.push({ name: session.name, quiet: watch.quiet, busyMinutes: watch.busyMinutes });
     }
-    const longest = seen.reduce((most, entry) => Math.max(most, entry.minutes), 0);
+    const longestQuiet = seen.reduce((most, entry) => Math.max(most, entry.quiet), 0);
     // nothing rotates a `log:` file or the state logs: the first symptom of a
     // full disk is everything failing to write, which reads like a pp bug
     const logs = logTargets(config, process.env)
@@ -3687,9 +3724,9 @@ function cmdDoctor(config, options, ui) {
       "stalls",
       stuck.length === 0,
       stuck.length
-        ? `${stuck.map((e) => `${e.name} busy ${e.minutes}m`).join(", ")} — look: pp logs <name> (PP_STALL_MINUTES=${limitMinutes})`
+        ? `${stuck.map((e) => `${e.name} no new output for ${e.quiet}m (busy ${e.busyMinutes}m)`).join(", ")} — look: pp logs <name> (PP_STALL_MINUTES=${limitMinutes})`
         : seen.length
-          ? `no agent stuck (longest turn ${longest}m, limit ${limitMinutes}m)`
+          ? `no agent stuck (quietest ${longestQuiet}m, limit ${limitMinutes}m)`
           : "no agent working right now",
     );
   }
@@ -4103,18 +4140,16 @@ export function fleetProblems(config, options) {
   const tmux = handle;
   for (const session of local) {
     if (!live.has(session.tmuxName)) continue;
-    let busy = false;
-    try {
-      busy = tmux.isAgentBusy(session.tmuxName);
-    } catch {
-      busy = false;
-    }
-    if (!busy) continue;
-    const since = busySinceOf(config.path, session.name);
-    if (!since) continue;
-    const minutes = Math.max(0, Math.round((Date.now() - Date.parse(since)) / 60000));
-    if (minutes >= limit) {
-      problems.push({ kind: "stuck", name: session.name, text: `stuck: ${session.name} busy ${minutes}m (pp logs ${session.name})` });
+    // the sweep is often the only thing running an hourly look: it also refreshes
+    // the activity clock, so a long build is visible as "quiet 0m" not "busy 3h"
+    const watch = stallWatch(config, tmux, session);
+    if (!watch || !watch.busy) continue;
+    if (watch.quiet >= limit) {
+      problems.push({
+        kind: "stuck",
+        name: session.name,
+        text: `stuck: ${session.name} no new output for ${watch.quiet}m (pp logs ${session.name})`,
+      });
     }
   }
   return problems;

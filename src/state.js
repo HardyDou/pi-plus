@@ -90,6 +90,35 @@ export function startedOf(configPath, name, env = process.env) {
 }
 
 /**
+ * The last time the pane actually changed while the agent was working.
+ *
+ * "busy for 45 minutes" is a bad alarm: a long build looks identical to a hung
+ * tool call. A working agent keeps redrawing (spinner, token count, tool
+ * output), so what matters is how long the screen has been *identical*. We keep
+ * the signature of the last different frame and when we saw it.
+ */
+export function noteActivity(configPath, name, { at = new Date().toISOString(), sig = "" } = {}, env = process.env) {
+  const state = readAll(env);
+  const entries = bucket(state, configPath);
+  entries[name] = { ...(entries[name] ?? {}), activity: { at, sig } };
+  writeAll(state, env);
+  return entries[name].activity;
+}
+
+export function activityOf(configPath, name, env = process.env) {
+  return readAll(env)[configPath]?.[name]?.activity ?? null;
+}
+
+export function clearActivity(configPath, name, env = process.env) {
+  const state = readAll(env);
+  const entries = bucket(state, configPath);
+  if (!entries[name] || !("activity" in entries[name])) return;
+  delete entries[name].activity;
+  if (!Object.keys(entries[name]).length) delete entries[name];
+  writeAll(state, env);
+}
+
+/**
  * A pi session that has been "working" since yesterday is not working, it is
  * stuck (a tool call waiting on a socket, a prompt nobody answered). We only
  * know how long when we remember the first time we saw it busy, so the first

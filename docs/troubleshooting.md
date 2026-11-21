@@ -29,7 +29,7 @@ pp logs <name> -f       # 跟着看还有没有新输出
 如果它其实是在正常地跑长任务，把阈值调大：
 
 ```bash
-PP_STALL_MINUTES=180 pp doctor
+PP_STALL_MINUTES=180 pp doctor   # 判定的是"没有新输出"的分钟数，不是忙碌时长
 ```
 
 阈值默认 45 分钟。会话停了/安静了，pp 会自动把计时清零，下次启动不会继承旧的"卡住"时间。

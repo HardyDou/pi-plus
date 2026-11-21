@@ -196,7 +196,7 @@ fleet health (pp cron 41cf3e): 2 problems — off: risk-02 (pp up risk-02); stuc
 | --- | --- | --- |
 | `off:` | 该跑却没跑（`restart: no`、手工停掉的、drain 中的机器都跳过） | `pp up <name>` |
 | `unmanaged:` | 在跑但配置里没有 | `pp adopt <name>` |
-| `stuck:` | 忙碌超过 `PP_STALL_MINUTES`（默认 45 分） | `pp logs <name>` |
+| `stuck:` | 忙碌但**屏幕超过 `PP_STALL_MINUTES`（默认 45 分）没有任何新输出** | `pp logs <name>` |
 | `tmux is not running here` | 连 tmux server 都没有 | `pp up` 或 `pp doctor` |
 
 目标会话正忙时它会让路（`deferred: … is working`），下一轮再来——不会把报告塞进

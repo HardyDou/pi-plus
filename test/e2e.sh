@@ -312,6 +312,7 @@ check "alias add needs a name"    2 'alias name is required'  pp alias add
 check "alias rm"                  0 'removed'            pp alias rm pif --bin-dir "$E2E/aliasbin"
 check "alias rm again is quiet"   0 'nothing to remove'  pp alias rm pif --bin-dir "$E2E/aliasbin"
 check "help alias page"           0 'bin-dir'            pp help alias
+check "doctor explains stalls as quiet time" 0 'no agent|no new output'     bash -c 'pp doctor 2>&1 || true'
 check "doctor names the binary"   0 'command name'       bash -c 'pp doctor 2>&1 || true'  # exits 1 until autostart is installed
 
 section "update"
@@ -477,10 +478,12 @@ sessions:
     cwd: /tmp
     agent: $E2E/busy.sh
 YAML
+# busy, but drawing nothing new: exactly what a hung tool call looks like
 cat > "$E2E/busy.sh" <<'SH'
 #!/bin/sh
 line=$(printf '─%.0s' $(seq 40))
-while true; do printf '%s ⠋ Working\n' "$line"; sleep 1; done
+printf '%s ⠋ Working\n' "$line"
+sleep 600
 SH
 chmod +x "$E2E/busy.sh"
 (cd "$E2E" && XDG_STATE_HOME=$E2E/state-stall "$ROOT/bin/pp.js" -c "$STALLCFG" --socket "$SOCK" up >/dev/null 2>&1)
@@ -492,12 +495,14 @@ path = sys.argv[1]
 data = json.load(open(path))
 for key in list(data):
     if key.endswith("stall.yml"):
-        data[key]["stall-x"]["busySince"] = (
+        # the screen signature stays put, only the clock moves: that is the
+        # difference between "quiet for 90m" and "working for 90m"
+        data[key]["stall-x"]["activity"]["at"] = (
             datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=90)
         ).isoformat().replace("+00:00", "Z")
 json.dump(data, open(path, "w"))
 PYSEED
-check "a stuck agent is reported"     1 'stall-x busy [0-9]+m'   bash -c "cd $E2E && XDG_STATE_HOME=$E2E/state-stall $ROOT/bin/pp.js -c $STALLCFG --socket $SOCK doctor"
+check "a stuck agent is reported"     1 'stall-x no new output for [0-9]+m'   bash -c "cd $E2E && XDG_STATE_HOME=$E2E/state-stall $ROOT/bin/pp.js -c $STALLCFG --socket $SOCK doctor"
 check "a fresh turn is not a stall"   1 'no agent stuck'         bash -c "cd $E2E && XDG_STATE_HOME=$E2E/state-stall PP_STALL_MINUTES=600 $ROOT/bin/pp.js -c $STALLCFG --socket $SOCK doctor"
 tmux -L "$SOCK" kill-session -t stall-x 2>/dev/null || true
 check "heal audit trail recorded"     0 'heal'                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG audit --action heal"
