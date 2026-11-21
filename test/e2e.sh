@@ -222,6 +222,8 @@ check "a one-edit label is refused"    2 'one edit away'   bash -c "cd $E2E && $
 # a schedule can aim at a label instead of one session
 check "cron add --role targets a label" 0 'role pm'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron add --role pm --every 10m 'standup' 2>&1"
 check "cron ls shows the role target"   0 'role pm'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron ls 2>&1"
+# a job aimed at a label reaches those sessions, so the CRON column counts it
+check "status counts a role job on its sessions" 0 'risk-10.*1$' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK status 2>&1 | grep risk-10"
 # --role works on every fan-out verb, not just status: up/down/restart/logs
 check "up --role starts only that label" 0 'new-session -d -s risk-10' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --dry-run up --role pm 2>&1"
 check "down --role stops only that label" 0 'risk-10' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --dry-run down --role pm 2>&1"
@@ -1151,6 +1153,27 @@ PLF up plan-off >/dev/null 2>&1
 # still a step here; what must be gone is the drift step for plan.yml itself
 ncheck "plan stops asking for a drift once both are up" 'pp up --drift' PLF plan
 check "plan has a help page"            0 'pp plan'             bash -c "cd $E2E && $ROOT/bin/pp.js help plan"
+
+section "no crash on --json"
+# Every read-only verb claims a JSON shape. A script that pipes one of them into
+# jq all night should never get a stack trace, so this walks them (the shapes
+# themselves are pinned in test/json.test.js).
+for verb in "status --json" "why e-always --json" "why --role pm --json" "role --list --json" \
+            "plan --json" "doctor --json" "audit --json" "audit --action up --json" \
+            "cron ls --json" "todo ls --json" "node ls --json" "handover --json" \
+            "snapshot --json" "check --brief" "logs e-always -n 2 --json"; do
+  out=$(cd "$E2E" && PATH=$SHIM:$PATH "$ROOT/bin/pp.js" -c "$CFG" --socket "$SOCK" ${verb} 2>&1; echo "rc=$?")
+  rc=$(printf '%s' "$out" | sed -n 's/^rc=//p' | tail -1)
+  if printf '%s' "$out" | grep -qE 'TypeError|ReferenceError|at Object\.|at async '; then
+    printf 'FAIL json: %s crashed\n     | %s\n' "$verb" "$(printf '%s' "$out" | head -2 | tr '\n' ' ')"
+    FAIL=$((FAIL + 1)); FAILED_NAMES+=("json: $verb")
+  elif [[ "$rc" != "0" && "$rc" != "1" && "$rc" != "2" ]]; then
+    printf 'FAIL json: %s exited %s\n' "$verb" "$rc"
+    FAIL=$((FAIL + 1)); FAILED_NAMES+=("json exit: $verb")
+  else
+    PASS=$((PASS + 1))
+  fi
+done
 
 section "packaging"
 # the suite exports PP_UNIT_NAME for its own sandbox unit; the unit tests assert

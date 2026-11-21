@@ -1954,6 +1954,7 @@ function cmdStatus(config, options, ui) {
       jobs = [];
     }
     const counts = new Map();
+    const byRole = new Map();
     let broadcast = 0;
     for (const job of jobs) {
       if (job.action === "heal") continue;
@@ -1961,11 +1962,19 @@ function cmdStatus(config, options, ui) {
         broadcast++;
         continue;
       }
+      // a job aimed at a label reaches every session carrying it, so the column
+      // has to count it there too — otherwise `cron add --role pm` looks like it
+      // is aimed at nobody
+      if (job.role) {
+        byRole.set(String(job.role).toLowerCase(), (byRole.get(String(job.role).toLowerCase()) ?? 0) + 1);
+        continue;
+      }
       if (!job.session) continue;
       counts.set(job.session, (counts.get(job.session) ?? 0) + 1);
     }
-    return (tmuxName) => {
-      const own = counts.get(tmuxName) ?? 0;
+    return (tmuxName, role = null) => {
+      const viaRole = role ? byRole.get(String(role).toLowerCase()) ?? 0 : 0;
+      const own = (counts.get(tmuxName) ?? 0) + viaRole;
       if (own && broadcast) return `${own}*`;
       if (own) return String(own);
       if (broadcast) return "*";
@@ -2042,7 +2051,7 @@ function cmdStatus(config, options, ui) {
       idle: idleSeconds === null ? "" : shortAge(idleSeconds),
       remotePiName: session.remotePiName ?? "",
       // scheduled jobs aimed at this session (heal jobs are fleet-wide, not per session)
-      cron: cronFor(session.tmuxName),
+      cron: cronFor(session.tmuxName, session.role ?? null),
       // things still waiting inside: unanswered questions, unread turns
       todos: todoFor(session.tmuxName),
       // a local cwd that vanished is the most common reason a session will not
