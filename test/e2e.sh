@@ -127,9 +127,13 @@ section "init / check"
 check "init --path"              0 'wrote'                     pp init --path "$E2E/init.yml"
 check "init refuses overwrite"   1 'already exists'            pp init --path "$E2E/init.yml"
 check "init --force"             0 'wrote'                     pp init --path "$E2E/init.yml" --force
-check "check flags missing cwd"  1 'cwd does not exist'        pp check -c "$E2E/init.yml"
+check "the starter config is usable"  0 'ok config looks usable' pp check -c "$E2E/init.yml"
+# the starter config ships with no sessions (an example path that does not exist
+# on your machine makes the first command fail), so build the bad one here
+printf 'version: 1\nsessions:\n  - name: gone\n    cwd: %s/nope\n' "$E2E" > "$E2E/badcwd.yml"
+check "check flags missing cwd"  1 'cwd does not exist'        pp check -c "$E2E/badcwd.yml"
 check "check --brief says ok in one line" 0 'ok [0-9]+ session'  pp check --brief -c "$CFG"
-check "check --brief names the problem"   1 '1 problem'         pp check --brief -c "$E2E/init.yml"
+check "check --brief names the problem"   1 '1 problem'         pp check --brief -c "$E2E/badcwd.yml"
 check "check --json ok"          0 '"ok": true'                pp check -c "$CFG" --json
 
 section "watch"

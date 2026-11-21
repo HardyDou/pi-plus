@@ -1308,7 +1308,7 @@ async function cmdRm(config, options, ui) {
   }
   if (!options.quiet) {
     ui.info(`\n${options.dryRun ? "would remove" : "removed"} ${target.length} session(s): ${killed} killed, ${removed} config entr${removed === 1 ? "y" : "ies"} deleted.`);
-    if (removed) ui.info(ui.paint("dim", `backup first next time: cp ${config.path} ${config.path}.bak`));
+    if (removed) ui.info(ui.paint("dim", `the config was edited; pp backup is the cheap insurance before the next change`));
   }
 }
 
@@ -3217,7 +3217,7 @@ export async function planFacts(config, options) {
  */
 export function startSummary(facts) {
   const { version, configPath, sessions, nodes, running, off, stopped, unmanaged, cronJobs, cronLate } = facts;
-  const where = configPath ?? "no config yet — pp new <name> --save";
+  const where = configPath ?? "no config yet — pp init, then pp new <name> --save";
   const bits = [`${running}/${sessions} running`];
   if (nodes) bits.push(`${nodes} machine${nodes === 1 ? "" : "s"}`);
   if (cronJobs) bits.push(`${cronJobs} cron job${cronJobs === 1 ? "" : "s"}`);
@@ -3226,10 +3226,17 @@ export function startSummary(facts) {
   if (stopped) trouble.push(`${stopped} stopped by hand`);
   if (unmanaged) trouble.push(`${unmanaged} unmanaged`);
   if (cronLate) trouble.push(`${cronLate} cron behind`);
+  // a config with nothing in it is not "nothing needs you right now": the next
+  // thing to do is write the first session down
+  const empty = sessions === 0 && Boolean(configPath);
   return {
     head: `pi-plus ${version} · ${where}`,
     facts: bits.join(" · "),
-    verdict: trouble.length ? `${trouble.join(" · ")} — pp plan orders them` : "nothing needs you right now",
+    verdict: empty
+      ? "no sessions yet — pp new <name> [-C <dir>] --save, or uncomment the example in the config"
+      : trouble.length
+        ? `${trouble.join(" · ")} — pp plan orders them`
+        : "nothing needs you right now",
   };
 }
 

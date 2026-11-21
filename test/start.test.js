@@ -40,6 +40,15 @@ test("a machine with one session and no cron does not pluralise", () => {
 
 test("with no config it points at the way to make one", () => {
   const summary = startSummary({ ...base, configPath: null, sessions: 0, running: 0, nodes: 0, cronJobs: 0 });
-  assert.match(summary.head, /no config yet — pp new <name> --save$/);
+  assert.match(summary.head, /no config yet — pp init, then pp new <name> --save$/);
   assert.equal(summary.facts, "0/0 running");
+});
+
+test("an empty config says what to do, not that nothing needs you", () => {
+  const empty = startSummary({ version: "1.0.0", configPath: "/home/x/.pi/plus.yml", sessions: 0, nodes: 0, running: 0, off: 0, stopped: 0, unmanaged: 0, cronJobs: 0, cronLate: 0 });
+  assert.match(empty.verdict, /no sessions yet/);
+  assert.match(empty.verdict, /pp new/);
+  // and a config with sessions that are all fine still says nothing needs you
+  const fine = startSummary({ version: "1.0.0", configPath: "/home/x/.pi/plus.yml", sessions: 2, nodes: 0, running: 2, off: 0, stopped: 0, unmanaged: 0, cronJobs: 0, cronLate: 0 });
+  assert.equal(fine.verdict, "nothing needs you right now");
 });

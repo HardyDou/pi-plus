@@ -15,11 +15,18 @@ defaults:
   # Environment merged into every session.
   env: {}
 
-sessions:
+sessions: []
+  # A starter config has no sessions on purpose: an example with a path that
+  # does not exist on *your* machine makes the very next command fail, which is
+  # a bad first minute. Uncomment, or let pp write one for you:
+  #
+  #   pp new backend -C ~/code/backend --save
+  #
   # One name drives everything: tmux session, pi session display name and
   # remote-pi mesh name. Override any of them when they need to differ.
-  - name: backend
-    cwd: ~/code/backend
+  #
+  # - name: backend
+  #   cwd: ~/code/backend
 
   # Resume a specific pi session (id or .jsonl path); omit to start fresh.
   # pi_session: 1a2b3c4d
