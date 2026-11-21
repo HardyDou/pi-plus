@@ -306,6 +306,29 @@ pp logs mango-release-01 -f --stamp
 # 08:50:09 error: EADDRINUSE
 ```
 
+### `pp logs --grep`：一句话拿到那十行
+
+```bash
+$ pp logs mango-release-01 -n 800 --grep ERROR --context 2
+…
+step 41
+step 42
+ERROR boom at line 43
+step 44
+step 45
+$ pp logs web --grep "EADDRINUSE|timeout" --ignore-case
+```
+
+`--grep <regex>` 只留命中的行，`--context N` 把每处命中扩成上下 N 行（等同 `grep -C`），
+跳过的位置用 `…` 标出来 —— 贴进工单时能看出"这里还有东西没贴"。
+
+两条讲究的语义：
+
+- **匹配数打到 stderr**（`3 matches`），正文保持干净，可以直接 `| tee` 或重定向。
+- **一条都没命中时退出码是 1**，于是 `pp logs web --grep ERROR || echo clean` 可以直接当检查用。
+
+配 `-f` 时过滤器只作用于**新出现的行**（适合盯着一个已知错误等它复现）；`--stamp` 与它们可以叠加。
+
 它盖的是 **pp 看到这行的时间**——tmux 不记程序写这行的时间。`-f` 时误差是一个
 `--interval`（默认 2 秒）；不加 `-f` 时整段都是抓取时刻（等于只标了"什么时候抓的"）。
 

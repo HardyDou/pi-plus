@@ -2599,6 +2599,32 @@ async function cmdAttach(config, options, ui) {
   process.exit(code);
 }
 
+/**
+ * Keep the lines that match, plus `context` lines around each, joined with `…`
+ * where something was skipped -- the shape `grep -C` has, which is what people
+ * already know. Returns the text and how many lines matched (not how many were
+ * printed), so "did it fail the same way" is one number.
+ */
+export function grepLines(text, pattern, { context = 0, ignoreCase = false } = {}) {
+  const re = new RegExp(pattern, ignoreCase ? "i" : "");
+  const lines = String(text ?? "").replace(/\n$/, "").split("\n");
+  const keep = new Set();
+  let matches = 0;
+  lines.forEach((line, index) => {
+    if (!re.test(line)) return;
+    matches += 1;
+    for (let at = Math.max(0, index - context); at <= Math.min(lines.length - 1, index + context); at += 1) keep.add(at);
+  });
+  const out = [];
+  let previous = -2;
+  for (const index of [...keep].sort((a, b) => a - b)) {
+    if (index > previous + 1) out.push("…");
+    out.push(lines[index]);
+    previous = index;
+  }
+  return { text: out.join("\n"), matches };
+}
+
 function cmdLogs(config, options, ui) {
   const names = (options.names ?? []).filter((name) => name !== undefined);
   if (names.length === 0 && !options.all) {
@@ -2613,6 +2639,21 @@ function cmdLogs(config, options, ui) {
     process.exit(1);
   }
   const lines = options.lines ?? 200;
+  // validate the filter once, not per session: a bad regex would otherwise
+  // surface as a stack trace halfway through a multi-machine read
+  const context = options.context === undefined ? 0 : Number(options.context);
+  if (!Number.isInteger(context) || context < 0) {
+    ui.error("--context takes a number of lines, e.g. --context 2");
+    process.exit(2);
+  }
+  if (options.grep !== undefined) {
+    try {
+      new RegExp(options.grep, options.ignoreCase ? "i" : "");
+    } catch (error) {
+      ui.error(`--grep is not a valid pattern: ${error.message}`);
+      process.exit(2);
+    }
+  }
   const labelled = sessions.length > 1;
   const handles = new Map();
   const handleFor = (session) => {
@@ -2648,6 +2689,7 @@ function cmdLogs(config, options, ui) {
       .join("\n");
 
   let failures = 0;
+  let matched = 0;
   for (const session of sessions) {
     const tmux = handleFor(session);
     if (!tmux.sessionExists(session.tmuxName)) {
@@ -2659,6 +2701,13 @@ function cmdLogs(config, options, ui) {
     const output = tmux.capture(session.tmuxName, lines);
     const lastLine = output.replace(/\n$/, "").split("\n").filter((line) => line.trim()).pop();
     if (lastLine) lastOut.set(session.name, lastLine);
+    if (options.grep) {
+      const found = grepLines(output, options.grep, { context, ignoreCase: options.ignoreCase });
+      matched += found.matches;
+      if (!found.text) continue;
+      process.stdout.write(`${options.stamp ? stamped(found.text) : found.text}\n`);
+      continue;
+    }
     if (options.stamp) {
       process.stdout.write(`${stamped(output)}\n`);
     } else {
@@ -2666,6 +2715,15 @@ function cmdLogs(config, options, ui) {
     }
   }
   if (failures) process.exitCode = 1;
+  if (options.grep) {
+    // grep semantics: nothing found is a failure, so this composes in a script
+    if (!matched) {
+      if (!options.quiet) process.stderr.write(ui.paint("dim", `no line matches ${JSON.stringify(options.grep)}\n`));
+      process.exitCode = 1;
+    } else if (!options.quiet) {
+      process.stderr.write(ui.paint("dim", `${matched} match${matched === 1 ? "" : "es"}\n`));
+    }
+  }
   // --follow: re-read each pane on an interval and print what is new, so one
   // terminal can watch a whole machine park instead of one tmux window per tab.
   if (!options.follow) return;
@@ -2680,7 +2738,9 @@ function cmdLogs(config, options, ui) {
       const before = seen.get(session.name) ?? "";
       if (now === before) continue;
       seen.set(session.name, now);
-      const added = diffLines(before, now);
+      let added = diffLines(before, now);
+      if (!added.length) continue;
+      if (options.grep) added = grepLines(added.join("\n"), options.grep, { context: 0, ignoreCase: options.ignoreCase }).text.split("\n").filter((line) => line && line !== "…");
       if (!added.length) continue;
       if (added[0] === lastOut.get(session.name)) added.shift();
       if (!added.length) continue;

@@ -77,6 +77,9 @@ function parseArgs(argv) {
         case "--quiet": options.quiet = true; break;
         case "--verbose": options.verbose = true; break;
         case "--started": options.started = true; break;
+        case "--grep": options.grep = takeValue(flag, inline); break;
+        case "--context": options.context = takeValue(flag, inline); break;
+        case "--ignore-case": options.ignoreCase = true; break;
         case "--yes": options.yes = true; break;
         case "--idle-over": options.idleOver = takeValue(flag, inline); break;
         case "--sort": options.sort = takeValue(flag, inline); break;

@@ -176,6 +176,12 @@ section "logs / send"
 check "send text"                0 'sent to e-always'           PFc send e-always 'echo hello-e2e'
 sleep 1
 check "logs see output"          0 'hello-e2e'                  PFc logs e-always -n 50
+check "logs --grep keeps only the match" 0 '^hello-e2e$'        bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK logs e-always -n 50 --grep hello-e2e 2>/dev/null"
+check "logs --grep counts what matched"  0 '[0-9]+ matches?'            bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK logs e-always -n 50 --grep hello-e2e 2>&1 >/dev/null"
+check "logs --grep marks what it skipped" 0 '…'                 bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK logs e-always -n 50 --grep hello-e2e 2>/dev/null | head -1"
+check "logs --grep fails when nothing matches" 1 'no line matches' bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK logs e-always -n 50 --grep definitely-not-there"
+check "logs --grep rejects a bad pattern" 2 'not a valid pattern' bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK logs e-always --grep '[-'"
+check "logs --context needs a number"    2 'takes a number'    bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK logs e-always --grep x --context nope"
 check "log file written"         0 '^[1-9][0-9]*$'              bash -c "sleep 1; grep -c hello-e2e $E2E/e-always.log"
 check "send --no-enter"          0 'sent to e-onfail'           PFc send e-onfail 'touch /tmp/e2e-pifarm/noenter.flag' --no-enter
 sleep 0.5

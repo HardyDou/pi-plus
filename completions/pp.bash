@@ -61,7 +61,7 @@ _pp() {
   esac
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "--config --socket --json --dry-run --force --reconcile --quiet --verbose --lines --idle-over --sort --watch --print --path --no-enter --attach --log --save --no-remote-pi --dir --agent --as --wait --reply --no-wait --body-json --bin-dir --check --at --in --every --command --catch-up --start --via --now --heal --remote --drift --node --tag --parallel --actor --idle-over --sort --started --yes --limit --prune --since --action --base-path --default-agent --default-restart --default-remote-pi-mode --guard --no-guard --registry --once --help --version" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--config --socket --json --dry-run --force --reconcile --quiet --verbose --lines --idle-over --sort --watch --print --path --no-enter --attach --log --save --no-remote-pi --dir --agent --as --wait --reply --no-wait --body-json --bin-dir --check --at --in --every --command --catch-up --start --via --now --heal --remote --drift --node --tag --parallel --actor --idle-over --sort --started --yes --grep --context --ignore-case --limit --prune --since --action --base-path --default-agent --default-restart --default-remote-pi-mode --guard --no-guard --registry --once --help --version" -- "$cur") )
     return 0
   fi
   if [[ $COMP_CWORD -eq 2 && "${COMP_WORDS[1]}" == "help" ]]; then
