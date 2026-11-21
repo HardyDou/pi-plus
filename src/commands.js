@@ -2887,7 +2887,7 @@ async function cmdWhyJob(config, options, ui, job) {
       : job.schedule.kind === "cron"
         ? job.schedule.cron
         : "once";
-  ui.out(`${ui.paint("bold", job.id)}  ${ui.paint("dim", `${when} · ${job.action === "heal" ? "heal drift" : job.session === ALL_SESSIONS ? "all sessions" : job.action === "sweep" ? `fleet → ${job.session}` : `to ${job.session ?? "-"}`}`)}`);
+  ui.out(`${ui.paint("bold", job.id)}  ${ui.paint("dim", `${when} · ${job.action === "heal" ? "heal drift" : job.session === ALL_SESSIONS ? "all sessions" : job.action === "sweep" ? `fleet → ${job.session}` : job.role ? `role ${job.role}` : `to ${job.session ?? "-"}`}`)}`);
   line("state", status.startsWith("failed:") ? ui.paint("red", verdict) : verdict);
   line("schedule", `${when}${job.catchUp ? ui.paint("dim", ` · catch-up ${formatDuration(job.catchUp)}`) : ""}`);
   line("next", next.text === "-" ? "-" : `${next.text}${next.late ? ui.paint("yellow", "  (late)") : ""}`);
@@ -5190,6 +5190,66 @@ function refreshCronLog(options, ui) {
 /** Deliver one job: type the prompt into its pane, or run its command. */
 /** `--all` marks a job as "every session that is running right now". */
 const ALL_SESSIONS = "*";
+
+/**
+ * Sessions carrying a role — the same two-way join `--role` does elsewhere, so
+ * `pp cron add --role dev` means what `pp status --role dev` shows.
+ */
+export function roleTargets(config, role) {
+  const wanted = String(role ?? "").trim().toLowerCase();
+  if (!wanted) return [];
+  return (config?.sessions ?? []).filter((session) => String(session.role ?? "").toLowerCase() === wanted);
+}
+
+function deliverToRole(job, options) {
+  const config = loadConfig({ configPath: job.configPath ?? null, cwd: process.cwd() });
+  if (!config) return { status: `skipped: no config to read the role from` };
+  const targets = roleTargets(config, job.role);
+  if (!targets.length) {
+    const inUse = [...new Set(config.sessions.map((session) => session.role).filter(Boolean))];
+    return {
+      status: `skipped: no session has role "${job.role}"${inUse.length ? ` (roles in use: ${inUse.join(", ")})` : ""}`,
+    };
+  }
+  const sent = [];
+  const busy = [];
+  const idle = [];
+  const failed = [];
+  for (const session of targets) {
+    const tmux = makeTmux(config, options, session);
+    if (!tmux.sessionExists(session.tmuxName)) {
+      idle.push(session.tmuxName);
+      continue;
+    }
+    if (tmux.isAgentBusy(session.tmuxName)) {
+      busy.push(session.tmuxName);
+      continue;
+    }
+    let result;
+    try {
+      result = tmux.sendText(session.tmuxName, job.prompt);
+    } catch {
+      failed.push(session.tmuxName);
+      continue;
+    }
+    if (result.submitted) sent.push(session.tmuxName);
+    else failed.push(session.tmuxName);
+  }
+  const parts = [
+    sent.length ? `${sent.length} sent` : null,
+    busy.length ? `${busy.length} busy` : null,
+    idle.length ? `${idle.length} not running` : null,
+    failed.length ? `${failed.length} failed` : null,
+  ].filter(Boolean);
+  const tail = parts.join(", ");
+  if (!sent.length && busy.length && !failed.length && !idle.length) {
+    return { status: `deferred: every ${job.role} session is working — the next tick will deliver` };
+  }
+  if (!sent.length && !busy.length) {
+    return { status: `skipped: no ${job.role} session is running (${tail || targets.length} targeted)` };
+  }
+  return { status: "delivered", text: `to ${sent.length}/${targets.length} ${job.role}, ${tail}` };
+}
 // heal: after this many restarts inside the window, stop and let a human look
 const HEAL_LIMIT = 3;
 const HEAL_WINDOW_MS = 60 * 60 * 1000;
@@ -5418,6 +5478,7 @@ function deliverJob(job, options) {
     return { status: "delivered" };
   }
 
+  if (job.role) return deliverToRole(job, options);
   const tmux = new Tmux({ socket: job.socket ?? null });
   if (job.session === ALL_SESSIONS) return deliverToEverySession(tmux, job);
   if (!tmux.sessionExists(job.session)) {
@@ -5675,9 +5736,16 @@ function cronRow(job, now = new Date()) {
   const next = describeNext(due, now);
   return {
     id: job.id,
-    session: job.action === "command" ? `$ ${job.command}` : job.session === ALL_SESSIONS ? "all sessions" : job.session,
+    session: job.action === "command"
+      ? `$ ${job.command}`
+      : job.role
+        ? `role ${job.role}`
+        : job.session === ALL_SESSIONS
+          ? "all sessions"
+          : job.session,
     action: job.action,
     session: job.session ?? null,
+    role: job.role ?? null,
     schedule: describeSchedule(job.schedule),
     next: next.text,
     late: next.late,
@@ -5695,17 +5763,19 @@ function printCronJobs(jobs, ui, now = new Date()) {
   const records = jobs.map((job) => cronRow(job, now));
   const headers = ["ID", "TARGET", "SCHEDULE", "NEXT", "RUNS", "LAST"];
   // a command job has no session at all, so this has to survive null
-  const target = (session, action) =>
+  const target = (session, action, role) =>
     action === "sweep"
       ? `fleet → ${session ?? "-"}`
       : action === "heal"
       ? "drift (up --drift)"
       : action === "command"
         ? "$ (localhost)"
-        : session === ALL_SESSIONS
-          ? "all sessions"
-          : session ?? "-";
-  const table = records.map((row) => [row.id, target(row.session, row.action), row.schedule, row.next, String(row.runs), row.last]);
+        : role
+          ? `role ${role}`
+          : session === ALL_SESSIONS
+            ? "all sessions"
+            : session ?? "-";
+  const table = records.map((row) => [row.id, target(row.session, row.action, row.role), row.schedule, row.next, String(row.runs), row.last]);
   const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
   const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
   ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
@@ -5748,6 +5818,7 @@ async function cmdCronAdd(config, options, ui) {
   const schedule = buildSchedule({ at: options.in ? new Date(Date.now() + parseDuration(options.in, { what: "--in" }) * 1000).toISOString() : options.at, every: options.every, cron: options.cronExpr });
 
   let session = null;
+  let targetRole = null;
   let socket = options.socket ?? config?.tmuxSocket ?? null;
   let configPath = config?.path ?? null;
   if (healing) {
@@ -5773,6 +5844,20 @@ async function cmdCronAdd(config, options, ui) {
     if (options.session) throw new CronError("give either --session <name|#> or --all, not both");
     if (command) throw new CronError("--all takes a prompt — a command runs once, not per session");
     session = ALL_SESSIONS;
+  } else if (options.role) {
+    // per-role delivery: the same label that filters `pp status --role`
+    if (options.session) throw new CronError("give either --session <name|#> or --role <label>, not both");
+    if (command) throw new CronError("--role takes a prompt — a command runs once, not per session");
+    if (!config) throw new CronError("--role needs a config to read the labels from");
+    const targets = roleTargets(config, options.role);
+    if (!targets.length) {
+      const inUse = [...new Set(config.sessions.map((entry) => entry.role).filter(Boolean))];
+      throw new CronError(
+        `no session has role "${options.role}"${inUse.length ? ` — roles in use: ${inUse.join(", ")} (pp role --list)` : " (pp role --list)"}`,
+      );
+    }
+    targetRole = targets[0].role;
+    session = null;
   } else if (!command) {
     const wanted = options.session ?? null;
     if (wanted) {
@@ -5810,7 +5895,15 @@ async function cmdCronAdd(config, options, ui) {
   const job = {
     id: newJobId(jobs),
     action: healing ? "heal" : sweeping ? "sweep" : command ? "command" : "prompt",
-    ...(healing ? {} : sweeping ? { session, socket } : command ? { command } : { prompt: text, session, socket }),
+    ...(healing
+      ? {}
+      : sweeping
+        ? { session, socket }
+        : command
+          ? { command }
+          : targetRole
+            ? { prompt: text, role: targetRole, socket }
+            : { prompt: text, session, socket }),
     schedule,
     catchUp: options.catchUp ? parseDuration(options.catchUp, { what: "--catch-up" }) : DEFAULT_CATCH_UP_SECONDS,
     startSession: Boolean(options.start),
@@ -5821,7 +5914,8 @@ async function cmdCronAdd(config, options, ui) {
 
   const due = nextRun(job);
   if (options.dryRun) {
-    ui.out(`[dry-run] would schedule ${job.id}: ${describeSchedule(schedule)} → ${job.action === "heal" ? "heal (up --drift)" : job.action === "command" ? `$ ${command}` : `session ${session}`}`);
+    const who = targetRole ? `role ${targetRole}` : `session ${session}`;
+    ui.out(`[dry-run] would schedule ${job.id}: ${describeSchedule(schedule)} → ${job.action === "heal" ? "heal (up --drift)" : job.action === "command" ? `$ ${command}` : who}`);
     ui.out(`[dry-run] first run ${due ? due.toISOString() : "never"}`);
     return;
   }
@@ -5834,12 +5928,13 @@ async function cmdCronAdd(config, options, ui) {
     return;
   }
   note("cron.add", job.id, {
-    detail: `${describeSchedule(schedule)} → ${job.action === "command" ? `$ ${command}` : session}`,
+    detail: `${describeSchedule(schedule)} → ${job.action === "command" ? `$ ${command}` : targetRole ? `role ${targetRole}` : session}`,
     result: "ok",
   });
-  ui.info(`${ui.paint("green", "scheduled")} ${job.id}  ${describeSchedule(schedule)}  →  ${job.action === "heal" ? "heal (up --drift)" : job.action === "command" ? `$ ${command}` : `session ${session}`}`);
+  const who = targetRole ? `role ${targetRole}` : `session ${session}`;
+  ui.info(`${ui.paint("green", "scheduled")} ${job.id}  ${describeSchedule(schedule)}  →  ${job.action === "heal" ? "heal (up --drift)" : job.action === "command" ? `$ ${command}` : who}`);
   ui.info(ui.paint("dim", `first run: ${due ? due.toLocaleString() : "never"}   cancel with: pp cron rm ${job.id}`));
-  if (!options.start && job.action === "prompt" && session !== ALL_SESSIONS) {
+  if (!options.start && job.action === "prompt" && !targetRole && session !== ALL_SESSIONS) {
     ui.info(ui.paint("dim", `the session must be running at that moment (add --start to bring it up first)`));
   }
   if (session === ALL_SESSIONS) {

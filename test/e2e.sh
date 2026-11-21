@@ -218,6 +218,12 @@ check "a case-only label is refused"   2 'already "pm"'    bash -c "cd $E2E && $
 # two-letter labels are one edit apart all the time (pm/po, qa/qe): only
 # labels of three characters or more get the near-miss guard
 check "a one-edit label is refused"    2 'one edit away'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role alpha dve 2>&1"
+# a schedule can aim at a label instead of one session
+check "cron add --role targets a label" 0 'role pm'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron add --role pm --every 10m 'standup' 2>&1"
+check "cron ls shows the role target"   0 'role pm'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron ls 2>&1"
+check "cron add --role rejects an unused label" 1 'no session has role "qa"' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron add --role qa --every 10m 'x' 2>&1"
+check "cron add --role rejects --session" 1 'not both' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron add --role pm --session alpha --every 10m 'x' 2>&1"
+bash -c "cd $E2E && for id in \$( $ROOT/bin/pp.js -c $ROLECFG cron ls --json | tr -d ' ,\"' | awk -F: '/^id:/{print \$2}' ); do $ROOT/bin/pp.js -c $ROLECFG cron rm \$id >/dev/null 2>&1; done"
 check "--force creates it anyway"      0 'dve'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role alpha dve --force 2>&1"
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role alpha - >/dev/null 2>&1"
 check "role - clears the label"        0 'no role'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role risk-2 -"

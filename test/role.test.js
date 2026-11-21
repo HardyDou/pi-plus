@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { compareNames, rolesInUse } from "../src/commands.js";
-import { cmdRole } from "../src/commands.js";
+import { cmdRole, roleTargets } from "../src/commands.js";
 
 test("names sort the way a person reads them, families stay together", () => {
   const names = ["risk-pm", "risk-10", "alpha", "risk-2", "risk-01", "Risk-02"];
@@ -97,4 +97,20 @@ test("a transposition is a typo, not a new label", () => {
   const ui = fakeUi();
   quietExitCode(() => cmdRole(config, { names: ["spare", "dve"] }, ui));
   assert.match(ui.lines.join("\n"), /"dve" is one edit away from "dev"/);
+});
+
+test("roleTargets is the join cron --role and status --role share", () => {
+  const config = {
+    sessions: [
+      { name: "web", tmuxName: "web", role: "dev" },
+      { name: "api", tmuxName: "api", role: "dev" },
+      { name: "db", tmuxName: "db" },
+      { name: "ops", tmuxName: "ops", role: "Dev Ops" },
+    ],
+  };
+  assert.deepEqual(roleTargets(config, "dev").map((s) => s.name), ["web", "api"], "case-insensitive match");
+  assert.deepEqual(roleTargets(config, " dev ").map((s) => s.name), ["web", "api"], "surrounding space is not a label");
+  assert.deepEqual(roleTargets(config, "dev ops").map((s) => s.name), ["ops"], "labels with a space work");
+  assert.deepEqual(roleTargets(config, "qa"), [], "an unused label targets nothing");
+  assert.deepEqual(roleTargets({ sessions: [] }, "dev"), [], "no config, no targets");
 });

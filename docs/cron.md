@@ -67,6 +67,25 @@ deferred: hx keep dying (3 restarts in an hour) — someone should look
 这时候该看的是 `pp logs <name>` 和 `pp check --remote`。修好之后要立刻重试一次可以用
 `pp cron run <id> --force`（`--force` 只跳过这个上限，不改其它行为）。
 
+## 按角色下发：`--role`
+
+不是所有提醒都对所有人有意义：站会只跟 `dev` 有关，巡检只跟 `ops` 有关。
+
+```bash
+pp cron add --role dev --every 30m "报告一下你手上的进度"
+pp cron ls                     # TARGET 列显示 role dev
+```
+
+- 对象是**带这个标签的会话**（与 `pp status --role dev` 同一批，见 `pp role --list`）
+- 标签写错了当场报错：`no session has role "dve" — roles in use: dev (pp role --list)`，不会静默建一个空任务
+- 里面没在跑的会话记成 `not running`，不算失败（标签会随人/机器变动，一半没起来是常态）
+- 正在思考的 agent 依旧跳过（`deferred:`），下次 tick 再送
+
+```bash
+$ pp cron run a3a48b
+delivered a3a48b — to 1/2 dev, 1 sent, 1 not running
+```
+
 ## 三种时间表
 
 ```bash
