@@ -296,6 +296,8 @@ bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK down risk-10 --fo
 check "why explains a stopped session" 0 'should be up but is not' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK why risk-2 2>&1"
 check "why --json gives the facts"     0 '"state"'                 bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK why risk-2 --json 2>&1"
 check "why rejects an unknown session" 2 'unknown session'         bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK why nosuch 2>&1"
+check "why --role answers for the group"  0 'role pm' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK why --role pm 2>&1"
+check "why --role names an unknown label" 2 'no session has role' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK why --role nosuch 2>&1"
 check "up --role starts that role"     0 'risk-10' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role pm up --dry-run 2>&1"
 
 section "ready"

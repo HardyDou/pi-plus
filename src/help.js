@@ -274,7 +274,7 @@ export const COMMANDS = [
     name: "why",
     aliases: ["explain"],
     summary: "Say why a session is in the state it is in",
-    usage: "pp why <name|#> [--json]\n      pp why --node <machine> [--json]\n      pp why <job-id> [--json]",
+    usage: "pp why <name|#> [--json]\n      pp why --node <machine> [--json]\n      pp why --role <label> [--json]\n      pp why <job-id> [--json]",
     details: [
       "One screen for the question everybody asks at 3am. It reads the config,",
       "tmux, state.json and the cron file, then prints the facts and the single",
@@ -317,9 +317,10 @@ export const COMMANDS = [
     options: [
       "--json           machine-readable facts",
       "--node <machine> ask about every session on one machine",
+      "--role <label>   ask about every session carrying one label",
       "<job-id>         ask about a scheduled job instead",
     ],
-    examples: ["pp why api", "pp why 3 --json", "pp why --node t114", "pp why 0eed5f"],
+    examples: ["pp why api", "pp why 3 --json", "pp why --node t114", "pp why --role prod", "pp why 0eed5f"],
     see: ["status", "logs", "doctor"],
   },
   {

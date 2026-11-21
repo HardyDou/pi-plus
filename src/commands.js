@@ -3522,11 +3522,72 @@ async function cmdPlan(config, options, ui) {
  * cron file — the point is that an exhausted person at 3am should not have to
  * know where. Nothing here changes anything.
  */
+// "why is everything with this label the way it is" — the same three-line
+// answer per session, without asking you to walk the table row by row
+async function cmdWhyRole(config, options, ui) {
+  const role = options.role;
+  const members = config.sessions.filter((session) => String(session.role ?? "").toLowerCase() === String(role).toLowerCase());
+  if (!members.length) {
+    ui.error(`no session has role "${role}" (roles in use: ${[...new Set(config.sessions.map((s) => s.role).filter(Boolean))].join(", ") || "none"})`);
+    process.exit(2);
+  }
+  const handles = new Map();
+  const rows = [];
+  for (const session of members) {
+    const key = session.node ?? "";
+    if (!handles.has(key)) handles.set(key, makeTmux(config, options, session));
+    const tmux = handles.get(key);
+    let reachable = true;
+    let entry = null;
+    try {
+      reachable = tmux.reachable();
+      entry = reachable ? tmux.listSessions().get(session.tmuxName) ?? null : null;
+    } catch {
+      reachable = false;
+    }
+    const pane = entry?.panes?.[0] ?? null;
+    const running = Boolean(entry && pane && !pane.dead);
+    const state = !reachable ? "unreachable" : !entry ? "stopped" : pane?.dead ? "dead" : entry.attached > 0 ? "attached" : "running";
+    const drain = drainOf(config, session);
+    const stopped = isStopped(config.path, session.name);
+    let verdict;
+    if (!reachable) verdict = `machine ${session.node} is not reachable — pp node test ${session.node}`;
+    else if (drain) verdict = `machine ${session.node} is drained — pp node undrain ${session.node}`;
+    else if (stopped) verdict = `stopped on purpose — pp up ${session.name}`;
+    else if (running) verdict = `up and answering — pp logs ${session.name}`;
+    else if (session.restart === "no") verdict = `not running, restart policy is \`no\` — pp up ${session.name}`;
+    else verdict = `should be up but is not — pp up ${session.name}`;
+    rows.push({ name: session.name, state, node: session.node ?? null, verdict });
+  }
+  const up = rows.filter((row) => row.state === "running" || row.state === "attached").length;
+  const jobs = (() => {
+    try {
+      return readJobs().filter((job) => String(job.role ?? "").toLowerCase() === String(role).toLowerCase());
+    } catch {
+      return [];
+    }
+  })();
+  if (ui.json) {
+    ui.out(JSON.stringify({ role, up, total: rows.length, sessions: rows, cron: jobs.map((job) => job.id) }, null, 2), null);
+    return;
+  }
+  ui.out(`${ui.paint("bold", `role ${role}`)}  ${up}/${rows.length} up${rows.length > 1 ? "" : ""}`);
+  const width = Math.max(...rows.map((row) => row.name.length));
+  for (const row of rows) {
+    const paint = row.state === "running" || row.state === "attached" ? ((text) => ui.paint("green", text)) : ((text) => text);
+    ui.out(`  ${row.name.padEnd(width)}  ${paint(row.state.padEnd(11))} ${ui.paint("dim", row.verdict)}`);
+  }
+  if (jobs.length) {
+    ui.out(ui.paint("dim", `  cron: ${jobs.map((job) => job.id + " " + describeNext(nextRun(job, new Date()), new Date()).text).join(" · ")}`));
+  }
+}
+
 async function cmdWhy(config, options, ui) {
   const ref = (options.names ?? [])[0];
   if (!ref && options.node) return cmdWhyNode(config, options, ui);
+  if (!ref && options.role) return cmdWhyRole(config, options, ui);
   if (!ref) {
-    ui.error("usage: pp why <name|#> [--json]");
+    ui.error("usage: pp why <name|#> | --node <machine> | --role <label> [--json]");
     process.exit(2);
   }
   // a job id is a legitimate question too — "why hasn't it fired" is the cron

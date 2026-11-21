@@ -839,13 +839,14 @@ dry run — nothing was written
 
 pp 不会定时备份。没取的备份等于没有备份 —— 在改动之前跑，不是之后。
 
-### `pp why <会话|机器|任务号> [--json]`
+### `pp why <会话|机器|标签|任务号> [--json]`
 
-三种对象，同一个问题（"为什么是这样"）：
+四种对象，同一个问题（"为什么是这样"）：
 
 ```bash
 pp why api          # 一个会话
 pp why --node t114  # 一台机器
+pp why --role prod  # 一个标签下面的所有会话
 pp why a59cfc       # 一个定时任务：它为什么没发出来
 ```
 
