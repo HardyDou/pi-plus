@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -9,7 +9,10 @@ import {
   clearStopped,
   isStopped,
   markBusy,
+  markRestart,
   markStopped,
+  RESTART_KEEP,
+  restartsOf,
   markStarted,
   startedOf,
   statePath,
@@ -86,4 +89,24 @@ test("the last start records why and who, and keeps the other fields", () => {
   assert.equal(startedOf(cfg, "api", env).why, "restart");
   // unknown sessions stay null instead of throwing
   assert.equal(startedOf(cfg, "nope", env), null);
+});
+
+test("restarts are a short ring, oldest first, and survive other fields", () => {
+  const dir = mkdtempSync(join(tmpdir(), "pp-state-"));
+  const env = { XDG_STATE_HOME: dir };
+  try {
+    const configPath = "/tmp/pi-plus-ring.yml";
+    markStopped(configPath, "api", env, "down");
+    for (let i = 1; i <= 7; i += 1) {
+      markRestart(configPath, "api", { why: i === 1 ? "autostart" : "heal", at: `2026-11-21T10:0${i}:00.000Z` }, env);
+    }
+    const list = restartsOf(configPath, "api", env);
+    assert.equal(list.length, RESTART_KEEP);
+    assert.equal(list[0].at, "2026-11-21T10:03:00.000Z");
+    assert.equal(list.at(-1).at, "2026-11-21T10:07:00.000Z");
+    // the stop mark is a different field: a restart must not eat it
+    assert.equal(isStopped(configPath, "api", env), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

@@ -71,8 +71,10 @@ import {
   isStopped,
   markBusy,
   markStopped,
+  markRestart,
   markStarted,
   noteActivity,
+  restartsOf,
   startedOf,
 } from "./state.js";
 import {
@@ -746,7 +748,9 @@ async function cmdUp(config, options, ui) {
       tmux.create(session, spec);
       await verifyStartup(tmux, session, options.quiet ? null : ui);
       clearStopped(config.path, session.name);
-      markStarted(config.path, session.name, { why: options.startedWhy ?? (options.reconcile ? "autostart" : "up"), by: auditActor(process.env) });
+      const why = options.startedWhy ?? (options.reconcile ? "autostart" : "up");
+      markStarted(config.path, session.name, { why, by: auditActor(process.env) });
+      markRestart(config.path, session.name, { why, by: auditActor(process.env) });
       started++;
       ui.info(`${ui.paint("green", "started")} ${session.name} ${ui.paint("dim", `→ tmux:${session.tmuxName}  cwd:${session.cwd}`)}`);
       if (session.pi) {
@@ -1965,6 +1969,7 @@ function cmdStatus(config, options, ui) {
       cwdMissing: session.node ? false : !existsSync(expandPath(session.cwd)),
       // who put it back up, and why — "did it come back by itself?" in one column
       lastStart: startedOf(config.path, session.name),
+      restarts: restartsOf(config.path, session.name),
       // "who is looking at this" — the question before `pp down` on a shared box
       client: (() => {
         const client = clientsFor(session.node).find((entry) => entry.session === session.tmuxName);
@@ -2095,6 +2100,22 @@ function cmdStatus(config, options, ui) {
     ui.out(
       ui.paint("dim", `last start ${ago} ago by ${start.why}${start.by ? ` (${start.by})` : ""} — pp audit --action up`),
     );
+    // "it keeps coming back" is a different problem from "it is not up"
+    const history = shown[0].restarts ?? [];
+    if (history.length > 1) {
+      const first = Date.parse(history[0].at);
+      const span = Math.max(0, Math.round((Date.now() - first) / 60000));
+      const tally = new Map();
+      for (const entry of history) tally.set(entry.why, (tally.get(entry.why) ?? 0) + 1);
+      const why = [...tally.entries()].map(([kind, count]) => (count > 1 ? `${kind} ×${count}` : kind)).join(", ");
+      ui.out(
+        ui.paint(
+          history.length >= 3 ? "yellow" : "dim",
+          `restarted ${history.length}× in ${span < 1 ? "the last minute" : `${span}m`} — ${why}`,
+        ) +
+          ui.paint("dim", " — pp logs " + shown[0].name),
+      );
+    }
   }
   if (!options.quiet) {
     const running = shown.filter((r) => r.state === "running" || r.state === "attached").length;
@@ -2427,6 +2448,7 @@ async function cmdTui(config, options, ui) {
             prepareSession(session, options);
             handle.create(session, launchSpec(session, handle));
             markStarted(config.path, session.name, { why: "panel", by: auditActor(process.env) });
+            markRestart(config.path, session.name, { why: "panel", by: auditActor(process.env) });
             started++;
             note("up", session.name, { node: session.node ?? null, detail: "panel drift", result: "ok" });
           } catch (error) {
@@ -4457,6 +4479,7 @@ function healDrift(job, options) {
       const spec = prepareSession(session, options);
       tmux.create(session, launchSpec(session, tmux, spec));
       markStarted(config.path, session.name, { why: "heal", by: auditActor(process.env) });
+      markRestart(config.path, session.name, { why: "heal", by: auditActor(process.env) });
       started.push(session.name);
       note("heal", session.name, { node: session.node ?? null, detail: "restarted by cron --heal", result: "ok" });
     } catch (error) {

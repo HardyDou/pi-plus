@@ -142,6 +142,7 @@ sleep 3
 kill -INT "$WATCHPID" 2> /dev/null
 wait "$WATCHPID" 2> /dev/null
 # the pattern is matched against the command's output, so print the line
+check "status counts restarts"       0 'restarted [0-9]+'      bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK restart e-always >/dev/null && $ROOT/bin/pp.js -c $CFG --socket $SOCK restart e-always >/dev/null && $ROOT/bin/pp.js -c $CFG --socket $SOCK status e-always"
 check "status --watch draws the table"     0 'watching'   bash -c "grep watching $WATCHLOG | head -1"
 check "status --watch reports a stop"      0 'went off'   bash -c "grep 'went off' $WATCHLOG | head -1"
 check "status --watch says nothing changed" 0 'no changes yet' bash -c "grep 'no changes yet' $WATCHLOG | head -1"
@@ -207,8 +208,8 @@ check "status unknown name"      2 'unknown session'            PFc status nosuc
 check "status --started adds the column"  0 'STARTED'           PFc status --started
 check "status --started says why"         0 'up$|up +$'        bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK status --started e-always | sed -n 2p"
 check "status --json records who started it"  0 '"lastStart"'   bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK status --json | head -30"
-check "one session explains its last start"   0 'last start'    bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK status e-always | tail -3"
-check "restart records itself as the reason"  0 'by restart'    bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK restart e-always >/dev/null && $ROOT/bin/pp.js -c $CFG --socket $SOCK status e-always | tail -3"
+check "one session explains its last start"   0 'last start'    bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK status e-always | tail -5"
+check "restart records itself as the reason"  0 'by restart'    bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK restart e-always >/dev/null && $ROOT/bin/pp.js -c $CFG --socket $SOCK status e-always | tail -5"
 
 section "launcher"
 check "the wrapper runs"          0 '^[0-9]+\.[0-9]+\.[0-9]+$' bash -c "$ROOT/bin/pp -V"

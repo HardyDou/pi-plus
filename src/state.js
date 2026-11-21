@@ -89,6 +89,32 @@ export function startedOf(configPath, name, env = process.env) {
   return readAll(env)[configPath]?.[name]?.started ?? null;
 }
 
+/** How many restarts we keep per session: enough to see a loop, not a log. */
+export const RESTART_KEEP = 5;
+
+/**
+ * A short ring of restarts, oldest first.
+ *
+ * `started` says when the current run began; this says whether it keeps
+ * beginning. Three entries 20 minutes apart is the signature of a thrashing
+ * self-heal, and that is invisible in any single snapshot.
+ */
+export function markRestart(configPath, name, { why = "up", by = null, at = null } = {}, env = process.env) {
+  const state = readAll(env);
+  const entries = bucket(state, configPath);
+  const entry = entries[name] ?? {};
+  const list = Array.isArray(entry.restarts) ? entry.restarts : [];
+  list.push({ at: at ?? new Date().toISOString(), why, by });
+  entries[name] = { ...entry, restarts: list.slice(-RESTART_KEEP) };
+  writeAll(state, env);
+  return entries[name].restarts;
+}
+
+export function restartsOf(configPath, name, env = process.env) {
+  const list = readAll(env)[configPath]?.[name]?.restarts;
+  return Array.isArray(list) ? list : [];
+}
+
 /**
  * The last time the pane actually changed while the agent was working.
  *

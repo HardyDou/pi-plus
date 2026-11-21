@@ -164,6 +164,24 @@ rewritten, so the diff stays small.
 `3/4` = 你为这台机器列了 4 个会话、3 个在跑；`+1` = 它上面还有一个没写进配置的会话。
 两个符号分别对应 `pp up` 和 `pp adopt`。
 
+### `pp status <name>`：它为什么在这里
+
+```bash
+$ pp status api
+#  NAME  STATE    IDLE  RESTART  PID     AGENT  CWD       PI SESSION
+1  api   running  12s   always   3798448 pi     /srv/api  api
+
+last start 2m ago by heal (user@ops#1234) — pp audit --action up
+restarted 3× in 20m — heal ×3 — pp logs api
+```
+
+`last start` 说明**这一次**是谁拉起来的；`restarted` 说明它**是不是一直在被拉起来**——前者在
+一次快照里就有，后者只有历史能回答。三条一小时的重启，配合 `--heal` 的停手条件（3 次/小时）
+基本就是"自愈在反复拉扯"，而"从没起来过"和"起来又死"的处理方式完全不同。
+
+每个会话保留最近 5 条（`RESTART_KEEP`），来源标在 `why`：`up` / `autostart` / `restart` /
+`heal` / `panel`。`--json` 里是 `restarts: [{ at, why, by }]`。
+
 ### `pp audit --action config.changed`：改了什么字段
 
 ```bash
