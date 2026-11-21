@@ -128,6 +128,22 @@ check "check --brief says ok in one line" 0 'ok [0-9]+ session'  pp check --brie
 check "check --brief names the problem"   1 '1 problem'         pp check --brief -c "$E2E/init.yml"
 check "check --json ok"          0 '"ok": true'                pp check -c "$CFG" --json
 
+section "clean"
+mkdir -p "$E2E/state/pi-plus" "$E2E/logs"
+printf 'line-A\nline-B\nline-C\n' > "$E2E/logs/app.log"
+# many short lines, not one huge one: the point is that the cut lands on a line
+# boundary and the newest lines survive
+seq 1 300000 >> "$E2E/logs/app.log"
+printf 'line-D\n' >> "$E2E/logs/app.log"
+printf "version: 1\ntmux:\n  socket: $SOCK\nsessions:\n  - name: logger\n    cwd: $E2E\n    agent: sh -c 'sleep 300'\n    log: $E2E/logs/app.log\n" > "$E2E/log.yml"
+check "clean --dry-run keeps the file" 0 'would shrink logger' bash -c "$ROOT/bin/pp.js -c $E2E/log.yml --socket $SOCK clean --keep 64k --dry-run; test $(wc -c < $E2E/logs/app.log) -gt 1000000 && echo kept"
+check "clean shrinks the log"     0 'freed'                    bash -c "$ROOT/bin/pp.js -c $E2E/log.yml --socket $SOCK clean --keep 64k"
+check "clean keeps the newest line" 0 'line-D'                 bash -c "tail -1 $E2E/logs/app.log"
+check "clean keeps the line boundary" 0 '^[0-9]+$'             bash -c "head -1 $E2E/logs/app.log"
+check "clean keeps appending to the same file" 0 'inode'        bash -c "INODE1=\$(stat -c %i $E2E/logs/app.log); echo after >> $E2E/logs/app.log; INODE2=\$(stat -c %i $E2E/logs/app.log); [ \"\$INODE1\" = \"\$INODE2\" ] && echo inode-unchanged"
+check "clean leaves small logs alone" 0 'nothing to shrink'    bash -c "$ROOT/bin/pp.js -c $E2E/log.yml --socket $SOCK clean --keep 4m"
+check "clean rejects a bad size"  2 'is not a size'            bash -c "$ROOT/bin/pp.js -c $E2E/log.yml clean --keep two-megabytes"
+
 section "config validation"
 printf 'version: 1\nsessions:\n  - name: a\n\tcwd: /tmp\n' > "$E2E/tabs.yml"
 check "tab indentation rejected" 2 'tab'                       pp check -c "$E2E/tabs.yml"

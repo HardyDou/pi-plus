@@ -164,6 +164,33 @@ rewritten, so the diff stays small.
 `3/4` = 你为这台机器列了 4 个会话、3 个在跑；`+1` = 它上面还有一个没写进配置的会话。
 两个符号分别对应 `pp up` 和 `pp adopt`。
 
+### `pp clean`：把 pp 自己写大的日志收回来
+
+```bash
+$ pp clean
+shrank logger  2.9 MB → 64.0 KB  /tmp/logs/app.log
+shrank cron.log  4.8 MB → 1.0 MB  ~/.local/state/pi-plus/cron.log
+
+5.3 MB freed
+$ pp clean --keep 512k --dry-run
+```
+
+每个 `log:` 会话都由 tmux 的 `pipe-pane` 往同一个文件里追加，pp 自己的 `info/cron/audit` 也一样——
+**没人轮转**。忙起来的机器上它们会填满磁盘，而第一个症状是"什么都写不进去"，看起来像 pp 出了故障。
+`pp clean` 把每个文件切成"最后 `--keep` 字节"（默认 2 MB）并告诉你省了多少。
+
+三个刻意的做法：
+
+- **保留尾部**：事故之后要看的是最新的那几百行，所以砍掉的是头部。
+- **从整行开始**：裁切的起点对齐到换行符，不会留下半行（半行日志读起来像损坏）。
+- **原地截断，不写新文件再改名**：`log:` 会话跑的是 `pipe-pane … cat >> file`，那个写入者手里攥着一个
+  append fd；改名会让它继续写进一个已被 unlink 的 inode，新文件永远是空的 —— 日志看着还在，其实已经丢了。
+  同一个 inode 上 `ftruncate` 只是把文件尾往前挪，写入者会接着新尾继续追加（0.51.0 的 e2e 里专门验证了
+  inode 不变、截断后的新输出仍然写进同一个文件）。
+
+`pp doctor` 在任一日志超过 50 MB 时给 `✗ logs <文件> <大小> — shrink: pp clean`。
+远端会话的日志不在这里动：请在那台机器上跑 `pp clean`。
+
 ### `pp check --brief`：一行，一个退出码
 
 ```bash

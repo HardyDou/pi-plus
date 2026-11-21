@@ -28,6 +28,7 @@ _pp() {
     'node:machines reached over ssh (ls/show/add/rm/test/exec/ssh/drain)'
     'nodes:alias for node'
     'check:validate the config'
+    'clean:shrink the log files pp writes'
     'doctor:environment diagnostics'
     'init:write an example config'
     'install:install reboot autostart'

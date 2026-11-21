@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, ftruncateSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
 import {
@@ -18,7 +18,7 @@ import {
   renderSessionEntry,
   shellQuote,
 } from "./config.js";
-import { agoText, auditActor, auditPath, pruneAudit, readAudit, recordAudit } from "./audit.js";
+import { agoText, auditActor, auditPath, pruneAudit, readAudit, recordAudit, stateDir } from "./audit.js";
 import { clearPanel, findPanelPane, loadPanel, panelAlive, savePanel } from "./panel.js";
 import { readRemotePiConfig, remotePiConfigPath, writeRemotePiName } from "./remote-pi.js";
 import {
@@ -3177,6 +3177,111 @@ function formatMeshBody(body) {
   }
 }
 
+const CLEAN_KEEP_BYTES = 2 * 1024 * 1024;
+const LOG_WARN_BYTES = 50 * 1024 * 1024;
+
+/** "512k", "2m", "1g", "1048576" -> bytes. No unit means bytes. */
+export function parseSize(text) {
+  const raw = String(text ?? "").trim().toLowerCase();
+  const match = /^(\d+(?:\.\d+)?)\s*(b|k|kb|m|mb|g|gb)?$/.exec(raw);
+  if (!match) throw new Error(`"${text}" is not a size (try 512k, 2m, 1g)`);
+  const units = { b: 1, k: 1024, kb: 1024, m: 1024 ** 2, mb: 1024 ** 2, g: 1024 ** 3, gb: 1024 ** 3 };
+  return Math.round(Number(match[1]) * (units[match[2] ?? "b"] ?? 1));
+}
+
+export function humanBytes(bytes) {
+  const value = Number(bytes) || 0;
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 ** 2) return `${(value / 1024).toFixed(1)} KB`;
+  if (value < 1024 ** 3) return `${(value / 1024 ** 2).toFixed(1)} MB`;
+  return `${(value / 1024 ** 3).toFixed(1)} GB`;
+}
+
+/**
+ * Cut a file down to its last `keep` bytes, in place.
+ *
+ * In place, not "write a new file and rename": a `log:` session runs
+ * `pipe-pane ... cat >> file`, and that writer holds an open append fd. Renaming
+ * would leave it writing into an unlinked inode while the new file stays empty --
+ * the log looks alive and is silently lost. With O_APPEND, truncating the same
+ * inode just moves the end of file, so the writer keeps appending where we left off.
+ */
+export function shrinkTail(path, keep) {
+  const before = statSync(path).size;
+  if (before <= keep) return { before, after: before, freed: 0 };
+  const fd = openSync(path, "r+");
+  try {
+    const buffer = Buffer.allocUnsafe(keep);
+    const read = readSync(fd, buffer, 0, keep, before - keep);
+    // start on a line boundary when we can: half a log line reads as corruption
+    let start = 0;
+    const newline = buffer.subarray(0, Math.min(read, 4096)).indexOf(0x0a);
+    if (newline >= 0) start = newline + 1;
+    writeSync(fd, buffer, start, read - start, 0);
+    ftruncateSync(fd, read - start);
+    return { before, after: read - start, freed: before - (read - start) };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+/**
+ * Every file pp itself makes grow forever: a session's `log:`, plus the state
+ * logs (info/cron/audit). Nothing rotates them, so on a busy pact they fill the
+ * disk and the first symptom is everything failing to write at 3am.
+ */
+export function logTargets(config, env = process.env) {
+  const targets = [];
+  for (const session of config.sessions) {
+    if (!session.log || session.node) continue;
+    targets.push({ path: session.log, label: session.name });
+  }
+  const dir = stateDir(env);
+  for (const name of ["info.log", "cron.log", "audit.log", "audit.log.1"]) {
+    targets.push({ path: join(dir, name), label: name });
+  }
+  return targets;
+}
+
+async function cmdClean(config, options, ui) {
+  let keep = CLEAN_KEEP_BYTES;
+  if (options.keep !== undefined) {
+    try {
+      keep = parseSize(options.keep);
+    } catch (error) {
+      ui.error(error.message);
+      process.exit(2);
+    }
+  }
+  const rows = [];
+  for (const target of logTargets(config, process.env)) {
+    if (!existsSync(target.path)) continue;
+    const size = statSync(target.path).size;
+    if (size <= keep) continue;
+    const shrunk = options.dryRun ? { before: size, after: keep, freed: size - keep } : shrinkTail(target.path, keep);
+    rows.push({ ...target, ...shrunk });
+  }
+  const remoteLogs = config.sessions.filter((session) => session.log && session.node).length;
+  const freed = rows.reduce((sum, row) => sum + row.freed, 0);
+
+  if (options.json) {
+    ui.out(JSON.stringify({ keep, freed, files: rows, remote: remoteLogs }, null, 2));
+  } else if (!rows.length) {
+    ui.out(`nothing to shrink — no log is bigger than ${humanBytes(keep)}`);
+  } else {
+    for (const row of rows) {
+      ui.out(
+        `${options.dryRun ? "would shrink" : "shrank"} ${ui.paint("cyan", row.label)}  ` +
+          `${humanBytes(row.before)} → ${humanBytes(row.after)}  ${ui.paint("dim", row.path)}`,
+      );
+    }
+    ui.out(`\n${humanBytes(freed)} freed${options.dryRun ? " (dry run: nothing written)" : ""}`);
+  }
+  if (remoteLogs) {
+    ui.out(ui.paint("dim", `${remoteLogs} remote log(s) are not touched from here — run pp clean on that machine`));
+  }
+}
+
 async function cmdCheck(config, options, ui) {
   const tmux = makeTmux(config, options);
   const problems = [];
@@ -3564,6 +3669,20 @@ function cmdDoctor(config, options, ui) {
       if (minutes >= limitMinutes) stuck.push({ name: session.name, minutes });
     }
     const longest = seen.reduce((most, entry) => Math.max(most, entry.minutes), 0);
+    // nothing rotates a `log:` file or the state logs: the first symptom of a
+    // full disk is everything failing to write, which reads like a pp bug
+    const logs = logTargets(config, process.env)
+      .filter((target) => existsSync(target.path))
+      .map((target) => ({ ...target, size: statSync(target.path).size }))
+      .filter((target) => target.size > LOG_WARN_BYTES)
+      .sort((a, b) => b.size - a.size);
+    add(
+      "logs",
+      logs.length === 0,
+      logs.length
+        ? `${logs.map((e) => `${e.label} ${humanBytes(e.size)}`).join(", ")} — shrink: pp clean`
+        : "no log file is close to the disk (limit 50 MB each)",
+    );
     add(
       "stalls",
       stuck.length === 0,
@@ -4762,6 +4881,10 @@ export async function runCommand(command, options) {
         config = null; // raw addresses and `pp mesh ls` work without a config
       }
       return cmdMesh(config, options, ui);
+    }
+    case "clean": {
+      const config = requireConfig(options, ui);
+      return cmdClean(config, options, ui);
     }
     case "check":
     case "validate": {
