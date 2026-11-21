@@ -11,7 +11,7 @@ _pp() {
       COMPREPLY=( $(compgen -f -- "$cur") )
       return 0
       ;;
-    --socket|--lines|--idle-over|--sort|--cwd|-n|--agent|-C|--dir|--host|--port|--user|--identity|--password|--note|--tag|--timeout|--role|--node|--password-env|--from-ssh-config|--base-path|--default-agent|--default-restart|--default-remote-pi-mode)
+    --socket|--lines|--idle-over|--sort|--cwd|-n|--agent|-C|--dir|--host|--port|--user|--identity|--password|--note|--tag|--timeout|--role|--node|--from|--password-env|--from-ssh-config|--base-path|--default-agent|--default-restart|--default-remote-pi-mode)
       return 0
       ;;
     --password-env|--from-ssh-config)

@@ -430,7 +430,19 @@ function auditedWrite({ config, action, target, node = null, dryRun = false }, w
   return result;
 }
 
-function adHocSession({ name, cwd, agent, log, remotePiName, remotePiMode, node = null }) {
+function adHocSession({
+  name,
+  cwd,
+  agent,
+  log,
+  remotePiName,
+  remotePiMode,
+  node = null,
+  role = null,
+  env = {},
+  args = [],
+  restart = "always",
+}) {
   const argv = splitCommand(agent);
   const pi = basename(argv[0] ?? "") === "pi";
   return {
@@ -438,22 +450,39 @@ function adHocSession({ name, cwd, agent, log, remotePiName, remotePiMode, node 
     tmuxName: name,
     cwd,
     agent: argv,
+    role,
+    env,
+    args,
     pi,
     piSession: null,
     piSessionDir: null,
     piSessionName: pi ? name : null,
     remotePiName,
     remotePiMode,
-    env: {},
-    args: [],
     log,
     remainOnExit: false,
-    restart: "always",
+    restart,
     node,
   };
 }
 
 async function cmdNew(baseConfig, options, ui) {
+  // `--from`: clone the shape of a session that already works (node, cwd, role,
+  // agent, env, args, restart policy) and only change what you name.
+  let source = null;
+  if (options.from) {
+    const sessions = baseConfig?.sessions ?? [];
+    const ref = String(options.from);
+    source =
+      sessions.find((session) => session.name === ref || session.tmuxName === ref) ??
+      (/^\d+$/.test(ref) ? sessions[Number(ref) - 1] : null) ??
+      null;
+    if (!source) {
+      ui.error(`no session "${ref}" to copy — see pp status${baseConfig?.path ? "" : " (no config found)"}`);
+      process.exit(2);
+    }
+  }
+
   // `--node` puts the session on another machine: the directory only has to
   // exist *there*, so leave the check to the remote tmux.
   let node = null;
@@ -463,8 +492,10 @@ async function cmdNew(baseConfig, options, ui) {
       ui.error(`no node "${options.node}" — see pp node ls`);
       process.exit(2);
     }
+  } else if (source?.node) {
+    node = (baseConfig?.nodes ?? []).find((entry) => entry.name === source.node) ?? null;
   }
-  let cwd = resolve(expandPath(options.dir ?? process.cwd()));
+  let cwd = resolve(expandPath(options.dir ?? source?.cwd ?? process.cwd()));
   if (node?.basePath && options.dir && !/^[~/]/.test(options.dir) && !/^\.\.?\//.test(options.dir)) {
     // "-C api" on a machine whose sessions live in /srv means /srv/api
     cwd = `${String(node.basePath).replace(/\/+$/, "")}/${options.dir.replace(/^\.\//, "")}`;
@@ -474,8 +505,10 @@ async function cmdNew(baseConfig, options, ui) {
     process.exit(2);
   }
 
-  const explicitName = options.names[0];
-  let name = tmuxSafeName(explicitName ?? basename(cwd));
+  // a name typed on the command line is explicit (clash = error); a name we
+  // derived (from the directory or from --from) may quietly become "x-2"
+  const explicitName = options.from ? null : options.names[0];
+  let name = tmuxSafeName(options.names[0] ?? source?.name ?? basename(cwd));
   if (!SAFE_TMUX_NAME.test(name)) {
     ui.error(`invalid session name "${name}": use letters, digits, "-" and "_"`);
     process.exit(2);
@@ -483,20 +516,25 @@ async function cmdNew(baseConfig, options, ui) {
 
   const tmux = makeTmux(baseConfig ?? { tmuxSocket: null, nodes: [] }, options, { node: node?.name ?? null });
   const live = tmux.listSessions();
-  if (live.has(name)) {
+  // "taken" means taken in tmux *or* already written down in the config: with
+  // --from the name comes from the source session, so the config is the first
+  // place a clash shows up
+  const written = new Set((baseConfig?.sessions ?? []).map((session) => session.name));
+  const taken = (candidate) => live.has(candidate) || written.has(candidate);
+  if (taken(name)) {
     if (explicitName && !options.force) {
-      ui.error(`tmux session "${name}" already exists (--force to recreate, or pick another name)`);
+      ui.error(`session "${name}" already exists (--force to recreate, or pick another name)`);
       process.exit(2);
     }
     if (!options.force) {
       let suffix = 2;
-      while (live.has(`${name}-${suffix}`)) suffix += 1;
+      while (taken(`${name}-${suffix}`)) suffix += 1;
       ui.info(ui.paint("dim", `${name} is taken, using ${name}-${suffix}`));
       name = `${name}-${suffix}`;
     }
   }
 
-  const agent = options.agent ?? "pi";
+  const agent = options.agent ?? (source ? source.agent.join(" ") : "pi");
   const log = options.log ? join(homedir(), ".pi", "plus", "logs", `${name}.log`) : null;
   const remotePiName = options.noRemotePi ? null : name;
   const session = adHocSession({
@@ -508,7 +546,10 @@ async function cmdNew(baseConfig, options, ui) {
     // ad-hoc sessions never touch the project's remote-pi config file
     remotePiMode: "env",
     node: node?.name ?? null,
-    role: options.role ?? null,
+    role: options.role ?? source?.role ?? null,
+    env: source?.env ?? {},
+    args: source?.args ?? [],
+    restart: source?.restart ?? "always",
   });
 
   // Where --save writes: the loaded config, else the file the user pointed at
@@ -524,7 +565,11 @@ async function cmdNew(baseConfig, options, ui) {
   };
   await cmdUp(config, { ...options, names: [], force: Boolean(options.force) }, ui);
 
-  if (options.save) saveNewSession(config.path, session, ui);
+  if (options.save && options.dryRun) {
+    ui.info(ui.paint("dim", `[dry-run] would append ${session.name} to ${config.path}`));
+  } else if (options.save) {
+    saveNewSession(config.path, session, ui);
+  }
   if (options.dryRun) return;
 
   if (options.attach && !process.stdout.isTTY) {
@@ -543,11 +588,13 @@ async function cmdNew(baseConfig, options, ui) {
 
 /** Append a `pp new` session to the config file (creating it when missing). */
 export function saveNewSession(configPath, session, ui) {
+  // the same renderer `pp adopt` uses, plus the two remote-pi lines an ad-hoc
+  // session always needs (its name is per-session, so it goes in the env)
   const entry = [
-    `  - name: ${session.name}`,
-    `    cwd: ${session.cwd}`,
-    session.node ? `    node: ${session.node}` : null,
-    session.log ? `    log: ${session.log}` : null,
+    // an ad-hoc session restarts "always" (adHocSession says so); the renderer
+    // defaults to unless-stopped, so state it explicitly rather than let
+    // `pp new --save` silently change the policy
+    renderSessionEntry({ ...session, restart: session.restart ?? "always" }),
     session.remotePiName ? `    remote_pi_name: ${session.remotePiName}` : "    remote_pi_name: false",
     session.remotePiName ? "    remote_pi_mode: env" : null,
   ]
@@ -5639,8 +5686,11 @@ export async function runCommand(command, options) {
       let config = null;
       try {
         config = loadConfig({ configPath: options.config, cwd: options.cwd });
-      } catch {
-        config = null; // `pp new` works without any config file
+      } catch (error) {
+        // `pp new` works without any config file, but a config the user pointed
+        // at that does not parse is not "no config" — say what is wrong
+        if (options.config) throw error;
+        config = null;
       }
       return cmdNew(config, options, ui);
     }

@@ -270,6 +270,22 @@ nodes:
   assert.ok(next.indexOf("- name: stray") < next.indexOf("nodes:"), "lands inside sessions, not after nodes");
   assert.match(next, /restart: "no"/, "restart: no must be quoted or YAML reads a boolean");
 
+  // a cloned session carries its template: role, env and args must survive the
+  // round trip, or `pp new --from` silently loses half of what it copied
+  const clone = renderSessionEntry({
+    name: "risk-02",
+    cwd: "/srv/risk",
+    role: "risk",
+    agent: "pi",
+    restart: "unless-stopped",
+    env: { HTTP_PROXY: "http://127.0.0.1:7890", PORT: "8080" },
+    args: ["--model", "deepseek"],
+  });
+  assert.match(clone, /^    role: risk$/m);
+  assert.match(clone, /^    env:\n      HTTP_PROXY: http:\/\/127\.0\.0\.1:7890$/m);
+  assert.match(clone, /^      PORT: "8080"$/m); // digits stay strings
+  assert.match(clone, /^    args: \["--model", deepseek\]$/m);
+
   const empty = appendSessionBlock("version: 1\nsessions: []\n", renderSessionEntry({ name: "x", cwd: "/tmp" }));
   assert.match(empty, /sessions:\n {2}- name: x/);
   assert.equal(appendSessionBlock("version: 1\n", renderSessionEntry({ name: "x", cwd: "/tmp" })), null);

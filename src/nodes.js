@@ -424,7 +424,7 @@ export function parseSshConfig(text) {
 const PLAIN_SCALAR = /^[A-Za-z0-9_@./\\%+,:= -]+$/;
 const NEEDS_QUOTES = /^[-?:,[\]{}#&*!|>'"%@` ]|[:#] |\s$|^(?:true|false|null|yes|no|on|off|~)$|^\d+(?:\.\d+)?$/i;
 
-function yamlScalar(value) {
+export function yamlScalar(value) {
   const text = String(value);
   if (PLAIN_SCALAR.test(text) && !NEEDS_QUOTES.test(text)) return text;
   return JSON.stringify(text);

@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { parseYaml, YamlError } from "./yaml.js";
-import { normalizeNodes } from "./nodes.js";
+import { normalizeNodes, yamlScalar } from "./nodes.js";
 
 const CONFIG_BASENAMES = ["pi-plus.yml", "pi-plus.yaml", "plus.yml", "plus.yaml"];
 
@@ -524,6 +524,12 @@ export function renderSessionEntry(session) {
     session.agent ? `    agent: ${session.agent}` : null,
     // "no" is a YAML boolean, so the one policy that collides gets quotes
     `    restart: ${(session.restart ?? "unless-stopped") === "no" ? '"no"' : (session.restart ?? "unless-stopped")}`,
+    session.env && Object.keys(session.env).length
+      ? `    env:\n${Object.entries(session.env)
+          .map(([key, value]) => `      ${key}: ${yamlScalar(String(value))}`)
+          .join("\n")}`
+      : null,
+    session.args && session.args.length ? `    args: [${session.args.map((arg) => yamlScalar(String(arg))).join(", ")}]` : null,
     session.log ? `    log: ${session.log}` : null,
   ]
     .filter(Boolean)

@@ -927,6 +927,36 @@ check "and it is really gone"          1 ''                  bash -c "tmux -L $S
 
 tmux -L "$SOCK" kill-session -t far-x 2>/dev/null || true
 
+section "new --from (clone a session)"
+CLONECFG=$E2E/clone.yml
+rm -f $CLONECFG
+cat > $CLONECFG <<YML
+version: 1
+tmux:
+  socket: $SOCK
+defaults:
+  agent: bash
+sessions:
+  - name: clone-src
+    cwd: /tmp
+    role: risk
+    restart: unless-stopped
+    env:
+      CLONE_MARK: yes-please
+    log: /tmp/clone-src.log
+YML
+CLF() { "$ROOT/bin/pp.js" -c "$CLONECFG" "$@"; }
+CLF up clone-src >/dev/null 2>&1
+check "clone copies the source name"      0 'clone-src-2'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $CLONECFG new --from clone-src --dry-run 2>&1 | grep new-session"
+check "clone copies the env"              0 'CLONE_MARK=yes-please' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CLONECFG new --from clone-src --dry-run 2>&1 | grep new-session"
+check "clone refuses an unknown source"   2 'no session'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CLONECFG new --from ghost --dry-run"
+check "clone --from 1 uses the index"     0 'clone-src'         bash -c "cd $E2E && $ROOT/bin/pp.js -c $CLONECFG new --from 1 --dry-run 2>&1 | grep new-session"
+check "dry-run --save writes nothing"     0 'would append'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $CLONECFG new --from clone-src --save --dry-run 2>&1 | tail -2"
+check "the config is untouched"           0 '^1$'              bash -c "grep -c 'name: clone-src' $CLONECFG"
+check "clone --save writes the template"  0 'role: risk'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CLONECFG new --from clone-src --save >/dev/null 2>&1; grep 'role: risk' $CLONECFG"
+check "and the env came along"            0 'CLONE_MARK'        bash -c "grep 'CLONE_MARK' $CLONECFG"
+check "the clone is a real session"       0 'running'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CLONECFG ls clone-src-2"
+
 section "plan"
 PLANCFG=$E2E/plan.yml
 rm -f $PLANCFG /tmp/plan-off-ran

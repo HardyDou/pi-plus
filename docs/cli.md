@@ -619,6 +619,19 @@ pp cron ls
 pp cron install
 ```
 
+**克隆一个已经跑对的会话**：`pp new --from <会话|#>` 把 `node / cwd / role / agent / env / args / restart`
+从源会话抄过来，只改你点名的东西（名字默认 `源名-2`）：
+
+```bash
+$ pp new --from risk-01 --save
+risk-01 is taken, using risk-01-2
+...
+saved to /home/user/.pi/plus.yml
+```
+
+`-C` / `--node` / `--agent` / `--role` 仍然可以覆盖抄来的值。`--dry-run` 只打印将要执行的 tmux 命令，
+并且 `--dry-run --save` **不会**写配置（只提示 `would append … to …`）。
+
 ### `pp plan [--json]`
 
 把 `doctor`、`why`、`status` 已经知道的事实汇总成**带顺序**的一串动作：每一步都是可以直接敲的一条命令，
