@@ -337,10 +337,10 @@ export function tick({ now = new Date(), env = process.env, deliver, dryRun = fa
         job.lastStatus = `skipped: missed by ${formatDuration(Math.round(lateBy / 1000))} (catch-up ${formatDuration(catchUp / 1000)})`;
         job.lastAttempt = now.toISOString();
         job.skipped = (job.skipped ?? 0) + 1;
-        if (job.schedule.kind === "once") {
-          job.done = true;
-          job.lastRun = now.toISOString();
-        }
+        if (job.schedule.kind === "once") job.done = true;
+        // Resync the schedule: without this the job stays in the past forever,
+        // is "missed" on every tick and never runs again after one long outage.
+        job.lastRun = now.toISOString();
         skipped.push({ id: job.id, reason: job.lastStatus });
         changed = true;
         continue;
