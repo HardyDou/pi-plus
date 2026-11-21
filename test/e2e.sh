@@ -287,7 +287,7 @@ section "doctor"
 # doctor exits 1 when autostart is not installed, which is normal on a fresh
 # box: assert the report itself, not the exit code
 check "doctor runs"              0 'tmux|node'                  bash -c "pp --socket $SOCK -c $CFG doctor || true"
-check "doctor --json"            0 '"checks"|"ok"'              PFc doctor --json
+check "doctor --json"            1 '"checks"|"ok"'              PFc doctor --json
 
 section "mesh"
 MESH_ENV=("env" "REMOTE_PI_HOME=$E2E/nomesh")
@@ -313,6 +313,8 @@ check "alias rm"                  0 'removed'            pp alias rm pif --bin-d
 check "alias rm again is quiet"   0 'nothing to remove'  pp alias rm pif --bin-dir "$E2E/aliasbin"
 check "help alias page"           0 'bin-dir'            pp help alias
 check "doctor explains stalls as quiet time" 0 'no agent|no new output'     bash -c 'pp doctor 2>&1 || true'
+check "doctor --brief gives an order of work" 1 'first: '   bash -c 'pp doctor --brief 2>&1'
+check "doctor --json lists the failed checks" 1 '"failed"'  bash -c 'pp doctor --json 2>&1'
 check "doctor names the binary"   0 'command name'       bash -c 'pp doctor 2>&1 || true'  # exits 1 until autostart is installed
 
 section "update"

@@ -164,6 +164,22 @@ rewritten, so the diff stays small.
 `3/4` = 你为这台机器列了 4 个会话、3 个在跑；`+1` = 它上面还有一个没写进配置的会话。
 两个符号分别对应 `pp up` 和 `pp adopt`。
 
+### `pp doctor --brief`：先做哪一件
+
+```bash
+$ pp doctor --brief
+first: pp up --drift — drift: off: parked, other — pp up
+then:  pp clean — logs: cron.log 57.2 MB — shrink: pp clean
+2 of 13 checks need attention — pp doctor
+```
+
+3am 的时候，"哪里不对"不如"**现在敲哪一条**"。所以每个检查都带着能修好它的命令，
+`--brief` 按"解开多少东西"排序后只报前两条：配置 → node/tmux/pi → 命令名/扩展 → 自启 → cron →
+drift → logs → stalls（最后这个要人去看，不是一条命令）。
+
+`--json` 里每个 check 都带 `fix`，并多一个 `failed: ["drift","logs"]`，方便别的系统直接消费。
+一切正常时只输出 `ok 14 checks, nothing to do`（退出码 0）；有问题退出码 1。
+
 ### `pp clean`：把 pp 自己写大的日志收回来
 
 ```bash

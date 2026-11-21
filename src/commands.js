@@ -3619,7 +3619,9 @@ function cmdDoctor(config, options, ui) {
   if (options.nodes) return doctorNodes(config, options, ui);
   const tmux = makeTmux(config, options);
   const checks = [];
-  const add = (label, ok, detail) => checks.push({ label, ok, detail });
+  // `fix` is the command that makes the check pass: at 3am "what do I type" beats
+  // "what is wrong", and `--brief` is built out of these.
+  const add = (label, ok, detail, fix = null) => checks.push({ label, ok, detail, fix });
 
   add("node", true, process.version);
   const tmuxVersion = (() => {
@@ -3629,16 +3631,21 @@ function cmdDoctor(config, options, ui) {
       return null;
     }
   })();
-  add("tmux", Boolean(tmuxVersion), tmuxVersion ?? "not found");
+  add("tmux", Boolean(tmuxVersion), tmuxVersion ?? "not found", "install tmux (apt install tmux)");
   const hasServer = tmux.hasServer();
   // A missing server is normal (tmux starts on demand) — not a failure.
   add("tmux server", true, hasServer ? "running" : "not running (starts on demand)");
-  add("pi", commandExists("pi"), resolveExecutable("pi"));
+  add("pi", commandExists("pi"), resolveExecutable("pi"), "npm i -g @earendil-works/pi-coding-agent");
   const extension = installedExtension();
   const own = ownVersion();
-  add("pi extension", Boolean(extension) && extension.version === own, describeExtension(extension, own));
+  add(
+    "pi extension",
+    Boolean(extension) && extension.version === own,
+    describeExtension(extension, own),
+    `npm install --prefix ~/.pi/agent/npm pi-farm@${own} --registry https://registry.npmjs.org/`,
+  );
   const names = inspectCommandNames({ target: scriptPath(options) });
-  add("command name", names.ok, describeCommandNames(names));
+  add("command name", names.ok, describeCommandNames(names), "pp alias add pif");
   // The scheduler is the quietest thing to break: jobs simply stop firing and
   // nothing says so. One line here is the difference between noticing and not.
   {
@@ -3656,9 +3663,9 @@ function cmdDoctor(config, options, ui) {
       : `${jobs.length} job${jobs.length === 1 ? "" : "s"}, tick ${ticked ? "installed" : "not installed"}` +
         (ageMinutes === null ? "" : `, last fired ${ageMinutes}m ago`);
     const healthy = !jobs.length || (ticked && (ageMinutes === null || ageMinutes < 60));
-    add("cron", healthy, detail);
+    add("cron", healthy, detail, "pp install");
   }
-  add("config", Boolean(config), config?.path ?? "not found");
+  add("config", Boolean(config), config?.path ?? "not found", "pp init");
   if (config?.nodes?.length) {
     // Registering a machine is a promise; say whether ssh can keep it, but do
     // not spend a round trip per node without being asked.
@@ -3683,6 +3690,7 @@ function cmdDoctor(config, options, ui) {
       [parked.length ? `off: ${parked.join(", ")} — pp up` : null, strays.length ? `not in config: ${strays.join(", ")} — pp adopt` : null]
         .filter(Boolean)
         .join(" · ") || "nothing off, nothing unmanaged",
+      parked.length ? "pp up --drift" : strays.length ? "pp adopt" : null,
     );
   }
   if (config) {
@@ -3719,6 +3727,7 @@ function cmdDoctor(config, options, ui) {
       logs.length
         ? `${logs.map((e) => `${e.label} ${humanBytes(e.size)}`).join(", ")} — shrink: pp clean`
         : "no log file is close to the disk (limit 50 MB each)",
+      logs.length ? "pp clean" : null,
     );
     add(
       "stalls",
@@ -3728,17 +3737,62 @@ function cmdDoctor(config, options, ui) {
         : seen.length
           ? `no agent stuck (quietest ${longestQuiet}m, limit ${limitMinutes}m)`
           : "no agent working right now",
+      stuck.length ? `pp logs ${stuck[0].name}` : null,
     );
   }
   const autostart = autostartState();
-  add("autostart", Boolean(autostart.kind) && autostart.installed && autostart.enabled, describeAutostart(autostart));
+  add(
+    "autostart",
+    Boolean(autostart.kind) && autostart.installed && autostart.enabled,
+    describeAutostart(autostart),
+    "pp install",
+  );
   if (isWsl()) {
     // On WSL the distro only runs after Windows starts it; systemd alone cannot help.
     add("wsl", true, "Windows 侧需触发（任务计划/启动项），见 pp install 提示");
   }
 
+  // Order by "how much does this unblock": without a config nothing else matters,
+  // then the basics pp runs on, then the quiet breakages. A hung agent is last:
+  // it needs a human to look, not a command.
+  const PRIORITY = [
+    "config",
+    "node",
+    "tmux",
+    "pi",
+    "command name",
+    "pi extension",
+    "autostart",
+    "cron",
+    "drift",
+    "logs",
+    "stalls",
+    "tmux server",
+    "wsl",
+  ];
+  const rank = (label) => (PRIORITY.includes(label) ? PRIORITY.indexOf(label) : PRIORITY.length);
+  const failed = checks.filter((check) => !check.ok).sort((a, b) => rank(a.label) - rank(b.label));
+
+  if (options.brief) {
+    if (!failed.length) {
+      ui.out(`ok ${checks.length} checks, nothing to do`);
+      return;
+    }
+    const [first, ...rest] = failed;
+    const say = (check, prefix) =>
+      `${prefix} ${check.fix ? ui.paint("bold", check.fix) : check.detail} ${ui.paint("dim", `— ${check.label}: ${check.detail}`)}`;
+    ui.out(say(first, "first:"));
+    if (rest.length) ui.out(say(rest[0], "then: "));
+    const more = failed.length - (rest.length ? 2 : 1);
+    ui.out(ui.paint("dim", `${failed.length} of ${checks.length} checks need attention${more > 0 ? ` (${more} more)` : ""} — pp doctor`));
+    process.exitCode = 1;
+    return;
+  }
+
   if (ui.json) {
-    ui.out(JSON.stringify({ checks, warnings: config?.warnings ?? [] }, null, 2));
+    ui.out(JSON.stringify({ checks, failed: failed.map((c) => c.label), warnings: config?.warnings ?? [] }, null, 2));
+    // same contract as the table: a failing check is a failing run
+    if (failed.length) process.exitCode = 1;
     return;
   }
   for (const check of checks) {
