@@ -62,6 +62,17 @@ pp <command> [names...] [options]
 
 ## 命令
 
+### `pp snapshot`
+
+```bash
+pp snapshot                # 会话表 + 定时任务 + 机器 + 审计尾部，一整块
+pp snapshot --limit 20     # 底部多带些历史
+pp snapshot --json | jq -r .text
+```
+
+只读、不 ssh、半坏也能用：坏掉的 `cron.json` 变成块里的一行（提示 `pp doctor --quarantine`）、
+没有配置就直说。适合往 ticket / 群里贴一整段上下文。
+
 ### `pp audit [target]`
 
 ```bash

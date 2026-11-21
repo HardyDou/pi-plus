@@ -232,6 +232,19 @@ test("check/ls surfaces keep their shape, empty or not", () => {
   }
 });
 
+test("snapshot --json wraps the block and names its parts", () => {
+  const box = sandbox();
+  try {
+    const payload = box.json(["snapshot"]);
+    shape(payload, { version: "string", host: "string", time: "string", config: "string|null", text: "string", cron: "array", nodes: "array", audit: "array" }, "snapshot");
+    assert.match(payload.text, /9?\d*\/\d+ running|running/, "the block carries the session table");
+    for (const job of payload.cron) shape(job, { id: "string", target: "string|null", schedule: "string", next: "string", runs: "number", last: "string" }, "snapshot.cron[]");
+    for (const node of payload.nodes) shape(node, { name: "string", target: "string", tags: "array", drained: "boolean", guarded: "boolean", sessions: "number" }, "snapshot.nodes[]");
+  } finally {
+    box.stop();
+  }
+});
+
 test("role --list --json and todo ls --json keep their shape", () => {
   const box = sandbox();
   try {

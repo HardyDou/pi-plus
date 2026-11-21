@@ -223,6 +223,9 @@ check "cron add --role targets a label" 0 'role pm'  bash -c "cd $E2E && $ROOT/b
 check "cron ls shows the role target"   0 'role pm'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron ls 2>&1"
 check "audit --role names only its sessions" 0 'role' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role dev audit 2>&1; true"
 check "audit --role rejects a label nobody has" 2 'no session has role "qa"' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG audit --role qa 2>&1"
+# one read-only block you can paste: sessions, jobs, machines, audit tail
+check "snapshot prints a pasteable block" 0 '^## pi-plus ' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK snapshot 2>&1"
+check "snapshot --json wraps the block" 0 '"text"'     bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK snapshot --json 2>&1"
 check "cron add --role rejects an unused label" 1 'no session has role "qa"' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron add --role qa --every 10m 'x' 2>&1"
 # a label that disappears later turns a job into a silent no-op: it ticks,
 # it "delivers", and it reaches nobody. doctor has to say so.
@@ -796,6 +799,7 @@ sessions:
     node: dead
     cwd: /tmp
 YAML
+check "snapshot lists the machines" 0 'nodes \('       bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK snapshot 2>&1"
 
 # long enough that a slow full-suite run cannot outlive it: drift checks below
 # compare config against what is actually running

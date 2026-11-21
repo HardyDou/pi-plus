@@ -3,7 +3,8 @@ import test from "node:test";
 import { COMMANDS, commandNames, findCommand, renderCommandHelp, renderOverview, suggestCommand } from "../src/help.js";
 
 const CANONICAL = ["new", "node", "audit", "up", "down", "rm", "restart",
-  "adopt", "role", "plan", "runbook", "backup", "restore",
+  "adopt", "role", "plan", "runbook",
+  "snapshot", "backup", "restore",
   "why", "mv", "status", "attach", "logs", "send", "mesh", "cron", "todo", "tui", "back", "check", "clean", "doctor", "init", "install", "uninstall", "alias", "update", "version", "help"];
 
 test("every command has a complete help page", () => {

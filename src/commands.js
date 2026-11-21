@@ -1,7 +1,7 @@
 import { closeSync, copyFileSync, existsSync, ftruncateSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync, writeSync } from "node:fs";
 import { configChanges } from "./configdiff.js";
 import { basename, dirname, join } from "node:path";
-import { homedir } from "node:os";
+import { homedir, hostname } from "node:os";
 import {
   buildSessionArgv,
   describeSession,
@@ -19,7 +19,7 @@ import {
   renderSessionEntry,
   shellQuote,
 } from "./config.js";
-import { agoText, auditActor, auditPath, pruneAudit, readAudit, recordAudit, stateDir } from "./audit.js";
+import { agoText, auditActor, auditPath, formatAuditEntry, pruneAudit, readAudit, recordAudit, stateDir } from "./audit.js";
 import { BACKUP_KEEP, backupDir, backupPlan, describeBackup, listBackups, pruneBackups, restorePlan, writeBackup } from "./backup.js";
 import { clearPanel, findPanelPane, loadPanel, panelAlive, savePanel } from "./panel.js";
 import { readRemotePiConfig, remotePiConfigPath, writeRemotePiName } from "./remote-pi.js";
@@ -3321,6 +3321,116 @@ async function cmdStart(options, ui) {
   }
 }
 
+/**
+ * `pp snapshot`: what you would paste into a ticket.
+ *
+ * Deliberately read-only and self-contained: it has to work when the machine is
+ * half-broken (tmux gone, a node unreachable, a state file corrupt), because
+ * that is exactly when somebody asks "what does it look like over there?".
+ */
+function cmdSnapshot(config, options, ui) {
+  const now = new Date();
+  const host = hostname().split(".")[0];
+  const lines = [];
+  const say = (line = "") => lines.push(String(line));
+  const capture = {
+    json: false,
+    quiet: false,
+    paint: (_style, text) => String(text),
+    out: say,
+    info: say,
+    warn: (line) => say(`warning: ${line}`),
+    error: (line) => say(`error: ${line}`),
+  };
+  if (config) {
+    try {
+      cmdStatus(config, { ...options, json: false }, capture);
+    } catch (error) {
+      say(`(status failed: ${error.message})`);
+    }
+  } else {
+    say("no config — pp init");
+  }
+
+  const jobs = [];
+  let cronNote = null;
+  try {
+    for (const job of readJobs()) {
+      const row = cronRow(job, now);
+      jobs.push({ id: row.id, target: row.session, schedule: row.schedule, next: row.next, runs: row.runs, last: row.last });
+    }
+  } catch (error) {
+    cronNote = `could not read cron.json (${error.message}) — pp doctor --quarantine`;
+  }
+  say("");
+  if (cronNote) say(`cron: ${cronNote}`);
+  else if (!jobs.length) say("cron: no jobs");
+  else {
+    say(`cron (${jobs.length})`);
+    for (const row of jobs) {
+      say(`  ${row.id}  ${String(row.target ?? "-").padEnd(18)} ${row.schedule.padEnd(10)} next ${row.next}  last ${row.last}`);
+    }
+  }
+
+  const nodes = (config?.nodes ?? []).map((node) => ({
+    name: node.name,
+    target: nodeTarget(node),
+    tags: node.tags ?? [],
+    drained: Boolean(node.drained),
+    guarded: Boolean(node.guarded),
+    sessions: (config.sessions ?? []).filter((session) => session.node === node.name).length,
+  }));
+  if (nodes.length) {
+    say("");
+    say(`nodes (${nodes.length}) — reachability: pp node test --all`);
+    for (const node of nodes) {
+      const flags = [node.drained ? "drained" : null, node.guarded ? "guarded" : null].filter(Boolean).join(", ");
+      say(
+        `  ${node.name.padEnd(12)} ${node.target.padEnd(24)} ${String(node.sessions).padStart(2)} session(s)` +
+          (node.tags.length ? `  ${node.tags.join(",")}` : "") +
+          (flags ? `  ${flags}` : ""),
+      );
+    }
+  }
+
+  let tail = [];
+  try {
+    tail = readAudit({ limit: options.lines ?? 5 });
+  } catch {
+    tail = [];
+  }
+  if (tail.length) {
+    say("");
+    say(`audit (last ${tail.length})`);
+    for (const entry of tail) say(`  ${formatAuditEntry(entry, now)}`);
+  }
+
+  const body = lines.join("\n");
+  if (ui.json) {
+    ui.out(
+      JSON.stringify(
+        {
+          version: ownVersion(),
+          host,
+          time: now.toISOString(),
+          config: config?.path ?? null,
+          text: body,
+          cron: jobs,
+          nodes,
+          audit: tail,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  ui.out(`## pi-plus ${ownVersion()} · ${host} · ${localStamp(now)}`);
+  ui.out(config ? `config: ${config.path}` : "config: -");
+  ui.out("");
+  ui.out(body);
+}
+
 /** `pp runbook [scenario] [--markdown] [--json]`: the incident table, one scenario at a time. */
 async function cmdRunbook(config, options, ui) {
   if (options.markdown) {
@@ -6482,6 +6592,16 @@ export async function runCommand(command, options) {
     }
     case "plan": {
       return cmdPlan(requireConfig(options, ui), options, ui);
+    }
+    case "snapshot": {
+      // needs no config: "there is no config here" is part of the snapshot
+      let config = null;
+      try {
+        config = loadConfig({ configPath: options.config, cwd: options.cwd });
+      } catch (error) {
+        if (options.config) throw error;
+      }
+      return cmdSnapshot(config, options, ui);
     }
     case "runbook": {
       // works without a config: the manual is worth reading before you have one

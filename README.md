@@ -706,6 +706,7 @@ MIT © 2026 HardyDou
 | `pp plan --node t114` | 只问那一台机器：要让它现在能接活，按顺序敲哪几条 |
 | `pp backup` / `pp restore` | 改配置前留一份，改坏了拿回来（普通目录拷贝，带 diff 预演） |
 | `pp runbook` | 事故处理手册：会话全没了 / 不投递 / 机器连不上 … 各自按序怎么查 |
+| `pp snapshot` | 把会话表、定时任务、机器、审计尾部打成一块，直接贴进工单 |
 | `pp why risk-01` | 一句话解释它为什么是这个状态（drain/手工停/该在跑却没在跑） |
 | `pp why --node t114` | 同一问题问整台机器（ssh/tmux/维护中/哪些没起） |
 | `pp role risk-01 pm` | 给会话贴角色标签（`dev`/`pm`/`qa`）；`--role` 可筛选表，也能筛选批量动作（`pp send --role pm "…"`） |

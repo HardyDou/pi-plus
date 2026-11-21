@@ -167,6 +167,37 @@ export const COMMANDS = [
     see: ["up", "down"],
   },
   {
+    name: "snapshot",
+    aliases: ["snap"],
+    summary: "Print the whole state as one block you can paste",
+    usage: "pp snapshot [--limit N] [--json]",
+    details: [
+      "One read-only block: the sessions table, the cron jobs, the machines, and",
+      "the tail of the audit trail — the thing you paste into a ticket or a chat",
+      "when somebody asks \"what does it look like over there?\".",
+      "",
+      "It works when the machine is half-broken on purpose: a corrupt `cron.json`",
+      "becomes a line inside the block (`pp doctor --quarantine`), a missing config",
+      "is reported as such, and nothing in it changes any state.",
+      "",
+      "No ssh: machines are listed from the config (tags, drained, guarded, how",
+      "many sessions), and reachability stays where it belongs: `pp node test --all`.",
+    ].join("\n"),
+    options: [
+      ["--limit N", "how many audit entries to include (default 5)"],
+      ["--json", "the same facts as an object, with `text` holding the block"],
+      ["-c, --config <path>", "config file"],
+      ["--socket <name>", "tmux socket name"],
+      ["-h, --help", "show this help"],
+    ],
+    examples: [
+      ["pp snapshot", "paste this into the ticket"],
+      ["pp snapshot --limit 20", "more history at the bottom"],
+      ["pp snapshot --json | jq -r .text", "the block, machine-readable wrapper"],
+    ],
+    see: ["status", "doctor", "audit"],
+  },
+  {
     name: "runbook",
     summary: "Work through an incident the way a calm person would",
     usage: "pp runbook [scenario] [--markdown] [--json]",
@@ -288,7 +319,7 @@ export const COMMANDS = [
   {
     name: "backup",
     summary: "Copy the config and the state files somewhere safe",
-    aliases: ["snapshot"],
+    aliases: ["bak"],
     usage: "pp backup [--keep <n>] [--out <dir>] [--list] [--json] [--dry-run]",
     details: [
       "Before you edit `plus.yml` by hand, or before a version upgrade rewrites",
