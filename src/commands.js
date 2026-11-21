@@ -3289,6 +3289,8 @@ const START_COMMANDS = [
   ["pp plan", "what to do next, in the order that unblocks the most"],
   ["pp send", "put one line in front of an agent"],
   ["pp logs -f", "watch a session's output"],
+  ["pp handover", "end of shift: what changed, what is off, what needs a human"],
+  ["pp why <name>", "why is this one like this"],
   ["pp runbook", "an incident happened: work it in order"],
   ["pp help", "every command"],
 ];
