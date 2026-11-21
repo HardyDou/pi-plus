@@ -699,3 +699,5 @@ works via `agent:`).
 ## License
 
 MIT © 2026 HardyDou
+
+| `pp role risk-01 pm` | 给会话贴角色标签（`dev`/`pm`/`qa`），`--role` 可筛选 |

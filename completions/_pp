@@ -16,6 +16,7 @@ _pp() {
     'delete:alias for rm'
     'stop:alias for down'
     'restart:restart sessions'
+    'role:label a session with what it is for (dev, pm, qa …)'
     'status:show tmux/pi/remote-pi state'
     'ls:alias for status'
     'attach:attach to a session (starts it if needed)'

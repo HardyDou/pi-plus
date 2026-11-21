@@ -77,6 +77,7 @@ sessions:                  # 必填，非空列表
 | `log` | string / true | 无 | 用 `pipe-pane` 把输出落到文件；`true` 表示 `<cwd>/.pi-plus.log`。目录会自动创建 |
 | `remain_on_exit` | bool | `false` | tmux 的 `remain-on-exit`（退出后保留 pane 以便看日志）。`restart: no` 自动开启 |
 | `restart` | `no`/`always`/`on-failure`/`unless-stopped` | `always` | 拉起策略，见下节 |
+| `role` | string（≤24 字符） | 无 | 给人看的标签：`dev`/`pm`/`qa`/`ops` 之类。有会话带 role 时 `pp status` 多一列 `ROLE`，`pp tui` 显示在名字后，`--role` 可按它筛选。**不参与调度**（不写进去时的行为完全一样） |
 | `node` | string | 无 | 在哪个 `nodes:` 节点上跑（不写就是本机）。所有 tmux 操作变成 `ssh <node> tmux …`，远端不需要装 pp |
 
 未知键不会让命令失败，但会作为警告出现（`unknown key "xxx" (ignored)`），方便发现拼写错误。
@@ -122,6 +123,7 @@ defaults:
   env:
     TZ: Asia/Shanghai
 
+sort: name            # config | idle | name — default row order
 sessions:
   # ① 最简：只想后台跑一个 pi，名字/目录都用默认规则
   - name: backend
@@ -182,3 +184,14 @@ name: backend
 - `sessions` 不是列表、根节点不是映射
 
 仅作为「提示」（不影响退出码语义，但会打印）：`restart: no` 不参与裸 `up`、被手动 `down` 过、`config` 模式下共享目录写同一个名字、agent 不在 PATH 上。
+
+## 默认排序：`sort:`
+
+```yaml
+sort: name      # config（默认，按文件顺序）| idle（最安静优先）| name（按名字）
+```
+
+`name` 是给"同族会话要挨在一起"用的：`risk-01`、`risk-02`、`risk-pm` 会连成一片，即使 `risk-pm`
+是后来才加进文件的。排序是**数字感知**的（`risk-2` 在 `risk-10` 之前），大小写不敏感。
+命令行 `--sort config|idle|name` 随时覆盖配置里的默认值；`pp tui` 的 `s` 键三档循环。
+

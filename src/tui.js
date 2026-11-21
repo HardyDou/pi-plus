@@ -412,7 +412,7 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     if (!needle) return indices;
     return indices.filter((index) => {
       const row = state.sessions[index] ?? {};
-      const hay = `${row.name ?? ""} ${row.node ?? ""} ${row.state ?? ""}`.toLowerCase();
+      const hay = `${row.name ?? ""} ${row.role ?? ""} ${row.node ?? ""} ${row.state ?? ""}`.toLowerCase();
       return hay.includes(needle);
     });
   }
@@ -424,7 +424,12 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
       // quietest first; rows with no activity at all (stopped) come last
       indices.sort((a, b) => (rows[b].idleSeconds ?? -1) - (rows[a].idleSeconds ?? -1));
     } else if (state.sort === "name") {
-      indices.sort((a, b) => String(rows[a].name ?? "").localeCompare(String(rows[b].name ?? "")));
+      indices.sort((a, b) =>
+        String(rows[a].name ?? "").localeCompare(String(rows[b].name ?? ""), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        }),
+      );
     }
     return indices;
   }

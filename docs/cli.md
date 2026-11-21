@@ -619,6 +619,24 @@ pp cron ls
 pp cron install
 ```
 
+### `pp role <会话> [角色|-]`
+
+给会话贴一个"它是干什么的"标签。角色是给**人**看的，不参与任何调度决策——`pp up` / `heal` / `--drift`
+对带不带标签的会话处理完全一致（写错标签不会让 3am 的自愈行为变样）。
+
+```bash
+$ pp role risk-01 pm
+risk-01  pm
+next: pp status --role pm
+
+$ pp status --role pm        # 只看 pm（大小写不敏感）
+$ pp role risk-01            # 看当前标签
+$ pp role risk-01 -          # 清除
+```
+
+任一会话带 role 时 `pp status` 才多出 `ROLE` 列（没有就保持老表格宽度）；`pp tui` 把角色跟在名字后面，
+`/` 过滤也会匹配角色。写入配置文件里的 `role:` 字段，并记进 `pp audit --action config.changed`。
+
 ### `pp node <ls|show|add|rm|test|exec|ssh|drain>`
 
 管别的机器：一个 `node` 就是一台能用 ssh 到的机器，登记一次之后，它的会话就能像本机会话一样

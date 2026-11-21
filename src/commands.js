@@ -242,8 +242,14 @@ function selectSessions(config, names, ui, { all = false, options = null, respec
     onlyNode === undefined && onlyTags.length === 0
       ? null
       : new Set(taggedNodes(config, { node: onlyNode, tags: onlyTags }).map((n) => n.name));
+  const onlyRole = options?.role;
   const onNode = (list) => {
-    const scoped = allowed === null ? list : list.filter((s) => s.node && allowed.has(s.node));
+    let scoped = allowed === null ? list : list.filter((s) => s.node && allowed.has(s.node));
+    if (onlyRole) {
+      // roles are free labels, so match case-insensitively: --role PM finds "pm"
+      const wanted = String(onlyRole).toLowerCase();
+      scoped = scoped.filter((s) => String(s.role ?? "").toLowerCase() === wanted);
+    }
     // Starting something on a machine that is being worked on is the one thing
     // drain has to prevent — but `status`, `logs` and `rm` must still see it.
     if (!respectDrain || options?.force) return scoped;
@@ -258,7 +264,17 @@ function selectSessions(config, names, ui, { all = false, options = null, respec
     return scoped.filter((s) => !drainOf(config, s));
   };
   if (!names || names.length === 0) {
-    if (all) return onNode(config.sessions);
+    if (all) {
+      const picked = onNode(config.sessions);
+      if (onlyRole && picked.length === 0) {
+        const known = [...new Set(config.sessions.map((s) => s.role).filter(Boolean))];
+        ui.error(
+          `no session has role "${onlyRole}"` + (known.length ? ` (roles in use: ${known.join(", ")})` : " (no roles set yet — pp role <name> <role>)"),
+        );
+        process.exit(2);
+      }
+      return picked;
+    }
     // Compose-style: `restart: no` is never part of a bare `up`/`restart`, and
     // a reconcile pass also honours sessions stopped by hand.
     return onNode(
@@ -492,6 +508,7 @@ async function cmdNew(baseConfig, options, ui) {
     // ad-hoc sessions never touch the project's remote-pi config file
     remotePiMode: "env",
     node: node?.name ?? null,
+    role: options.role ?? null,
   });
 
   // Where --save writes: the loaded config, else the file the user pointed at
@@ -1906,7 +1923,7 @@ function cmdStatus(config, options, ui) {
   })();
 
   const SORT_KEYS = new Set(["config", "idle", "name"]);
-  const sortKey = options.sort ?? "config";
+  const sortKey = options.sort ?? config.sort ?? "config";
   if (!SORT_KEYS.has(sortKey)) {
     ui.error(`unknown --sort "${sortKey}" (try config, idle, name)`);
     process.exit(2);
@@ -1946,6 +1963,7 @@ function cmdStatus(config, options, ui) {
     return {
       index: config.sessions.indexOf(session) + 1,
       name: session.name,
+      role: session.role ?? null,
       node: session.node ?? "",
       tmux: session.tmuxName,
       todos: todoFor(session.tmuxName),
@@ -2002,7 +2020,8 @@ function cmdStatus(config, options, ui) {
     // quietest first: the ones worth a look come before the busy ones
     shown = [...shown].sort((a, b) => (b.idleSeconds ?? -1) - (a.idleSeconds ?? -1));
   } else if (sortKey === "name") {
-    shown = [...shown].sort((a, b) => a.name.localeCompare(b.name));
+    // risk-2 before risk-10, and risk-01/risk-02/risk-pm next to each other
+    shown = [...shown].sort((a, b) => compareNames(a.name, b.name));
   }
 
   if (ui.json) {
@@ -2035,12 +2054,15 @@ function cmdStatus(config, options, ui) {
   const showCron = rows.some((row) => row.cron);
   // and TODOS: only when something is actually waiting somewhere
   const showTodos = rows.some((row) => row.todos);
+  // ROLE is a label for humans, and only worth a column once someone uses it
+  const showRole = rows.some((row) => row.role);
   // STARTED is opt-in: it answers "did it restart by itself?" not "is it up?"
   const showStarted = Boolean(options.started) && rows.some((row) => row.lastStart);
   const headers = [
     ...(showNode
       ? ["#", "NAME", "NODE", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]
       : ["#", "NAME", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]),
+    ...(showRole ? ["ROLE"] : []),
     ...(showCron ? ["CRON"] : []),
     ...(showTodos ? ["TODOS"] : []),
     ...(showClient ? ["CLIENT"] : []),
@@ -2068,6 +2090,7 @@ function cmdStatus(config, options, ui) {
           ? `${r.piSessionName} (new)`
           : "(new)",
     r.remotePiName,
+    ...(showRole ? [r.role || "-"] : []),
     ...(showCron ? [r.cron || "-"] : []),
     ...(showTodos ? [r.todos ? String(r.todos) : "-"] : []),
     ...(showClient ? [r.client || "-"] : []),
@@ -2083,6 +2106,7 @@ function cmdStatus(config, options, ui) {
     colored[0] = ui.paint("dim", colored[0]);
     if (showNode) colored[2] = ui.paint(row.node ? "cyan" : "dim", colored[2]);
     if (row.state === "off") colored[stateAt] = ui.paint("dim", colored[stateAt]);
+    if (row.role) colored[at("ROLE")] = ui.paint("dim", colored[at("ROLE")]);
     if (row.state === "unreachable") colored[stateAt] = ui.paint("red", "unreachable");
     const color = row.state === "running" ? "green" : row.state === "attached" ? "cyan" : row.state === "dead" || row.state === "unreachable" ? "red" : "dim";
     colored[stateAt] = ui.paint(color, colored[stateAt]);
@@ -2249,6 +2273,7 @@ function tuiSessionRows(config, live) {
     const stale = idle !== null && idle >= staleSeconds() && state !== "off" && state !== "dead";
     rows.push({
       name: session.tmuxName,
+      role: session.role ?? "",
       node: session.node ?? "",
       state,
       activity: entry?.activity ?? 0,
@@ -2256,7 +2281,7 @@ function tuiSessionRows(config, live) {
       stale,
       idleSeconds: idle === null ? null : Math.round(idle),
       todos: waiting(session.tmuxName),
-      label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}${session.node ? ` @${session.node}` : ""}  ${state}${age ? ` ${age}${stale ? " !" : ""}` : ""}${waiting(session.tmuxName) ? ` ${waiting(session.tmuxName)}?` : ""}`,
+      label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}${session.node ? ` @${session.node}` : ""}${session.role ? ` ${session.role}` : ""}  ${state}${age ? ` ${age}${stale ? " !" : ""}` : ""}${waiting(session.tmuxName) ? ` ${waiting(session.tmuxName)}?` : ""}`,
       dim: state === "off" || state === "dead",
       warn: stale,
     });
@@ -2369,7 +2394,14 @@ async function cmdTui(config, options, ui) {
     const rows = process.stdout.rows || 30;
     const layout = computeLayout(cols, rows, { leftWidth });
     const { live } = readLive();
-    const sessionRows = tuiSessionRows(config, live);
+    const sortKey = options.sort ?? config.sort ?? "config";
+    const sessionRows = ordered(tuiSessionRows(config, live), sortKey);
+    function ordered(rows, key) {
+      // --once should show the same order the live panel would
+      if (key === "name") return [...rows].sort((a, b) => compareNames(a.name, b.name));
+      if (key === "idle") return [...rows].sort((a, b) => (b.idleSeconds ?? -1) - (a.idleSeconds ?? -1));
+      return rows;
+    }
     // same drift sentence as the live panel, so --once is a fair sample
     const onceOff = sessionRows.filter((row) => row.state === "off" || row.state === "dead" || row.state === "stopped").length;
     const onceStrays = sessionRows.filter((row) => row.unmanaged).length;
@@ -2423,7 +2455,7 @@ async function cmdTui(config, options, ui) {
   tui = createTui({
     version: options.version ?? "",
     leftWidth,
-    sort: options.sort ?? "config",
+    sort: options.sort ?? config.sort ?? "config",
     io: {
       input: process.stdin,
       output: process.stdout,
@@ -4563,6 +4595,52 @@ function deliverJob(job, options) {
 }
 
 /**
+ * Sort names the way a person reads them: `risk-2` before `risk-10`, and
+ * case/width differences do not scatter the same family across the list.
+ */
+/**
+ * Set (or show, or clear) a session's role without editing the YAML by hand.
+ *
+ * The role is a label for people ("what is this one for?"), so it never changes
+ * how pp schedules or heals anything.
+ */
+export function cmdRole(config, options, ui) {
+  const [ref, ...rest] = options.names ?? [];
+  if (!ref) {
+    ui.error("give a session: pp role <name|#> [role]");
+    process.exitCode = 2;
+    return;
+  }
+  const [session] = selectSessions(config, [ref], ui);
+  if (!session) return;
+  const current = session.role ?? null;
+  const wanted = rest.join(" ").trim();
+  if (wanted === "") {
+    ui.out(`${ui.paint("dim", session.name)}  ${current ?? ui.paint("dim", "(no role)")}`);
+    return;
+  }
+  const clearing = wanted === "-" || wanted.toLowerCase() === "none";
+  const next = clearing ? null : wanted;
+  if (next === current) {
+    ui.info(`${session.name} already has that role`);
+    return;
+  }
+  if (options.dryRun) {
+    ui.info(`[dry-run] ${session.name}: role ${current ?? "-"} → ${next ?? "-"}`);
+    return;
+  }
+  auditedWrite({ config, action: "config.changed", target: session.node ?? "local" }, () =>
+    setSessionFieldInFile(config.path, session.name, "role", next),
+  );
+  ui.out(`${ui.paint("dim", session.name)}  ${next ?? ui.paint("dim", "(no role)")}`);
+  if (!options.quiet && next) ui.info(ui.paint("dim", `next: pp status --role ${next}`));
+}
+
+export function compareNames(a, b) {
+  return String(a ?? "").localeCompare(String(b ?? ""), undefined, { numeric: true, sensitivity: "base" });
+}
+
+/**
  * Wait until a session's agent will accept a prompt.
  *
  * `pp up` returns as soon as tmux has created the session, which is seconds
@@ -5150,6 +5228,10 @@ export async function runCommand(command, options) {
     case "adopt": {
       const config = requireConfig(options, ui);
       return cmdAdopt(config, options, ui);
+    }
+    case "role": {
+      const config = requireConfig(options, ui);
+      return cmdRole(config, options, ui);
     }
     case "mv":
     case "move": {

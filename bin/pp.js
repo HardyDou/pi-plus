@@ -56,6 +56,9 @@ function parseArgs(argv) {
           else options.wait = "60";
           break;
         }
+        case "--role":
+          options.role = takeValue("--role", inline);
+          break;
         case "--drift": options.drift = true; break;
         case "--wait": {
           // `pp up --wait 30` blocks until the sessions are actually up; the

@@ -6,7 +6,7 @@ import { normalizeNodes } from "./nodes.js";
 
 const CONFIG_BASENAMES = ["pi-plus.yml", "pi-plus.yaml", "plus.yml", "plus.yaml"];
 
-const TOP_LEVEL_KEYS = new Set(["version", "tmux", "defaults", "nodes", "sessions"]);
+const TOP_LEVEL_KEYS = new Set(["version", "tmux", "defaults", "nodes", "sessions", "sort"]);
 const SESSION_KEYS = new Set([
   "name",
   "cwd",
@@ -25,6 +25,7 @@ const SESSION_KEYS = new Set([
   "remain_on_exit",
   "restart",
   "node",
+  "role",
 ]);
 
 /** Compose-style restart policies: when is this session brought back up? */
@@ -282,6 +283,7 @@ function normalizeSession(raw, defaults, index, configPath) {
     remotePiName,
     remotePiMode: mode,
     remotePiModeGiven: modeGiven,
+    role: roleOf(session.role, where),
     env: asStringMap(session.env, `${where}.env`),
     args: asTokens(session.args, `${where}.args`),
     log: session.log === true ? join(cwd, ".pi-plus.log") : session.log ? resolve(expandPath(String(session.log))) : null,
@@ -296,6 +298,21 @@ function normalizeSession(raw, defaults, index, configPath) {
 function isAbsolutePath(value) {
   const text = String(value).trim();
   return text.startsWith("/") || text.startsWith("~") || text.startsWith("./") || text.startsWith("../") || text === "." || text === "..";
+}
+
+/**
+ * A session's role is a label for humans ("what is this one for?"), free text,
+ * deliberately not wired into scheduling decisions.
+ */
+function roleOf(value, where) {
+  if (value === undefined || value === null || value === "") return null;
+  const role = String(value).trim();
+  if (role === "") return null;
+  if (role.length > 24) throw new ConfigError(`${where}.role must be 24 characters or fewer`);
+  if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(role)) {
+    throw new ConfigError(`${where}.role "${role}" must be a short label (letters, digits, space, . _ -)`);
+  }
+  return role;
 }
 
 export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
@@ -402,10 +419,23 @@ export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
     }
   }
 
+  // `sort: name` lets a machine default to "related sessions next to each
+  // other" without every command line saying so.
+  const SORT_CHOICES = new Set(["config", "idle", "name"]);
+  let sort = "config";
+  if (raw.sort !== undefined && raw.sort !== null) {
+    const value = String(raw.sort).trim().toLowerCase();
+    if (!SORT_CHOICES.has(value)) {
+      throw new ConfigError(`${configPath}: sort "${raw.sort}" must be one of ${[...SORT_CHOICES].join(", ")}`);
+    }
+    sort = value;
+  }
+
   return {
     path: configPath,
     version: raw.version ?? 1,
     tmuxSocket: tmux.socket ? String(tmux.socket) : null,
+    sort,
     nodes,
     sessions,
     warnings,
@@ -490,6 +520,7 @@ export function renderSessionEntry(session) {
     `  - name: ${session.name}`,
     `    cwd: ${session.cwd}`,
     session.node ? `    node: ${session.node}` : null,
+    session.role ? `    role: ${session.role}` : null,
     session.agent ? `    agent: ${session.agent}` : null,
     // "no" is a YAML boolean, so the one policy that collides gets quotes
     `    restart: ${(session.restart ?? "unless-stopped") === "no" ? '"no"' : (session.restart ?? "unless-stopped")}`,

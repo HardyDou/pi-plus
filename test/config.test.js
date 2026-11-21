@@ -287,3 +287,39 @@ test("removing the last session leaves a list, not a null section", () => {
   assert.match(after.text, /nodes:/);
   assert.match(after.text, /host: h/);
 });
+
+test("a config can ask for name ordering, and roles are labels", () => {
+  const cfg = normalizeConfig(
+    parseYaml(
+      [
+        "sort: name",
+        "sessions:",
+        "  - name: risk-10",
+        "    cwd: /tmp",
+        "  - name: risk-2",
+        "    cwd: /tmp",
+        "    role: pm",
+      ].join("\n"),
+    ),
+    { configPath: "t.yml" },
+  );
+  assert.equal(cfg.sort, "name");
+  assert.deepEqual(
+    cfg.sessions.map((session) => [session.name, session.role]),
+    [
+      ["risk-10", null],
+      ["risk-2", "pm"],
+    ],
+  );
+});
+
+test("a bad sort key or role is refused with the reason", () => {
+  assert.throws(
+    () => normalizeConfig(parseYaml("sort: sideways\nsessions: []\n"), { configPath: "t.yml" }),
+    /sort "sideways" must be one of config, idle, name/,
+  );
+  assert.throws(
+    () => normalizeConfig(parseYaml("sessions:\n  - name: a\n    cwd: /tmp\n    role: '!!'\n"), { configPath: "t.yml" }),
+    /role "!!" must be a short label/,
+  );
+});
