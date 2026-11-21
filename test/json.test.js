@@ -176,9 +176,12 @@ test("doctor --json: every check carries the command that fixes it", () => {
     const payload = JSON.parse(result.text);
     shape(payload, { checks: "array", failed: "array", warnings: "array" }, "doctor");
     for (const check of payload.checks) shape(check, { label: "string", ok: "boolean", detail: "string", fix: "string|null" }, `doctor.checks[${check.label}]`);
+    // `failed` is *sorted by what unblocks the most*, so compare as a set: the
+    // order is a design decision that differs from declaration order on a
+    // machine where several checks fail (CI always is one)
     assert.deepEqual(
-      payload.failed,
-      payload.checks.filter((check) => !check.ok).map((check) => check.label),
+      payload.failed.slice().sort(),
+      payload.checks.filter((check) => !check.ok).map((check) => check.label).sort(),
       "failed must be the labels of the checks that are not ok",
     );
   } finally {
