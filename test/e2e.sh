@@ -941,6 +941,13 @@ check "quarantine moves it aside"        0 'broken-'                      bash -
 check "the broken copy is kept"          0 '^1$'                         bash -c "ls $XDG_STATE_HOME/pi-plus/state.json.broken-* | wc -l | tr -d ' '"
 check "afterwards it is clean"           0 'nothing to quarantine'        bash -c "cd $E2E && $ROOT/bin/pp.js doctor --quarantine"
 
+section "why a job (pp why <id>)"
+check "it says when the job runs next"   0 'next '        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron add --every 10m --session e-always 'why-job probe' | awk '{print \$2}' | tr -d ':' > $E2E/whyjob.id; $ROOT/bin/pp.js -c $CFG --socket $SOCK why \$(cat $E2E/whyjob.id) 2>&1"
+check "the verdict is a sentence"        0 'healthy|never|failed|waiting|overdue' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK why \$(cat $E2E/whyjob.id) 2>&1 | sed -n 2p"
+check "the job view is JSON too"         0 '\"schedule\"' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK why \$(cat $E2E/whyjob.id) --json"
+check "an unknown id is refused"         2 'unknown session or job' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK why zzzzzz 2>&1"
+check "the job is removed again"         0 ''            bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron rm \$(cat $E2E/whyjob.id) >/dev/null 2>&1; rm -f $E2E/whyjob.id"
+
 section "plan --node (one machine)"
 check "unknown machine points at the list" 0 'pp node ls'   bash -c "cd $E2E && PATH=\"$SHIM:$PATH\" $ROOT/bin/pp.js -c $NODECFG plan --node nope 2>&1"
 # its session is not running, so the step names the machine instead of the fleet

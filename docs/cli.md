@@ -784,7 +784,31 @@ t114 — what to type, in this order
 - "该起没起"用 `pp up --node <机器>`；"没写进配置"用 `pp adopt --node <机器>`；
 - 机器没装 tmux 会说 `apt install tmux (on p202)`，而不是含糊的 "ssh failed"；名字写错会说 `pp node ls`。
 
-### `pp why <会话|机器> [--json]`
+### `pp why <会话|机器|任务号> [--json]`
+
+三种对象，同一个问题（"为什么是这样"）：
+
+```bash
+pp why api          # 一个会话
+pp why --node t114  # 一台机器
+pp why a59cfc       # 一个定时任务：它为什么没发出来
+```
+
+任务视图：
+
+```
+a59cfc  */10 * * * * · to mango-release-01
+state    waiting: mango-release-01 is working — the next tick will deliver
+schedule */10 * * * * · catch-up 2h
+next     in 4m (10:40)
+last run 6m ago — deferred
+counts   ran 12× · skipped 0×
+look     pp cron show a59cfc · pp logs mango-release-01
+```
+
+它把任务失声的四种方式分开说：**tick 不在 crontab**（`pp install`）、**上次失败**（`pp logs <会话>`）、
+**错过超过 catch-up 窗口**（下一次照常跑）、**目标正在忙**（tick 会排队或跳过）。任务号可以只写前 3 位以上。
+
 
 3am 的那一个问题："它为什么是这个状态？"——把配置、tmux、`state.json`、cron 文件里的既有事实读出来，
 只打印一行结论。

@@ -2807,6 +2807,87 @@ export function grepLines(text, pattern, { context = 0, ignoreCase = false } = {
  * machine's fleet not up. Sessions are listed with their own verdict, so the
  * answer reads top to bottom: the machine, then each session's reason.
  */
+/**
+ * `pp why <job-id>`: the same question as `pp why <session>`, asked about a
+ * scheduled job — "it did not deliver, why".
+ */
+async function cmdWhyJob(config, options, ui, job) {
+  const now = new Date();
+  const due = nextRun(job, now);
+  const next = describeNext(due, now);
+  const status = String(job.lastStatus ?? "");
+  const busyTarget = (() => {
+    if (!job.session || job.session === ALL_SESSIONS) return false;
+    const session = config.sessions.find((entry) => entry.name === job.session || entry.tmuxName === job.session);
+    if (!session) return false;
+    try {
+      return makeTmux(config, options, session).isAgentBusy(session.tmuxName);
+    } catch {
+      return false;
+    }
+  })();
+  const tick = (() => {
+    try {
+      return crondHasBlock(readCrontab());
+    } catch {
+      return false;
+    }
+  })();
+
+  let verdict;
+  if (job.done) verdict = `finished — it ran once, ${job.lastRun ? agoText(job.lastRun, now) : "and will not run again"}`;
+  else if (!tick) verdict = "the tick is not in crontab, so nothing will ever fire — pp install";
+  else if (status.startsWith("deferred:")) verdict = `waiting: ${status.replace(/^deferred:\s*/, "")}`;
+  else if (status.startsWith("failed:")) verdict = `the last run failed: ${status.replace(/^failed:\s*/, "")} — pp logs ${job.session ?? "<session>"}`;
+  else if (status.startsWith("skipped: missed"))
+    verdict = `it was missed for longer than its catch-up window (${formatDuration(job.catchUp ?? DEFAULT_CATCH_UP_SECONDS)}) — it resumes at the next scheduled time`;
+  else if (busyTarget) verdict = `its target is mid-turn right now, so the next tick will queue or skip — nothing to do`;
+  else if (next.late) verdict = `overdue by ${next.late} — the tick may not be running: pp doctor`;
+  else verdict = `healthy — next ${next.text}`;
+
+  if (ui.json) {
+    ui.out(
+      JSON.stringify(
+        {
+          id: job.id,
+          action: job.action ?? null,
+          target: job.session ?? null,
+          schedule: job.schedule,
+          catchUp: job.catchUp ?? null,
+          verdict,
+          tick,
+          nextRun: due ? due.toISOString() : null,
+          lastRun: job.lastRun ?? null,
+          lastAttempt: job.lastAttempt ?? null,
+          lastStatus: job.lastStatus ?? null,
+          runs: job.runs ?? 0,
+          skipped: job.skipped ?? 0,
+          busyTarget,
+        },
+        null,
+        2,
+      ),
+      null,
+    );
+    return;
+  }
+
+  const line = (label, text) => ui.out(`${ui.paint("dim", label.padEnd(9))}${text}`);
+  const when =
+    job.schedule.kind === "every"
+      ? `every ${formatDuration(job.schedule.every)}`
+      : job.schedule.kind === "cron"
+        ? job.schedule.cron
+        : "once";
+  ui.out(`${ui.paint("bold", job.id)}  ${ui.paint("dim", `${when} · ${job.action === "heal" ? "heal drift" : job.session === ALL_SESSIONS ? "all sessions" : job.action === "sweep" ? `fleet → ${job.session}` : `to ${job.session ?? "-"}`}`)}`);
+  line("state", status.startsWith("failed:") ? ui.paint("red", verdict) : verdict);
+  line("schedule", `${when}${job.catchUp ? ui.paint("dim", ` · catch-up ${formatDuration(job.catchUp)}`) : ""}`);
+  line("next", next.text === "-" ? "-" : `${next.text}${next.late ? ui.paint("yellow", "  (late)") : ""}`);
+  line("last run", job.lastRun ? `${agoText(job.lastRun, now)}${job.lastStatus ? ui.paint("dim", ` — ${job.lastStatus}`) : ""}` : "never");
+  line("counts", `ran ${job.runs ?? 0}× · skipped ${job.skipped ?? 0}×`);
+  line("look", `pp cron show ${job.id} · pp logs ${job.session && job.session !== ALL_SESSIONS ? job.session : "<session>"}`);
+}
+
 async function cmdWhyNode(config, options, ui) {
   const node = nodeOrDie(config, options.node, ui);
   const sessions = sessionsOnNode(config, node.name);
@@ -3287,9 +3368,20 @@ async function cmdWhy(config, options, ui) {
     ui.error("usage: pp why <name|#> [--json]");
     process.exit(2);
   }
+  // a job id is a legitimate question too — "why hasn't it fired" is the cron
+  // version of "why is it down", and it is the same 3am
+  const job = (() => {
+    try {
+      return readJobs().find((entry) => entry.id === ref || (ref.length >= 3 && entry.id?.startsWith(ref))) ?? null;
+    } catch {
+      return null;
+    }
+  })();
+  if (job) return cmdWhyJob(config, options, ui, job);
+
   const session = resolveSessionRef(config, ref);
   if (!session) {
-    ui.error(`unknown session "${ref}" (${config.sessions.length} session(s) configured; see pp ls)`);
+    ui.error(`unknown session or job "${ref}" (see pp ls, pp cron ls)`);
     process.exit(2);
   }
   const tmux = makeTmux(config, options, session);
@@ -5443,7 +5535,7 @@ export function describeNext(due, now = new Date()) {
     return `${Math.round(abs / 86400)}d`;
   };
   if (delta < -60) return { text: `late ${rough(delta)} (${clock})`, late: true };
-  if (delta < 0) return { text: `due now (${clock})`, late: true };
+  if (delta <= 0) return { text: `due now (${clock})`, late: delta < 0 };
   return { text: `in ${rough(delta)} (${clock})`, late: false };
 }
 
