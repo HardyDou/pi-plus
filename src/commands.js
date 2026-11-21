@@ -2887,6 +2887,160 @@ async function cmdWhyNode(config, options, ui) {
 }
 
 /**
+ * `pp plan`: the same facts as `doctor`, `why` and `status`, but ordered.
+ *
+ * `pp doctor --brief` names the first thing to do; a fleet is usually several
+ * things at once, and the useful question is "in what order". Steps are ranked
+ * by what blocks the most work: a machine you cannot reach hides everything on
+ * it, a drained machine makes every `up` a no-op, and so on. Read-only.
+ */
+export function planSteps(facts) {
+  const { reach = [], drift = [], unmanaged = [], stuck = [], cron = [], logs = [], autostart = null, extension = null } = facts;
+  const steps = [];
+  const add = (priority, title, command, why) => steps.push({ priority, title, command, why });
+
+  for (const machine of reach) {
+    const local = machine.how === "tmux";
+    add(
+      0,
+      `reach ${machine.name} — ${local ? "tmux is not answering" : "ssh failed"}`,
+      local ? "pp doctor" : `pp node test ${machine.name}`,
+      local ? "nothing on this machine can be seen until tmux answers" : "nothing on that machine can be fixed until ssh works",
+    );
+  }
+  for (const machine of drift.filter((entry) => entry.drained && entry.down > 0)) {
+    add(1, `undrain ${machine.name} — ${machine.down} session(s) waiting`, `pp node undrain ${machine.name}`, "a drained machine ignores pp up");
+  }
+  if (autostart && !autostart.enabled) {
+    add(2, "install the autostart unit", "pp install", "sessions only come back after a reboot once this exists");
+  }
+  if (extension && extension.stale) {
+    add(3, `upgrade the pi extension to ${extension.want}`, extension.command, "the /pp-* commands come from the extension, not the cli");
+  }
+  for (const job of cron) {
+    add(4, `${job.id} is ${job.late} late`, `pp cron run ${job.id}`, "the tick may not be firing, or this one is stuck behind a busy target");
+  }
+  const off = drift.filter((entry) => entry.down > 0 && !entry.drained);
+  if (off.length) {
+    const total = off.reduce((sum, entry) => sum + entry.down, 0);
+    add(5, `start ${total} session(s) that should be up`, "pp up --drift", `off on ${off.map((entry) => entry.name).join(", ")}`);
+  }
+  if (unmanaged.length) {
+    add(6, `adopt ${unmanaged.length} session(s) that are not in the config`, "pp adopt", `running but unwritten: ${unmanaged.slice(0, 4).join(", ")}`);
+  }
+  for (const item of stuck) {
+    add(7, `${item.name} has been quiet for ${item.quiet}m`, `pp logs ${item.name}`, "the agent is mid-turn and may be waiting on a tool");
+  }
+  for (const file of logs) {
+    add(8, `${file.label} is ${file.size}`, "pp clean", `nothing rotates it; a full disk breaks everything`);
+  }
+  return steps.sort((a, b) => a.priority - b.priority);
+}
+
+/** The facts `pp plan` needs, gathered from the same helpers the other commands use. */
+export async function planFacts(config, options) {
+  const env = options?.env ?? process.env;
+  const facts = { reach: [], drift: [], unmanaged: [], stuck: [], cron: [], logs: [], autostart: null, extension: null };
+
+  // local machine
+  const tmux = makeTmux(config, options);
+  const local = config.sessions.filter((session) => !session.node);
+  let live = new Map();
+  let tmuxOk = true;
+  try {
+    live = tmux.listSessions();
+    // an empty list also means "no server at all", which disguises itself as
+    // "every session is off" — do not then tell the user to run `pp up --drift`
+    if (!live.size && local.length && !tmux.hasServer()) tmuxOk = false;
+  } catch {
+    tmuxOk = false;
+  }
+  if (!tmuxOk) facts.reach.push({ name: "this machine", how: "tmux" });
+  if (!tmuxOk) {
+    facts.cron = overdueJobs(readJobs(), new Date());
+    return facts;
+  }
+  const mine = new Set(local.map((session) => session.tmuxName));
+  const downLocal = local.filter(
+    (session) => !live.has(session.tmuxName) && session.restart !== "no" && !isStopped(config.path, session.name) && !drainOf(config, session),
+  );
+  if (downLocal.length) facts.drift.push({ name: "this machine", down: downLocal.length, drained: false });
+  for (const session of local) {
+    if (!live.has(session.tmuxName)) continue;
+    const watch = stallWatch(config, tmux, session);
+    if (watch?.busy && watch.quiet >= stallMinutes(env)) facts.stuck.push({ name: session.name, quiet: watch.quiet });
+  }
+  for (const name of live.keys()) if (!mine.has(name)) facts.unmanaged.push(name);
+
+  // remote machines: one ssh each, in parallel
+  const nodes = (config.nodes ?? []).filter((node) => sessionsOnNode(config, node.name).length);
+  const remote = await Promise.all(
+    nodes.map(async (node) => ({ node, probe: await runOnNodeAsync(node, [PROBE_SCRIPT], { timeout: 15000 }) })),
+  );
+  for (const { node, probe } of remote) {
+    if (probe.error || (probe.status === 255 && !String(probe.stdout ?? "").trim())) {
+      facts.reach.push({ name: node.name });
+      continue;
+    }
+    const probeFacts = parseProbe(probe.stdout);
+    const liveRemote = new Set(String(probeFacts.session_names ?? "").split(/\s+/).filter(Boolean));
+    const expected = sessionsOnNode(config, node.name);
+    const down = expected.filter(
+      (session) => !liveRemote.has(session.tmuxName) && session.restart !== "no" && !isStopped(config.path, session.name),
+    );
+    if (down.length || node.drained) {
+      facts.drift.push({ name: node.name, down: down.length, drained: Boolean(node.drained) });
+    }
+    for (const name of liveRemote) {
+      if (!expected.some((session) => session.tmuxName === name)) facts.unmanaged.push(`${name}@${node.name}`);
+    }
+  }
+
+  facts.cron = overdueJobs(readJobs(), new Date());
+  // only the ones worth acting on: a 3 MB log is fine, a 60 MB one is tomorrow's outage
+  facts.logs = logTargets(config, env)
+    .map((entry) => {
+      try {
+        const size = statSync(entry.path).size;
+        return size > LOG_WARN_BYTES ? { label: entry.label, size: humanBytes(size), path: entry.path } : null;
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+  const autostartIntro = autostartState();
+  facts.autostart = autostartIntro.kind ? { enabled: Boolean(autostartIntro.installed && autostartIntro.enabled), text: describeAutostart(autostartIntro) } : null;
+  const extensionNow = installedExtension(env);
+  const own = ownVersion();
+  facts.extension = extensionNow
+    ? { stale: extensionNow.version !== own, want: own, command: `npm install --prefix ${dirname(extensionNow.dir)} pi-farm@${own} --registry https://registry.npmjs.org/` }
+    : null;
+  return facts;
+}
+
+/** `pp plan [--json] [--nodes]`: what to do, in the order that unblocks the most. */
+async function cmdPlan(config, options, ui) {
+  const facts = await planFacts(config, options);
+  const steps = planSteps(facts);
+  if (ui.json) {
+    process.stdout.write(`${JSON.stringify({ steps, facts: { reach: facts.reach, drift: facts.drift, unmanaged: facts.unmanaged, stuck: facts.stuck, cron: facts.cron, logs: facts.logs, autostart: facts.autostart, extension: facts.extension } }, null, 2)}\n`);
+    return;
+  }
+  if (!steps.length) {
+    ui.info(`nothing to do — ${config.sessions.length} session(s) look the way they should`);
+    return;
+  }
+  ui.out(`${steps.length} step${steps.length === 1 ? "" : "s"}, in this order:\n`);
+  steps.forEach((step, index) => {
+    const number = String(index + 1).padStart(2, " ");
+    ui.out(`${number}  ${ui.paint("bold", step.command)}`);
+    ui.out(`    ${step.title}`);
+    if (step.why) ui.out(`    ${ui.paint("dim", step.why)}`);
+  });
+  ui.out(`\n${ui.paint("dim", "each step is safe to skip; pp plan only reads")}`);
+}
+
+/**
  * `pp why <session>`: one screen that answers "why is it like this".
  *
  * Every fact it prints already exists in state.json, the config, tmux and the
@@ -5498,6 +5652,9 @@ export async function runCommand(command, options) {
     case "adopt": {
       const config = requireConfig(options, ui);
       return cmdAdopt(config, options, ui);
+    }
+    case "plan": {
+      return cmdPlan(requireConfig(options, ui), options, ui);
     }
     case "why":
     case "explain": {

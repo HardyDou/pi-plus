@@ -619,6 +619,29 @@ pp cron ls
 pp cron install
 ```
 
+### `pp plan [--json]`
+
+把 `doctor`、`why`、`status` 已经知道的事实汇总成**带顺序**的一串动作：每一步都是可以直接敲的一条命令，
+外加"为什么它排这么靠前"。
+
+```bash
+$ pp plan
+3 steps, in this order:
+
+ 1  pp node test t114
+    reach t114 — ssh failed
+    nothing on that machine can be fixed until ssh works
+ 2  pp up --drift
+    start 2 session(s) that should be up
+    off on this machine, t118
+ 3  pp clean
+    cron.log is 57.2 MB
+    nothing rotates it; a full disk breaks everything
+```
+
+排序是有理由的：连不上的机器会掩盖它上面的一切 → drained 的机器让 `pp up` 变成空操作 → 自启单元坏了
+只影响下次重启 → 卡住的 agent 只影响"现在"。**只读**；`--json` 给脚本（`{ steps: [{priority,title,command,why}] }`）。
+
 ### `pp why <会话|机器> [--json]`
 
 3am 的那一个问题："它为什么是这个状态？"——把配置、tmux、`state.json`、cron 文件里的既有事实读出来，

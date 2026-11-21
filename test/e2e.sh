@@ -927,6 +927,38 @@ check "and it is really gone"          1 ''                  bash -c "tmux -L $S
 
 tmux -L "$SOCK" kill-session -t far-x 2>/dev/null || true
 
+section "plan"
+PLANCFG=$E2E/plan.yml
+rm -f $PLANCFG /tmp/plan-off-ran
+cat > $PLANCFG <<YML
+version: 1
+tmux:
+  socket: $SOCK
+defaults:
+  agent: bash
+sessions:
+  - name: plan-on
+    cwd: /tmp
+    restart: always
+  - name: plan-off
+    cwd: /tmp
+    restart: always
+YML
+PLF() { "$ROOT/bin/pp.js" -c "$PLANCFG" "$@"; }
+PLF up plan-on >/dev/null 2>&1
+tmux -L "$SOCK" new-session -d -s plan-stray -c /tmp "sleep 7200" 2>/dev/null
+check "plan lists steps in order"       0 'in this order'        PLF plan
+check "plan names the missing session"  0 'pp up --drift'        PLF plan
+check "plan names the stray"            0 'pp adopt'             PLF plan
+check "plan counts what it will start"  0 'start 1 session'      PLF plan
+check "plan --json has steps"           0 '"command"'            PLF plan --json
+tmux -L "$SOCK" kill-session -t plan-stray >/dev/null 2>&1 || true
+PLF up plan-off >/dev/null 2>&1
+# this socket carries sessions from earlier sections, so "adopt" is legitimately
+# still a step here; what must be gone is the drift step for plan.yml itself
+ncheck "plan stops asking for a drift once both are up" 'pp up --drift' PLF plan
+check "plan has a help page"            0 'pp plan'             bash -c "cd $E2E && $ROOT/bin/pp.js help plan"
+
 section "packaging"
 # the suite exports PP_UNIT_NAME for its own sandbox unit; the unit tests assert
 # the default name, so they run without our sandbox override
