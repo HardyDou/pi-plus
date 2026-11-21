@@ -3066,6 +3066,94 @@ export async function planFacts(config, options) {
   return facts;
 }
 
+/**
+ * `pp` with no arguments: the first screen.
+ *
+ * Three lines of fact and six commands. Deliberately *not* the 30-command list
+ * (`pp help` has that): someone opening a terminal to find out what is going on
+ * should not have to read a manual first. Local only — no ssh, so it is fast
+ * enough to run out of habit.
+ */
+export function startSummary(facts) {
+  const { version, configPath, sessions, nodes, running, off, stopped, unmanaged, cronJobs, cronLate } = facts;
+  const where = configPath ?? "no config yet — pp new <name> --save";
+  const bits = [`${running}/${sessions} running`];
+  if (nodes) bits.push(`${nodes} machine${nodes === 1 ? "" : "s"}`);
+  if (cronJobs) bits.push(`${cronJobs} cron job${cronJobs === 1 ? "" : "s"}`);
+  const trouble = [];
+  if (off) trouble.push(`${off} off`);
+  if (stopped) trouble.push(`${stopped} stopped by hand`);
+  if (unmanaged) trouble.push(`${unmanaged} unmanaged`);
+  if (cronLate) trouble.push(`${cronLate} cron behind`);
+  return {
+    head: `pi-plus ${version} · ${where}`,
+    facts: bits.join(" · "),
+    verdict: trouble.length ? `${trouble.join(" · ")} — pp plan orders them` : "nothing needs you right now",
+  };
+}
+
+const START_COMMANDS = [
+  ["pp tui", "the panel: what is running, enter a session, come back"],
+  ["pp status", "the table (--json for scripts, --watch to watch it)"],
+  ["pp plan", "what to do next, in the order that unblocks the most"],
+  ["pp send", "put one line in front of an agent"],
+  ["pp logs -f", "watch a session's output"],
+  ["pp runbook", "an incident happened: work it in order"],
+  ["pp help", "every command"],
+];
+
+async function cmdStart(options, ui) {
+  let config = null;
+  try {
+    config = loadConfig({ configPath: options.config, cwd: options.cwd });
+  } catch (error) {
+    ui.error(error.message);
+    process.exit(2);
+  }
+  const facts = {
+    version: options.version ?? ownVersion(),
+    configPath: config?.path ?? null,
+    sessions: config?.sessions?.length ?? 0,
+    nodes: config?.nodes?.length ?? 0,
+    running: 0,
+    off: 0,
+    stopped: 0,
+    unmanaged: 0,
+    cronJobs: 0,
+    cronLate: 0,
+  };
+  if (config) {
+    try {
+      const tmux = makeTmux(config, options);
+      const live = tmux.listSessions();
+      const mine = new Set(config.sessions.filter((session) => !session.node).map((session) => session.tmuxName));
+      for (const session of config.sessions.filter((entry) => !entry.node)) {
+        if (live.has(session.tmuxName)) facts.running += 1;
+        else if (isStopped(config.path, session.name)) facts.stopped += 1;
+        else if (session.restart !== "no" && !drainOf(config, session)) facts.off += 1;
+      }
+      for (const name of live.keys()) if (!mine.has(name)) facts.unmanaged += 1;
+    } catch {
+      facts.off = config.sessions.filter((session) => !session.node && session.restart !== "no").length;
+    }
+    const jobs = readJobs();
+    facts.cronJobs = jobs.filter((job) => !job.done).length;
+    facts.cronLate = overdueJobs(jobs, new Date()).length;
+  }
+  const summary = startSummary(facts);
+  if (ui.json) {
+    process.stdout.write(`${JSON.stringify({ ...summary, ...facts }, null, 2)}\n`);
+    return;
+  }
+  ui.out(`${ui.paint("bold", summary.head)}`);
+  ui.out(summary.facts);
+  ui.out(summary.verdict === "nothing needs you right now" ? ui.paint("dim", summary.verdict) : ui.paint("yellow", summary.verdict));
+  ui.out("");
+  for (const [line, what] of START_COMMANDS) {
+    ui.out(`  ${line.padEnd(14)} ${ui.paint("dim", what)}`);
+  }
+}
+
 /** `pp runbook [scenario] [--markdown] [--json]`: the incident table, one scenario at a time. */
 async function cmdRunbook(config, options, ui) {
   if (options.markdown) {
@@ -5730,6 +5818,9 @@ export async function runCommand(command, options) {
     }
     case "up":
     case "start": {
+      // `pp` with no argument lands here too (start is the up alias), so the
+      // flag decides which of the two the user meant
+      if (options.firstScreen) return cmdStart(options, ui);
       const config = requireConfig(options, ui);
       return cmdUp(config, options, ui);
     }

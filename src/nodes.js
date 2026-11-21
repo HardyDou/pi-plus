@@ -32,7 +32,9 @@ export const NODE_KEYS = new Set([
 export const NODE_DEFAULT_KEYS = new Set(["agent", "restart", "remote_pi_mode", "env", "args"]);
 
 export const DEFAULT_PORT = 22;
-const RESTART_POLICIES = ["no", "always", "on-failure", "unless-stopped"];
+// the one definition; config.js re-exports it (it already imports this module,
+// so the dependency must point this way round)
+export const RESTART_POLICIES = ["no", "always", "on-failure", "unless-stopped"];
 const NODE_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const TAG_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 

@@ -121,7 +121,7 @@ check "help typo suggestion"     2 "did you mean 'pp help install'" pp help inst
 check "unknown command"          2 "run 'pp help'"        pp upstat
 VERSION=$(node -p "require('$ROOT/package.json').version")
 check "version"                  0 "^$VERSION$"                 pp -V
-check "no args shows help"       0 'Usage:'                    node "$ROOT/bin/pp.js"
+check "help shows the usage"     0 'Usage:'                    node "$ROOT/bin/pp.js" help
 
 section "init / check"
 check "init --path"              0 'wrote'                     pp init --path "$E2E/init.yml"
@@ -926,6 +926,14 @@ check "down --force stops a guarded session" 0 '1 stopped'   bash -c "cd $E2E &&
 check "and it is really gone"          1 ''                  bash -c "tmux -L $SOCK has-session -t far-x"
 
 tmux -L "$SOCK" kill-session -t far-x 2>/dev/null || true
+
+section "first screen (pp with no argument)"
+check "no argument summarises the fleet" 0 'running'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK"
+check "it names the config it read"      0 'plus.yml'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK | head -1"
+check "it offers the six habits"         0 'pp runbook'         bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK"
+check "it stays short"                   0 '^1$'                bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK | awk 'END{print (NR<=14)?1:NR}' | grep -E '^1$'"
+check "no argument --json is data"       0 '\"verdict\"'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK --json | head -4"
+check "pp up still means up"             0 'would start|started|already running' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK up --dry-run"
 
 section "runbook"
 check "runbook lists the incidents"     0 'nothing-runs'        bash -c "cd $E2E && $ROOT/bin/pp.js runbook"

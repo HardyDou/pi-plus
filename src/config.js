@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { parseYaml, YamlError } from "./yaml.js";
-import { normalizeNodes, yamlScalar } from "./nodes.js";
+import { normalizeNodes, RESTART_POLICIES, yamlScalar } from "./nodes.js";
 
 const CONFIG_BASENAMES = ["pi-plus.yml", "pi-plus.yaml", "plus.yml", "plus.yaml"];
 
@@ -29,7 +29,7 @@ const SESSION_KEYS = new Set([
 ]);
 
 /** Compose-style restart policies: when is this session brought back up? */
-export const RESTART_POLICIES = ["no", "always", "on-failure", "unless-stopped"];
+export { RESTART_POLICIES } from "./nodes.js";
 
 const DEFAULT_KEYS = new Set([...SESSION_KEYS].filter((k) => k !== "name" && k !== "cwd"));
 

@@ -245,11 +245,16 @@ function showHelp(name) {
   return 2;
 }
 
-const { command, options } = parseArgs(process.argv.slice(2));
+const { command: givenCommand, options } = parseArgs(process.argv.slice(2));
+let command = givenCommand;
 options.scriptPath = scriptPath();
 options.version = VERSION;
 
-if (!command) process.exit(showHelp(null));
+// no argument is the first screen (see cmdStart), not the manual
+if (!command) {
+  options.firstScreen = true;
+  command = "start";
+}
 if (command === "version") {
   process.stdout.write(`${VERSION}\n`);
   process.exit(0);

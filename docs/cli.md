@@ -666,6 +666,29 @@ when you are ready to change something: pp clean
 场景可以按 id 或标题片段查（`pp runbook quiet`）。`--markdown` 输出整本手册 —— `docs/runbook.md`
 就是它生成的（e2e 里有一条 `diff` 检查，所以文档不可能和代码走散）。pp 不会替你执行任何步骤。
 
+### `pp`（不带参数）
+
+第一屏：三行事实 + 六个习惯。不是 30 条命令的清单（那是 `pp help`）——打开终端想知道"现在怎么样"的人，
+不该先读一份手册。
+
+```bash
+$ pp
+pi-plus 0.67.0 · /home/user/.pi/plus.yml
+9/9 running · 6 machines · 2 cron jobs
+nothing needs you right now
+
+  pp tui         the panel: what is running, enter a session, come back
+  pp status      the table (--json for scripts, --watch to watch it)
+  pp plan        what to do next, in the order that unblocks the most
+  pp send        put one line in front of an agent
+  pp logs -f     watch a session's output
+  pp runbook     an incident happened: work it in order
+  pp help        every command
+```
+
+第二行会变成 `3 off · 1 stopped by hand · 1 unmanaged — pp plan orders them` 这样的样子。只查本机（不 ssh），
+所以可以当肌肉记忆用；`--json` 给脚本。
+
 ### `pp plan [--json]`
 
 把 `doctor`、`why`、`status` 已经知道的事实汇总成**带顺序**的一串动作：每一步都是可以直接敲的一条命令，

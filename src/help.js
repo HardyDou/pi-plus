@@ -1172,6 +1172,7 @@ export function renderOverview(version) {
   lines.push("");
   lines.push("Usage:");
   lines.push("  pp <command> [names...] [options]");
+  lines.push("  pp                       # three lines about this machine");
   lines.push("  pp help <command>        # detailed help for one command");
   lines.push("");
   lines.push("Commands:");
