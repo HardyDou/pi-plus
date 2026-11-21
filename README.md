@@ -377,6 +377,7 @@ pp tui -c ./pi-plus.yml --socket work
 | [docs/extension.md](docs/extension.md) | pi 扩展 `/pp-*` 与 `schedule` 工具：在会话里切 tmux、看别人的屏幕、断开连接、让 agent 自己排定时任务 |
 | [docs/cron.md](docs/cron.md) | 定时任务：三种时间表、crond 托管块、补跑与迟到语义、时区、调试 |
 | [docs/nodes.md](docs/nodes.md) | 多机器：`nodes:` 与 `node:` 字段、四种认证方式（密钥/agent/ssh config/密码）、`pp node add/ls/show/rm/test/ssh`、远端会话怎么跑、连不上怎么查 |
+| [docs/roles.md](docs/roles.md) | 角色：`role` 是什么、怎么贴、一个标签能做什么（筛/排/批量/审计/追问）、命名经验与常见问题 |
 | [docs/todo.md](docs/todo.md) | 待办：三种来源、去重、`PP_TODO_SETTLED` 噪音控制、数据文件、边界 |
 
 ## 配置参考

@@ -4466,6 +4466,23 @@ async function cmdCheck(config, options, ui) {
     }
   }
 
+  // Labels are free text typed by hand into a YAML file, and `prod` vs `Prod`
+  // is two labels as far as every filter is concerned — the mistake is invisible
+  // until a fan-out quietly reaches only half the sessions.
+  const spellings = new Map();
+  for (const session of config.sessions) {
+    if (!session.role) continue;
+    const key = session.role.toLowerCase();
+    const list = spellings.get(key) ?? new Map();
+    list.set(session.role, [...(list.get(session.role) ?? []), session.name]);
+    spellings.set(key, list);
+  }
+  for (const [, list] of spellings) {
+    if (list.size < 2) continue;
+    const parts = [...list].map(([spelling, names]) => `"${spelling}" (${names.join(", ")})`);
+    problems.push(`roles ${parts.join(" and ")} differ only by case — pick one: pp role <name> <label>`);
+  }
+
   // A remote session's cwd lives on the node. Checking it here would only
   // produce false alarms, but never checking it means a typo in a path is
   // discovered at 3am. `--remote` asks the machines, once per node.

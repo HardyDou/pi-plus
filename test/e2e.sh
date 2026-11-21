@@ -280,6 +280,10 @@ check "a session role still wins"            0 'dev.*boxdocs'  bash -c "cd $E2E 
 # sort: name in the config means risk-2 and risk-10 sit in numeric order
 check "config sort orders by name"     0 'alpha'         bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK status | sed -n '2p'"
 
+# a hand-written config can still split one label into two spellings
+printf "version: 1\ntmux:\n  socket: $SOCK\nsessions:\n  - {name: case-a, cwd: $E2E, agent: bash, role: prod}\n  - {name: case-b, cwd: $E2E, agent: bash, role: Prod}\n" > "$E2E/rolecase.yml"
+check "check catches one label in two spellings" 1 'differ only by case' bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/rolecase.yml check 2>&1"
+
 # sort: role groups by label, and leaves the unlabelled at the bottom
 check "sort role puts one label together" 0 'risk-10'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --sort role status | grep -E 'risk-10|alpha' | head -1"
 # the last row must be one without a label (its ROLE column is a bare dash)
