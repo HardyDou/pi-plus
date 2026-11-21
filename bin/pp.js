@@ -4,6 +4,16 @@ import { resolve } from "node:path";
 import { runCommand } from "../src/commands.js";
 import { renderCommandHelp, renderOverview, suggestCommand } from "../src/help.js";
 
+// `pp status | head -3` closes the pipe early: writing into a closed stdout raises
+// EPIPE, and an uncaught one prints a stack trace over the output. A tool meant to
+// be piped should exit quietly instead.
+for (const stream of [process.stdout, process.stderr]) {
+  stream.on("error", (err) => {
+    if (err?.code === "EPIPE") process.exit(0);
+    throw err;
+  });
+}
+
 const VERSION = (() => {
   try {
     return JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;

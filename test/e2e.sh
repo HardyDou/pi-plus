@@ -188,6 +188,13 @@ check "logs --dry-run"           0 'capture-pane'               PFc logs e-alway
 check "send --dry-run"           0 'send-keys'                  PFc send e-always 'echo hi' --dry-run
 check "down --dry-run"           0 'stopped|absent|not running'              PFc down --dry-run
 
+section "pipes"
+# a tool that is meant to be piped must not print a stack trace when the pipe closes
+PIPECFG=$E2E/pipe.yml
+printf "version: 1\ntmux:\n  socket: $SOCK\nsessions:\n  - name: pipe-a\n    cwd: $E2E\n    agent: bash\n  - name: pipe-b\n    cwd: $E2E\n    agent: bash\n" > "$PIPECFG"
+check "piping into head is quiet"   0 '^0$'    bash -c "cd $E2E && $ROOT/bin/pp.js -c $PIPECFG --socket $SOCK status 2>&1 | head -2 >/dev/null; echo 0"
+check "no EPIPE stack trace"        1 '^0$'    bash -c "cd $E2E && $ROOT/bin/pp.js -c $PIPECFG --socket $SOCK status 2>&1 | head -2 | grep -c EPIPE"
+
 section "role"
 ROLECFG=$E2E/role.yml
 printf "version: 1\nsort: name\ntmux:\n  socket: $SOCK\nsessions:\n  - name: risk-10\n    cwd: $E2E\n    agent: bash\n    role: pm\n  - name: risk-2\n    cwd: $E2E\n    agent: bash\n  - name: alpha\n    cwd: $E2E\n    agent: bash\n" > "$ROLECFG"
