@@ -195,6 +195,24 @@ pp status
 会记住手工 stop，`pp up <name>` 才会重新拉起）。`--json` 里对应 `"reason": "hand" | "never" | "policy"`。
 半夜排查时这两个的答案完全不同，所以状态栏里分开写。
 
+### `pp status --started`：它自己回来的，还是有人动过
+
+```bash
+$ pp status round --started
+#  NAME   STATE    IDLE  RESTART  PID     STARTED
+1  round  running  3s    always   123456  4m heal
+2  wheel  running  9m    always   123457  2h up
+$ pp status round
+…
+last start 4m ago by heal (ops@dev#4121) — pp audit --action up
+```
+
+启动方会把自己的身份记进 `state.json` 的 `started` 字段（`why` = `up`/`restart`/`drift`/`autostart`/`heal`/`panel`，
+`by` = `user@host#pid`）。意义在于半夜三点的那个问题：**"它是自己好的，还是有人动过？"** ——
+`heal` 说明它反复在死、`autostart` 说明机器重启过、`up` 说明有人在操作。
+
+`--started` 只是加一列；查单个会话时不加也会在表下多打一行。完整历史仍在 `pp audit --action up`。
+
 ### `pp status --json`
 
 ```json

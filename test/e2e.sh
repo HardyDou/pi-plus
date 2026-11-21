@@ -164,6 +164,11 @@ check "status shows restart col" 0 'RESTART'                    PFc status
 check "status --json valid"      0 '"sessions"|e-always'        bash -c "pp -c $CFG --socket $SOCK status --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps(d)[:40])'"
 check "status named row only"    0 'e-always'                   bash -c "pp -c $CFG --socket $SOCK status e-always | sed -n 2p"
 check "status unknown name"      2 'unknown session'            PFc status nosuch
+check "status --started adds the column"  0 'STARTED'           PFc status --started
+check "status --started says why"         0 'up$|up +$'        bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK status --started e-always | sed -n 2p"
+check "status --json records who started it"  0 '"lastStart"'   bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK status --json | head -30"
+check "one session explains its last start"   0 'last start'    bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK status e-always | tail -3"
+check "restart records itself as the reason"  0 'by restart'    bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK restart e-always >/dev/null && $ROOT/bin/pp.js -c $CFG --socket $SOCK status e-always | tail -3"
 
 section "logs / send"
 check "send text"                0 'sent to e-always'           PFc send e-always 'echo hello-e2e'
@@ -185,7 +190,9 @@ check "state recorded"           0 'e-unless'                   bash -c "grep -q
 ncheck "reconcile skips stopped" 'started e-unless'            PFc up --reconcile
 check "status off for stopped"   0 'e-unless +off'              PFc status
 check "explicit up clears stop"  0 'started e-unless'           PFc up e-unless
-check "state cleared"            0 'no state'                   bash -c "grep -q e-unless $XDG_STATE_HOME/pi-plus/state.json || echo 'no state'"
+# the entry may survive because the same record now also remembers who started
+# the session last; what must be gone is the "stopped on purpose" flag
+check "state cleared"            0 'stop cleared'               bash -c "node -e 'const d=require(\"$XDG_STATE_HOME/pi-plus/state.json\"); const e=Object.values(d).flatMap(b=>Object.entries(b)).filter(([n])=>n===\"e-unless\").map(([,v])=>v); console.log(e.length && !e[0].stopped ? \"stop cleared\" : \"still stopped\")'"
 
 section "crash handling"
 PFc send e-always 'exit 3' >/dev/null 2>&1; sleep 1.5

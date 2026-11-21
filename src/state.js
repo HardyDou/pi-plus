@@ -73,6 +73,23 @@ export function stoppedSessions(configPath, env = process.env) {
 }
 
 /**
+ * Who started this session last, and why. `pp audit` already answers that for
+ * the whole machine, but at 3am the question is about one session: did it come
+ * back by itself (autostart, `--heal`, `--drift`) or did somebody touch it?
+ */
+export function markStarted(configPath, name, { why = "up", by = null } = {}, env = process.env) {
+  const state = readAll(env);
+  const entries = bucket(state, configPath);
+  entries[name] = { ...(entries[name] ?? {}), started: { at: new Date().toISOString(), why, by } };
+  writeAll(state, env);
+  return entries[name].started;
+}
+
+export function startedOf(configPath, name, env = process.env) {
+  return readAll(env)[configPath]?.[name]?.started ?? null;
+}
+
+/**
  * A pi session that has been "working" since yesterday is not working, it is
  * stuck (a tool call waiting on a socket, a prompt nobody answered). We only
  * know how long when we remember the first time we saw it busy, so the first

@@ -523,7 +523,7 @@ pp up [name|#...]          后台创建/启动（--force 重建已在跑的；�
 pp down [name|#...]        停止
 pp rm <name|#>...          删除（杀掉会话 + 从配置里删掉这一条）
 pp restart [name|#...]     重启（遵守 restart 策略）
-pp status [name|#...]      状态表，第一列是 # 序号（--json 机器可读；别名 ls/list）
+pp status [name|#...]      状态表，第一列是 # 序号（--json 机器可读；--started 看最近一次是谁拉起来的）
 pp attach <name|#>         进入；不存在则先启动
 pp logs <name|#> [-n 200]  打印滚动输出
 pp send <name|#> "文本"     往 pane 里打字并回车（--no-enter 不回车）

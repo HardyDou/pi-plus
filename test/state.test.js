@@ -10,6 +10,8 @@ import {
   isStopped,
   markBusy,
   markStopped,
+  markStarted,
+  startedOf,
   statePath,
   stoppedSessions,
 } from "../src/state.js";
@@ -66,4 +68,22 @@ test("busy clocks and manual stops share one entry without eating each other", (
   assert.equal(clearBusy(cfg, "api", env), true);
   assert.equal(busySinceOf(cfg, "api", env), null);
   assert.equal(clearBusy(cfg, "api", env), false, "clearing twice is not an error");
+});
+
+test("the last start records why and who, and keeps the other fields", () => {
+  const env = envWith();
+  const cfg = "/tmp/plus.yml";
+  markStopped(cfg, "api", env);
+  const started = markStarted(cfg, "api", { why: "heal", by: "ops@box#7" }, env);
+  assert.equal(started.why, "heal");
+  assert.equal(started.by, "ops@box#7");
+  assert.match(started.at, /^\d{4}-\d{2}-\d{2}T/);
+  // starting does not forget that somebody had stopped it, and vice versa
+  assert.equal(isStopped(cfg, "api", env), true);
+  assert.deepEqual(startedOf(cfg, "api", env), started);
+  // a later start wins over the earlier one
+  markStarted(cfg, "api", { why: "restart", by: "me@here#9" }, env);
+  assert.equal(startedOf(cfg, "api", env).why, "restart");
+  // unknown sessions stay null instead of throwing
+  assert.equal(startedOf(cfg, "nope", env), null);
 });

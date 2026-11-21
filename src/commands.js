@@ -18,7 +18,7 @@ import {
   renderSessionEntry,
   shellQuote,
 } from "./config.js";
-import { agoText, auditPath, pruneAudit, readAudit, recordAudit } from "./audit.js";
+import { agoText, auditActor, auditPath, pruneAudit, readAudit, recordAudit } from "./audit.js";
 import { clearPanel, findPanelPane, loadPanel, panelAlive, savePanel } from "./panel.js";
 import { readRemotePiConfig, remotePiConfigPath, writeRemotePiName } from "./remote-pi.js";
 import {
@@ -61,7 +61,7 @@ import {
   launchAgentPath,
   systemdUserDir,
 } from "./autostart.js";
-import { busySinceOf, clearBusy, clearStopped, isStopped, markBusy, markStopped } from "./state.js";
+import { busySinceOf, clearBusy, clearStopped, isStopped, markBusy, markStopped, markStarted, startedOf } from "./state.js";
 import {
   compareVersions,
   fetchLatestVersion,
@@ -699,6 +699,7 @@ async function cmdUp(config, options, ui) {
       tmux.create(session, spec);
       await verifyStartup(tmux, session, options.quiet ? null : ui);
       clearStopped(config.path, session.name);
+      markStarted(config.path, session.name, { why: options.startedWhy ?? (options.reconcile ? "autostart" : "up"), by: auditActor(process.env) });
       started++;
       ui.info(`${ui.paint("green", "started")} ${session.name} ${ui.paint("dim", `→ tmux:${session.tmuxName}  cwd:${session.cwd}`)}`);
       if (session.pi) {
@@ -1155,7 +1156,7 @@ async function cmdRestart(config, options, ui) {
   note("restart", sessions.map((session) => session.name).join(","), { detail: `${sessions.length} restarted`, result: "ok" });
   options.force = true;
   // the restart itself is the interesting entry; the up it performs is noise
-  await cmdUp(config, { ...options, names: sessions.map((s) => s.name), skipAudit: true }, ui);
+  await cmdUp(config, { ...options, names: sessions.map((s) => s.name), skipAudit: true, startedWhy: "restart" }, ui);
 }
 
 /* ------------------------------------------------------------------ nodes */
@@ -1827,6 +1828,8 @@ function cmdStatus(config, options, ui) {
       cron: cronFor(session.tmuxName),
       // things still waiting inside: unanswered questions, unread turns
       todos: todoFor(session.tmuxName),
+      // who put it back up, and why — "did it come back by itself?" in one column
+      lastStart: startedOf(config.path, session.name),
       // "who is looking at this" — the question before `pp down` on a shared box
       client: (() => {
         const client = clientsFor(session.node).find((entry) => entry.session === session.tmuxName);
@@ -1871,6 +1874,8 @@ function cmdStatus(config, options, ui) {
   const showCron = rows.some((row) => row.cron);
   // and TODOS: only when something is actually waiting somewhere
   const showTodos = rows.some((row) => row.todos);
+  // STARTED is opt-in: it answers "did it restart by itself?" not "is it up?"
+  const showStarted = Boolean(options.started) && rows.some((row) => row.lastStart);
   const headers = [
     ...(showNode
       ? ["#", "NAME", "NODE", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]
@@ -1878,6 +1883,7 @@ function cmdStatus(config, options, ui) {
     ...(showCron ? ["CRON"] : []),
     ...(showTodos ? ["TODOS"] : []),
     ...(showClient ? ["CLIENT"] : []),
+    ...(showStarted ? ["STARTED"] : []),
   ];
   const table = shown.map((r) => [
     String(r.index),
@@ -1904,6 +1910,7 @@ function cmdStatus(config, options, ui) {
     ...(showCron ? [r.cron || "-"] : []),
     ...(showTodos ? [r.todos ? String(r.todos) : "-"] : []),
     ...(showClient ? [r.client || "-"] : []),
+    ...(showStarted ? [r.lastStart ? `${shortAge(Math.max(0, Math.round((Date.now() - Date.parse(r.lastStart.at)) / 1000)))} ${r.lastStart.why}` : "-"] : []),
   ]);
   const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
   const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
@@ -1921,6 +1928,12 @@ function cmdStatus(config, options, ui) {
     const idleAt = at("IDLE");
     if (showCron && row.cron) colored[at("CRON")] = ui.paint("cyan", colored[at("CRON")]);
     if (showTodos && row.todos) colored[at("TODOS")] = ui.paint("yellow", colored[at("TODOS")]);
+    if (showStarted && row.lastStart) {
+      // anything restarted within the last five minutes is worth a colour: it is
+      // usually the thing that just broke
+      const recent = Date.now() - Date.parse(row.lastStart.at) < 5 * 60 * 1000;
+      colored[at("STARTED")] = ui.paint(recent ? "yellow" : "dim", colored[at("STARTED")]);
+    }
     if (showClient && row.client) {
       colored[at("CLIENT")] = ui.paint(row.client.startsWith(`${process.env.USER ?? "?"}@`) ? "dim" : "cyan", colored[at("CLIENT")]);
     }
@@ -1931,6 +1944,14 @@ function cmdStatus(config, options, ui) {
     }
     ui.out(colored.map((cell, idx) => pad(cell, widths[idx])).join("  ").trimEnd());
   });
+  if (shown.length === 1 && shown[0].lastStart) {
+    // one session was asked about: say who brought it back, and when
+    const start = shown[0].lastStart;
+    const ago = shortAge(Math.max(0, Math.round((Date.now() - Date.parse(start.at)) / 1000)));
+    ui.out(
+      ui.paint("dim", `last start ${ago} ago by ${start.why}${start.by ? ` (${start.by})` : ""} — pp audit --action up`),
+    );
+  }
   if (!options.quiet) {
     const running = shown.filter((r) => r.state === "running" || r.state === "attached").length;
     const unreachableNodes = [...unreachable];
@@ -2261,6 +2282,7 @@ async function cmdTui(config, options, ui) {
             if (handle.sessionExists(session.tmuxName)) continue;
             prepareSession(session, options);
             handle.create(session, launchSpec(session, handle));
+            markStarted(config.path, session.name, { why: "panel", by: auditActor(process.env) });
             started++;
             note("up", session.name, { node: session.node ?? null, detail: "panel drift", result: "ok" });
           } catch (error) {
@@ -3908,6 +3930,7 @@ function healDrift(job, options) {
       const tmux = makeTmux(config, options, session);
       const spec = prepareSession(session, options);
       tmux.create(session, launchSpec(session, tmux, spec));
+      markStarted(config.path, session.name, { why: "heal", by: auditActor(process.env) });
       started.push(session.name);
       note("heal", session.name, { node: session.node ?? null, detail: "restarted by cron --heal", result: "ok" });
     } catch (error) {
