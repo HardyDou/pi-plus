@@ -984,6 +984,7 @@ pp new api --node prod-01 -C api --save   # 落到 /srv/apps/api
 | `--default-agent <cmd>` | 这台机器上会话的默认 agent（会话自己写的优先） |
 | `--default-restart <策略>` | 默认 restart：`no`/`always`/`on-failure`/`unless-stopped` |
 | `--default-remote-pi-mode <模式>` | 默认 `remote_pi_mode`：`config`/`env`/`off` |
+| `--default-role <label>` | 这台机器上会话的默认角色（远端会话靠它进入 `--role` 的各种扇出） |
 | `--all` | `test`/`exec`：对所有节点 |
 | `--tag <name>` | 给节点打标签（可重复，累加）；`ls`/`test`/`exec`/`up`/`down`/`restart` 用它选机器 |
 | `--timeout <秒>` | `exec`：单机超时（默认 60），超时按失败计 |

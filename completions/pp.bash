@@ -11,7 +11,7 @@ _pp() {
       COMPREPLY=( $(compgen -f -- "$cur") )
       return 0
       ;;
-    --socket|--lines|--idle-over|--sort|--cwd|-n|--agent|-C|--dir|--host|--port|--user|--identity|--password|--note|--tag|--timeout|--role|--node|--from|--password-env|--from-ssh-config|--base-path|--default-agent|--default-restart|--default-remote-pi-mode)
+    --socket|--lines|--idle-over|--sort|--cwd|-n|--agent|-C|--dir|--host|--port|--user|--identity|--password|--note|--tag|--timeout|--role|--node|--from|--password-env|--from-ssh-config|--base-path|--default-agent|--default-restart|--default-remote-pi-mode|--default-role)
       return 0
       ;;
     --password-env|--from-ssh-config)
@@ -63,7 +63,7 @@ _pp() {
   esac
 
   if [[ "$cur" == -* ]]; then
-    COMPREPLY=( $(compgen -W "--config --socket --json --dry-run --force --reconcile --quiet --verbose --lines --idle-over --sort --watch --print --path --no-enter --attach --log --save --no-remote-pi --dir --agent --as --wait --reply --no-wait --body-json --bin-dir --check --at --in --every --command --catch-up --start --via --now --heal --remote --drift --node --tag --parallel --actor --idle-over --sort --started --yes --role --sort --grep --context --ignore-case --limit --prune --since --action --base-path --default-agent --default-restart --default-remote-pi-mode --guard --no-guard --registry --once --brief --keep --stalls --list --help --version" -- "$cur") )
+    COMPREPLY=( $(compgen -W "--config --socket --json --dry-run --force --reconcile --quiet --verbose --lines --idle-over --sort --watch --print --path --no-enter --attach --log --save --no-remote-pi --dir --agent --as --wait --reply --no-wait --body-json --bin-dir --check --at --in --every --command --catch-up --start --via --now --heal --remote --drift --node --tag --parallel --actor --idle-over --sort --started --yes --role --sort --grep --context --ignore-case --limit --prune --since --action --base-path --default-agent --default-restart --default-remote-pi-mode --default-role --guard --no-guard --registry --once --brief --keep --stalls --list --help --version" -- "$cur") )
     return 0
   fi
   if [[ $COMP_CWORD -eq 2 && "${COMP_WORDS[1]}" == "help" ]]; then

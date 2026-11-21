@@ -132,6 +132,15 @@ sessions:
 本地则会在启动前就拒绝）。
 
 `defaults` 里只认这几个键：`agent`、`restart`、`remote_pi_mode`、`env`、`args`、`role`。
+
+`role` 尤其值得放在机器级：远端会话你在本机看不到，逐个贴标签很不现实，而
+"这台机器上的会话都算 prod"通常是**构造成立的事实**，不是人工判断。
+
+```bash
+pp node add p201 --default-role prod     # 以后在 p201 上新建的会话自动带 prod
+pp node show p201                        # defaults 里能看到
+pp status --role prod                    # 立刻按语义筛（远端会话按名字显示）
+```
 写别的会警告并忽略（例如 `cwd` —— 那是每条会话自己的事）。
 
 `role` 也在其中：一台测试机上的会话通常都是同一个角色，写在机器上一次就够：

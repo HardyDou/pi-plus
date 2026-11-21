@@ -803,6 +803,8 @@ sessions:
     node: dead
     cwd: /tmp
 YAML
+check "a machine can carry a default role" 0 'updating box: defaults' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c tmpl.yml --socket $SOCK node add box --default-role test 2>&1"
+check "the default role lands in the config" 0 'role: test' bash -c "cd $E2E && grep 'role: test' tmpl.yml"
 check "snapshot lists the machines" 0 'nodes \('       bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK snapshot 2>&1"
 
 # long enough that a slow full-suite run cannot outlive it: drift checks below

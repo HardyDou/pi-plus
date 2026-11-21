@@ -64,6 +64,7 @@ _pp() {
     '--base-path[sessions on this machine land under it]:dir:_files -/' \
     '--default-agent[default agent for that machine]:command:' \
     '--default-restart[default restart policy]:policy:(no always on-failure unless-stopped)' \
+    '--default-role[default role label for its sessions]:label:' \
     '--default-remote-pi-mode[default remote-pi mode]:mode:(config env off)' \
     '--guard[protect its sessions from pp down/rm]:' \
     '--no-guard[drop the protection]:' \
