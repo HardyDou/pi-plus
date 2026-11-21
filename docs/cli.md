@@ -164,6 +164,25 @@ rewritten, so the diff stays small.
 `3/4` = 你为这台机器列了 4 个会话、3 个在跑；`+1` = 它上面还有一个没写进配置的会话。
 两个符号分别对应 `pp up` 和 `pp adopt`。
 
+### `pp check --brief`：一行，一个退出码
+
+```bash
+$ pp check --brief
+ok 8 session(s), 6 node(s), 0 problems
+$ pp check --brief; echo "rc=$?"
+1 problem: "gone": cwd does not exist: /srv/gone — pp check
+rc=1
+```
+
+退出码：`0` 干净、`1` 有问题、`2` 用法错 —— 于是发版脚本里可以直接当闸门：
+
+```bash
+pp check --brief || exit 1
+```
+
+`--remote` 的节点检查是**并行**的（一台一次握手，不是串行六次），所以 `pp check --remote --brief`
+在六台机器的配置上也是秒级。
+
 ### `pp check --remote`：让远端自己回答"这个路径存在吗"
 
 默认 `pp check` 跳过跑在别的机器上的会话（路径只在那台机器上存在）。`--remote` 会对每台
