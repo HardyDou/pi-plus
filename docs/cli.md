@@ -759,6 +759,31 @@ $ pp plan
 排序是有理由的：连不上的机器会掩盖它上面的一切 → drained 的机器让 `pp up` 变成空操作 → 自启单元坏了
 只影响下次重启 → 卡住的 agent 只影响"现在"。**只读**；`--json` 给脚本（`{ steps: [{priority,title,command,why}] }`）。
 
+### `pp plan --node <机器>`
+
+问的是另一个问题：不是"这台机群怎么了"，而是"**要让那台机器现在能接活，按顺序敲哪几条**"。
+
+```bash
+$ pp plan --node t114
+t114 — what to type, in this order
+
+2 steps, in this order:
+
+ 1  pp node undrain t114
+    undrain t114 — 3 session(s) waiting
+    a drained machine ignores pp up
+ 2  pp adopt --node t114
+    adopt 2 session(s) that are not in the config
+    running but unwritten: scratch@t114, try@t114
+```
+
+与整机群版的三点不同：
+
+- 只问那台机器（一次 ssh），**不报告本机的事**（自启、扩展、本机日志与它无关）；
+- 命令都带 `--node`，避免在九台机器的集群上敲错目标；
+- "该起没起"用 `pp up --node <机器>`；"没写进配置"用 `pp adopt --node <机器>`；
+- 机器没装 tmux 会说 `apt install tmux (on p202)`，而不是含糊的 "ssh failed"；名字写错会说 `pp node ls`。
+
 ### `pp why <会话|机器> [--json]`
 
 3am 的那一个问题："它为什么是这个状态？"——把配置、tmux、`state.json`、cron 文件里的既有事实读出来，

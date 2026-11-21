@@ -70,3 +70,32 @@ test("autostart and a stale extension are named with their commands", () => {
     ["pp install", "npm install --prefix /home/user/.pi/agent/npm pi-farm@0.64.0"],
   );
 });
+
+test("a machine-scoped plan answers a narrower question", async () => {
+  // --node asks "what do I type to make that machine take work again", so the
+  // local-only facts (autostart, extension, this machine's logs) are not steps
+  const scoped = planSteps({
+    reach: [],
+    drift: [{ name: "t114", down: 2, drained: false }],
+    unmanaged: ["stray-a@t114", "stray-b@t114"],
+    stuck: [],
+    cron: [],
+    logs: [],
+    // planFacts leaves these null when scoped to a machine: they are this
+    // machine's business, not that machine's
+    autostart: null,
+    extension: null,
+  }).map((step) => step.command);
+  assert.deepEqual(scoped, ["pp up --node t114", "pp adopt --node t114"]);
+});
+
+test("a machine without tmux says so instead of 'ssh failed'", () => {
+  const [step] = planSteps({ reach: [{ name: "p202", how: "tmux-missing" }] });
+  assert.equal(step.command, "apt install tmux (on p202)");
+  assert.equal(step.priority, 0);
+});
+
+test("an unknown machine points at the list", () => {
+  const [step] = planSteps({ reach: [{ name: "nope", how: "unknown" }] });
+  assert.equal(step.command, "pp node ls");
+});

@@ -197,11 +197,17 @@ export const COMMANDS = [
   {
     name: "plan",
     summary: "List what to do next, in the order that unblocks the most",
-    usage: "pp plan [--json]",
+    usage: "pp plan [--node <machine>] [--json]",
     details: [
       "`pp doctor --brief` names the first thing; a fleet is usually several",
       "things at once, and the useful question is in what order. Each step is",
       "one command you can run, with the reason it is that early:",
+      "",
+      "`--node <machine>` asks a narrower question — not \"what is wrong with",
+      "this fleet\" but \"what do I type to make that machine take work again\".",
+      "One ssh, no local concerns (autostart, the extension, this machine's",
+      "logs are not its business), and every step carries `--node` so it cannot",
+      "hit the wrong machine:",
       "",
       "  3 steps, in this order:",
       "",
@@ -220,8 +226,11 @@ export const COMMANDS = [
       "matters at the next reboot, and a stuck agent only matters right now.",
       "Read-only: nothing here changes anything.",
     ].join("\n"),
-    options: ["--json           the same steps for a script"],
-    examples: ["pp plan", "pp plan --json"],
+    options: [
+      "--json           the same steps for a script",
+      "--node <machine> one machine: what to type to make it take work again",
+    ],
+    examples: ["pp plan", "pp plan --node t114", "pp plan --json"],
     see: ["doctor", "why", "status"],
   },
   {

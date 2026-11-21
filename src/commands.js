@@ -2949,6 +2949,14 @@ export function planSteps(facts) {
   const add = (priority, title, command, why) => steps.push({ priority, title, command, why });
 
   for (const machine of reach) {
+    if (machine.how === "unknown") {
+      add(0, `no machine named "${machine.name}"`, "pp node ls", "a machine has to be in `nodes:` in the config before anything can run there");
+      continue;
+    }
+    if (machine.how === "tmux-missing") {
+      add(0, `${machine.name} has no tmux, so nothing can run there`, `apt install tmux (on ${machine.name})`, "sessions live in tmux; without it pp has nowhere to put them");
+      continue;
+    }
     const local = machine.how === "tmux";
     add(
       0,
@@ -2972,10 +2980,23 @@ export function planSteps(facts) {
   const off = drift.filter((entry) => entry.down > 0 && !entry.drained);
   if (off.length) {
     const total = off.reduce((sum, entry) => sum + entry.down, 0);
-    add(5, `start ${total} session(s) that should be up`, "pp up --drift", `off on ${off.map((entry) => entry.name).join(", ")}`);
+    // one machine asked about: name it, so the command cannot be mistyped on a
+    // fleet of nine
+    const single = off.length === 1 && off[0].name !== "this machine";
+    add(
+      5,
+      `start ${total} session(s) that should be up`,
+      single ? `pp up --node ${off[0].name}` : "pp up --drift",
+      `off on ${off.map((entry) => entry.name).join(", ")}`,
+    );
   }
   if (unmanaged.length) {
-    add(6, `adopt ${unmanaged.length} session(s) that are not in the config`, "pp adopt", `running but unwritten: ${unmanaged.slice(0, 4).join(", ")}`);
+    // entries on a machine are `name@node`: adopt them from that machine
+    const nodes = [...new Set(unmanaged.filter((name) => name.includes("@")).map((name) => name.split("@").pop()))];
+    const command = nodes.length === 1 && unmanaged.length === unmanaged.filter((name) => name.endsWith(`@${nodes[0]}`)).length
+      ? `pp adopt --node ${nodes[0]}`
+      : "pp adopt";
+    add(6, `adopt ${unmanaged.length} session(s) that are not in the config`, command, `running but unwritten: ${unmanaged.slice(0, 4).join(", ")}`);
   }
   for (const item of stuck) {
     add(7, `${item.name} has been quiet for ${item.quiet}m`, `pp logs ${item.name}`, "the agent is mid-turn and may be waiting on a tool");
@@ -2990,6 +3011,43 @@ export function planSteps(facts) {
 export async function planFacts(config, options) {
   const env = options?.env ?? process.env;
   const facts = { reach: [], drift: [], unmanaged: [], stuck: [], cron: [], logs: [], autostart: null, extension: null };
+  const only = options?.node ?? null;
+  const scoped = (name) => !only || name === only;
+
+  // `pp plan --node t114` asks a different question: not "what is wrong with
+  // this fleet" but "what do I type to make that machine take work again".
+  // Local-only concerns (autostart, the extension, this machine's logs) are not
+  // part of the answer.
+  if (only) {
+    const node = (config.nodes ?? []).find((entry) => entry.name === only);
+    if (!node) {
+      facts.reach.push({ name: only, how: "unknown" });
+      return facts;
+    }
+    const probe = await runOnNodeAsync(node, [PROBE_SCRIPT], { timeout: 15000 });
+    if (probe.error || (probe.status === 255 && !String(probe.stdout ?? "").trim())) {
+      facts.reach.push({ name: node.name, how: "ssh" });
+      return facts;
+    }
+    const probeFacts = parseProbe(probe.stdout);
+    if (!probeFacts.tmux || probeFacts.tmux === "-") {
+      facts.reach.push({ name: node.name, how: "tmux-missing" });
+      return facts;
+    }
+    const liveRemote = new Set(String(probeFacts.session_names ?? "").split(/\s+/).filter(Boolean));
+    const expected = sessionsOnNode(config, node.name);
+    const down = expected.filter(
+      (session) => !liveRemote.has(session.tmuxName) && session.restart !== "no" && !isStopped(config.path, session.name),
+    );
+    if (down.length || node.drained) facts.drift.push({ name: node.name, down: down.length, drained: Boolean(node.drained) });
+    for (const name of liveRemote) {
+      if (!expected.some((session) => session.tmuxName === name)) facts.unmanaged.push(`${name}@${node.name}`);
+    }
+    // a job aimed at one of this machine's sessions, and late
+    const here = new Set(expected.map((session) => session.name));
+    facts.cron = overdueJobs(readJobs(), new Date()).filter((job) => job.session && here.has(job.session));
+    return facts;
+  }
 
   // local machine
   const tmux = makeTmux(config, options);
@@ -3022,7 +3080,7 @@ export async function planFacts(config, options) {
   for (const name of live.keys()) if (!mine.has(name)) facts.unmanaged.push(name);
 
   // remote machines: one ssh each, in parallel
-  const nodes = (config.nodes ?? []).filter((node) => sessionsOnNode(config, node.name).length);
+  const nodes = (config.nodes ?? []).filter((node) => scoped(node.name) && sessionsOnNode(config, node.name).length);
   const remote = await Promise.all(
     nodes.map(async (node) => ({ node, probe: await runOnNodeAsync(node, [PROBE_SCRIPT], { timeout: 15000 }) })),
   );
@@ -3197,9 +3255,14 @@ async function cmdPlan(config, options, ui) {
     return;
   }
   if (!steps.length) {
-    ui.info(`nothing to do — ${config.sessions.length} session(s) look the way they should`);
+    ui.info(
+      options.node
+        ? `${options.node} is fine — its session(s) look the way they should`
+        : `nothing to do — ${config.sessions.length} session(s) look the way they should`,
+    );
     return;
   }
+  if (options.node) ui.out(ui.paint("bold", `${options.node} — what to type, in this order`));
   ui.out(`${steps.length} step${steps.length === 1 ? "" : "s"}, in this order:\n`);
   steps.forEach((step, index) => {
     const number = String(index + 1).padStart(2, " ");

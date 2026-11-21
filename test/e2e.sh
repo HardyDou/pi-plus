@@ -941,6 +941,13 @@ check "quarantine moves it aside"        0 'broken-'                      bash -
 check "the broken copy is kept"          0 '^1$'                         bash -c "ls $XDG_STATE_HOME/pi-plus/state.json.broken-* | wc -l | tr -d ' '"
 check "afterwards it is clean"           0 'nothing to quarantine'        bash -c "cd $E2E && $ROOT/bin/pp.js doctor --quarantine"
 
+section "plan --node (one machine)"
+check "unknown machine points at the list" 0 'pp node ls'   bash -c "cd $E2E && PATH=\"$SHIM:$PATH\" $ROOT/bin/pp.js -c $NODECFG plan --node nope 2>&1"
+# its session is not running, so the step names the machine instead of the fleet
+check "a machine-scoped plan names the node" 0 'pp up --node far' bash -c "cd $E2E && PATH=\"$SHIM:$PATH\" $ROOT/bin/pp.js -c $NODECFG plan --node far 2>&1"
+check "the header names the machine"       0 '^far '        bash -c "cd $E2E && PATH=\"$SHIM:$PATH\" $ROOT/bin/pp.js -c $NODECFG plan --node far 2>&1 | head -1"
+check "--json is the same steps"           0 '"steps"'      bash -c "cd $E2E && PATH=\"$SHIM:$PATH\" $ROOT/bin/pp.js -c $NODECFG plan --node far --json"
+
 section "first screen (pp with no argument)"
 check "no argument summarises the fleet" 0 'running'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK"
 check "it names the config it read"      0 'plus.yml'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK | head -1"
