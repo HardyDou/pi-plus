@@ -1534,11 +1534,12 @@ async function cmdNodeAdd(config, options, ui) {
   if (options.guard) spec.guarded = true;
   if (options.noGuard) spec.guarded = false;
   if (options.basePath !== undefined) spec.base_path = options.basePath;
-  if (options.defaultAgent || options.defaultRestart || options.defaultRemotePiMode) {
+  if (options.defaultAgent || options.defaultRestart || options.defaultRemotePiMode || options.defaultRole) {
     spec.defaults = {};
     if (options.defaultAgent) spec.defaults.agent = options.defaultAgent;
     if (options.defaultRestart) spec.defaults.restart = options.defaultRestart;
     if (options.defaultRemotePiMode) spec.defaults.remote_pi_mode = options.defaultRemotePiMode;
+    if (options.defaultRole) spec.defaults.role = options.defaultRole;
   }
   // Re-adding a node is the documented way to edit it, so everything the
   // command line did not mention has to survive the rewrite.

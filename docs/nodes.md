@@ -131,8 +131,29 @@ sessions:
 只有相对路径才会拼到 `base_path` 下（远端目录是否存在由远端决定，`pp up` 会报错，
 本地则会在启动前就拒绝）。
 
-`defaults` 里只认三个键：`agent`、`restart`、`remote_pi_mode`。写别的会警告并忽略
-（例如 `cwd` —— 那是每条会话自己的事）。
+`defaults` 里只认这几个键：`agent`、`restart`、`remote_pi_mode`、`env`、`args`、`role`。
+写别的会警告并忽略（例如 `cwd` —— 那是每条会话自己的事）。
+
+`role` 也在其中：一台测试机上的会话通常都是同一个角色，写在机器上一次就够：
+
+```yaml
+nodes:
+  - name: test-01
+    host: 10.0.0.21
+    defaults:
+      role: test
+sessions:
+  - name: test-api
+    node: test-01        # → role: test
+    cwd: /srv/api
+  - name: test-report
+    node: test-01
+    cwd: /srv/report
+    role: report         # 会话写的赢
+```
+
+`pp role --list` 会把继承来的标签一起算在内（它看的是解析后的配置，不是文件原文），
+所以列出来的就是 `--role` 真正能筛到的词。
 
 命令行等价物：
 

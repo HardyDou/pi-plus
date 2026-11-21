@@ -283,7 +283,13 @@ function normalizeSession(raw, defaults, index, configPath) {
     remotePiName,
     remotePiMode: mode,
     remotePiModeGiven: modeGiven,
-    role: roleOf(session.role, where),
+    // a machine can carry a default label (nodes[].defaults.role): "everything on
+    // the test box is `test`" should not need a line per session. An explicit
+    // `role:` in the session wins, including an empty one, which clears it.
+    role: roleOf(
+      Object.prototype.hasOwnProperty.call(session, "role") ? session.role : defaults.role,
+      where,
+    ),
     env: asStringMap(session.env, `${where}.env`),
     args: asTokens(session.args, `${where}.args`),
     log: session.log === true ? join(cwd, ".pi-plus.log") : session.log ? resolve(expandPath(String(session.log))) : null,

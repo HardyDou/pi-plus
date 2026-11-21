@@ -363,3 +363,14 @@ test("a drained machine is parsed and written back", () => {
   assert.match(renderNodeBlock(node), /^ {4}drained: true$/m);
   assert.equal(normalizeNode({ name: "b", host: "h" }, 0, "<t>").drained, false);
 });
+
+test("a machine can carry a default role for its sessions", () => {
+  const node = normalizeNode({ name: "box", host: "box@127.0.0.1", defaults: { role: "test" } }, 0, "c.yml", []);
+  assert.equal(node.defaults.role, "test");
+  const text = renderNodeBlock(node);
+  assert.match(text, /      role: test/);
+  const back = normalizeNode(parseYaml(text)[0], 0, "c.yml", []);
+  assert.equal(back.defaults.role, "test", "render -> parse is lossless");
+  assert.throws(() => normalizeNode({ name: "b", host: "h", defaults: { role: "has/slash" } }, 0, "c.yml", []),
+    /defaults\.role .* must be a short label/);
+});

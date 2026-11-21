@@ -219,6 +219,25 @@ check "clearing removes the line"      0 '^1$'           bash -c "grep -c 'role:
 check "role --list names label and members" 0 'pm.*risk-10' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role --list"
 check "role --list --json is a list"   0 '\"role\": \"pm\"'     bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role --list --json"
 check "no role at all says so"         0 'no session carries a role' bash -c "cd $E2E && sed 's/^    role: pm$//' $ROLECFG > $ROLECFG.bare && $ROOT/bin/pp.js -c $ROLECFG.bare --socket $SOCK role --list"
+# a machine can carry the label: "everything on the test box is test"
+cat > $E2E/noderole.yml <<YML
+version: 1
+nodes:
+  - name: box
+    host: box@127.0.0.1
+    defaults:
+      role: test
+sessions:
+  - name: boxapi
+    cwd: $E2E
+    node: box
+  - name: boxdocs
+    cwd: $E2E
+    node: box
+    role: dev
+YML
+check "a machine default labels its sessions" 0 'test.*boxapi' bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/noderole.yml role --list"
+check "a session role still wins"            0 'dev.*boxdocs'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/noderole.yml role --list"
 # sort: name in the config means risk-2 and risk-10 sit in numeric order
 check "config sort orders by name"     0 'alpha'         bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK status | sed -n '2p'"
 

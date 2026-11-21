@@ -851,6 +851,7 @@ export const COMMANDS = [
       "--default-agent <cmd> default agent for its sessions",
       "--default-restart <p>  default restart policy (no|always|on-failure|unless-stopped)",
       "--default-remote-pi-mode <m>  default remote_pi_mode (config|env|off)",
+      "--default-role <label>  label its sessions' roles by default (pp role --list)",
       "--all                 test/exec: every node",
       "--tag <name>...       test/exec/ls: only machines carrying these tags (all of them)",
       "--timeout <seconds>   exec: give up on a machine after this long (60)",

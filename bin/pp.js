@@ -167,6 +167,9 @@ function parseArgs(argv) {
         case "--base-path": options.basePath = takeValue(flag, inline); break;
         case "--default-agent": options.defaultAgent = takeValue(flag, inline); break;
         case "--default-restart": options.defaultRestart = takeValue(flag, inline); break;
+        case "--default-role":
+          options.defaultRole = takeValue("--default-role", inline);
+          break;
         case "--default-remote-pi-mode": options.defaultRemotePiMode = takeValue(flag, inline); break;
         case "--node": options.node = takeValue(flag, inline); break;
         case "--limit": options.lines = Number(takeValue(flag, inline)); break;

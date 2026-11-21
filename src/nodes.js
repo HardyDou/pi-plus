@@ -29,7 +29,7 @@ export const NODE_KEYS = new Set([
 ]);
 
 /** Session settings a machine may set for every session that runs on it. */
-export const NODE_DEFAULT_KEYS = new Set(["agent", "restart", "remote_pi_mode", "env", "args"]);
+export const NODE_DEFAULT_KEYS = new Set(["agent", "restart", "remote_pi_mode", "env", "args", "role"]);
 
 export const DEFAULT_PORT = 22;
 // the one definition; config.js re-exports it (it already imports this module,
@@ -164,6 +164,14 @@ export function normalizeNode(raw, index, configPath = "<config>", warnings = []
           throw new NodeError(`${where}: defaults.remote_pi_mode must be config, env or off`);
         }
         defaults.remote_pi_mode = mode;
+      } else if (key === "role") {
+        // same rule as a session role: free text, short, not scheduling
+        const role = value == null ? "" : String(value).trim();
+        if (role.length > 24) throw new NodeError(`${where}: defaults.role must be 24 characters or fewer`);
+        if (role && !/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(role)) {
+          throw new NodeError(`${where}: defaults.role "${role}" must be a short label (letters, digits, space, . _ -)`);
+        }
+        if (role) defaults.role = role;
       } else if (key === "env") {
         if (value == null) continue;
         if (typeof value !== "object" || Array.isArray(value)) {
