@@ -4,9 +4,9 @@
   "description": "tmux session manager for pi agents — YAML config, reboot autostart, cron, todo panel, and sessions on other machines over ssh",
   "type": "module",
   "bin": {
-    "pp": "bin/pp.js",
-    "pifarm": "bin/pp.js",
-    "pi-plus": "bin/pp.js"
+    "pp": "bin/pp",
+    "pifarm": "bin/pp",
+    "pi-plus": "bin/pp"
   },
   "files": [
     "LICENSE",

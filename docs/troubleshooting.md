@@ -97,6 +97,13 @@ pp tui --diag
 
 按「你看到的原文」查。每条都附上验证命令。
 
+## 启动脚本类
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| `bash: …/bin/pp.js: cannot execute: required file not found` | 这个 shell 的 `PATH` 里没有 `node`（cron、systemd、`sudo`、非登录 ssh 会话常常只有 `/usr/bin:/bin`，而 nvm/volta 把 node 装在别处）——磁盘上文件是好的 | 用 `pp`（全局命令）或 `node ./bin/pp.js`；0.51.0 起也提供 `./bin/pp` 包装脚本，它会自己去 PATH、nvm、volta、fnm、`NODE_HOME` 里找 node |
+| `pp: node not found — install Node 18+` | 包装脚本找遍常见位置也没有 node | 装 Node 18+，或把 node 放进 `PATH` |
+
 ## 节点类（`pp node`）
 
 | 现象 | 原因与做法 |

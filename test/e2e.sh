@@ -172,6 +172,12 @@ check "status --json records who started it"  0 '"lastStart"'   bash -c "$ROOT/b
 check "one session explains its last start"   0 'last start'    bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK status e-always | tail -3"
 check "restart records itself as the reason"  0 'by restart'    bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK restart e-always >/dev/null && $ROOT/bin/pp.js -c $CFG --socket $SOCK status e-always | tail -3"
 
+section "launcher"
+check "the wrapper runs"          0 '^[0-9]+\.[0-9]+\.[0-9]+$' bash -c "$ROOT/bin/pp -V"
+# cron, sudo and non-login ssh shells get PATH=/usr/bin:/bin, where nvm's node
+# is invisible: the wrapper has to find it on its own or `pp` looks broken
+check "the wrapper finds node without PATH" 0 '^[0-9]+\.[0-9]+\.[0-9]+$' bash -c "env -i PATH=/usr/bin:/bin HOME=$HOME $ROOT/bin/pp -V"
+
 section "logs / send"
 check "send text"                0 'sent to e-always'           PFc send e-always 'echo hello-e2e'
 sleep 1

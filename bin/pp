@@ -1,0 +1,51 @@
+#!/bin/sh
+# Find node even when PATH is the bare /usr/bin:/bin that cron, systemd units,
+# `sudo`, and non-login ssh shells get. Without this, `./bin/pp.js` dies with
+#   bash: ./bin/pp.js: cannot execute: required file not found
+# which looks like a broken install but only means "the shebang's `node` is not
+# on this PATH" (nvm/volta/asdf keep node outside /usr/bin).
+set -e
+
+bin=$0
+case $bin in
+  */*) dir=$(cd "$(dirname "$bin")" >/dev/null 2>&1 && pwd) ;;
+  *) dir=$(dirname "$(command -v "$bin")") ;;
+esac
+
+# follow symlinks (npm's bin shim, /usr/local/bin/pp -> .../pi-farm/bin/pp)
+while [ -L "$dir/${bin##*/}" ]; do
+  target=$(readlink "$dir/${bin##*/}")
+  case $target in
+    /*) dir=$(dirname "$target") ;;
+    *) dir=$(cd "$dir" && cd "$(dirname "$target")" && pwd) ;;
+  esac
+done
+
+find_node() {
+  if command -v node >/dev/null 2>&1; then
+    command -v node
+    return 0
+  fi
+  found=""
+  for candidate in \
+    "${NODE_HOME:+$NODE_HOME/bin/node}" \
+    "$HOME"/.nvm/versions/node/*/bin/node \
+    /usr/local/bin/node \
+    /opt/homebrew/bin/node \
+    /usr/bin/node \
+    /snap/bin/node \
+    "$HOME"/.local/share/fnm/node-versions/*/installation/bin/node \
+    "$HOME"/.volta/bin/node
+  do
+    [ -x "$candidate" ] && found=$candidate
+  done
+  [ -n "$found" ] || return 1
+  printf '%s\n' "$found"
+}
+
+node=$(find_node) || {
+  echo "pp: node not found — install Node 18+ or put it on PATH (looked in PATH, nvm, volta, fnm)" >&2
+  exit 127
+}
+
+exec "$node" "$dir/pp.js" "$@"

@@ -3177,7 +3177,7 @@ function formatMeshBody(body) {
   }
 }
 
-function cmdCheck(config, options, ui) {
+async function cmdCheck(config, options, ui) {
   const tmux = makeTmux(config, options);
   const problems = [];
   const notes = [];
@@ -3243,11 +3243,13 @@ function cmdCheck(config, options, ui) {
         list.push(session);
         byNode.set(session.node, list);
       }
-      for (const [nodeName, list] of byNode) {
-        const node = config.nodes?.find((entry) => entry.name === nodeName);
+      // one ssh round trip per node: six machines in parallel is ~1 handshake,
+      // serially it is six seconds of watching nothing happen
+      const jobs = [];
+      const collect = (nodeName, node, list) => {
         if (!node) {
           problems.push(`node "${nodeName}" is not defined under "nodes"`);
-          continue;
+          return;
         }
         const script = list
           .map((session) => {
@@ -3260,7 +3262,16 @@ function cmdCheck(config, options, ui) {
             );
           })
           .join("; ");
-        const probe = runOnNode(node, [script], { timeout: 25000 });
+        jobs.push({ nodeName, node, script, list });
+      };
+      for (const [nodeName, list] of byNode) {
+        collect(nodeName, config.nodes?.find((entry) => entry.name === nodeName), list);
+      }
+      const results = await Promise.all(
+        jobs.map(async (job) => ({ job, probe: await runOnNodeAsync(job.node, [job.script], { timeout: 25000 }) })),
+      );
+      for (const { job, probe } of results) {
+        const nodeName = job.nodeName;
         if (probe.error) {
           problems.push(`node "${nodeName}" unreachable — ${probe.error.message}`);
           continue;
@@ -3281,7 +3292,16 @@ function cmdCheck(config, options, ui) {
     }
   }
 
-  if (ui.json) {
+  if (options.brief) {
+    // one line and an exit code: this is the shape a release script wants
+    const nodes = config.nodes?.length ?? 0;
+    if (problems.length === 0) {
+      ui.out(`ok ${config.sessions.length} session(s), ${nodes} node(s), 0 problems`);
+    } else {
+      const more = problems.length > 1 ? ` (+${problems.length - 1} more)` : "";
+      ui.error(`${problems.length} problem${problems.length === 1 ? "" : "s"}: ${problems[0]}${more} — pp check`);
+    }
+  } else if (ui.json) {
     ui.out(JSON.stringify({ ok: problems.length === 0, problems, notes, config: config.path }, null, 2));
   } else {
     ui.out(`${ui.paint("bold", "config")} ${config.path}  ${ui.paint("dim", `${config.sessions.length} session(s)`)}`);
