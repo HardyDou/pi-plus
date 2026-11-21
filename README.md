@@ -702,6 +702,7 @@ MIT © 2026 HardyDou
 
 | `pp new --from risk-01 --save` | 照着一个跑对的会话克隆（同名族第 N 个不用重打） |
 | `pp plan` | 该先做哪一件、再做什么（带顺序与原因） |
+| `pp runbook` | 事故处理手册：会话全没了 / 不投递 / 机器连不上 … 各自按序怎么查 |
 | `pp why risk-01` | 一句话解释它为什么是这个状态（drain/手工停/该在跑却没在跑） |
 | `pp why --node t114` | 同一问题问整台机器（ssh/tmux/维护中/哪些没起） |
 | `pp role risk-01 pm` | 给会话贴角色标签（`dev`/`pm`/`qa`）；`--role` 可筛选表，也能筛选批量动作（`pp send --role pm "…"`） |

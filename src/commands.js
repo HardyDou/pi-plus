@@ -34,6 +34,7 @@ import {
   removeAlias,
 } from "./aliases.js";
 import { hasEditor, looksBusy, resolveExecutable, screenSignature, Tmux } from "./tmux.js";
+import { findScenario, renderMarkdown, renderScenario, RUNBOOK } from "./runbook.js";
 import {
   authSummary,
   DEFAULT_PORT,
@@ -3065,6 +3066,39 @@ export async function planFacts(config, options) {
   return facts;
 }
 
+/** `pp runbook [scenario] [--markdown] [--json]`: the incident table, one scenario at a time. */
+async function cmdRunbook(config, options, ui) {
+  if (options.markdown) {
+    process.stdout.write(`${renderMarkdown()}\n`);
+    return;
+  }
+  const wanted = (options.names ?? [])[0];
+  if (options.json) {
+    const scenarios = wanted ? [findScenario(wanted)].filter(Boolean) : RUNBOOK;
+    if (wanted && !scenarios.length) {
+      ui.error(`no scenario "${wanted}" — pp runbook${config ? "" : ""}`);
+      process.exit(2);
+    }
+    process.stdout.write(`${JSON.stringify(scenarios, null, 2)}\n`);
+    return;
+  }
+  if (!wanted) {
+    ui.out("the incidents this fleet has actually had — pp runbook <scenario>\n");
+    for (const scenario of RUNBOOK) {
+      ui.out(`  ${scenario.id.padEnd(20)} ${scenario.title}`);
+      ui.out(`  ${" ".repeat(20)} ${ui.paint("dim", scenario.symptom)}`);
+    }
+    ui.out(`\n${ui.paint("dim", "pp runbook <scenario> for the steps · pp runbook --markdown for the whole manual")}`);
+    return;
+  }
+  const scenario = findScenario(wanted);
+  if (!scenario) {
+    ui.error(`no scenario "${wanted}" — try: pp runbook`);
+    process.exit(2);
+  }
+  ui.out(renderScenario(scenario));
+}
+
 /** `pp plan [--json] [--nodes]`: what to do, in the order that unblocks the most. */
 async function cmdPlan(config, options, ui) {
   const facts = await planFacts(config, options);
@@ -5705,6 +5739,16 @@ export async function runCommand(command, options) {
     }
     case "plan": {
       return cmdPlan(requireConfig(options, ui), options, ui);
+    }
+    case "runbook": {
+      // works without a config: the manual is worth reading before you have one
+      let config = null;
+      try {
+        config = loadConfig({ configPath: options.config, cwd: options.cwd });
+      } catch {
+        config = null;
+      }
+      return cmdRunbook(config, options, ui);
     }
     case "why":
     case "explain": {

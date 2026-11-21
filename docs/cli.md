@@ -632,6 +632,40 @@ saved to /home/user/.pi/plus.yml
 `-C` / `--node` / `--agent` / `--role` 仍然可以覆盖抄来的值。`--dry-run` 只打印将要执行的 tmux 命令，
 并且 `--dry-run --save` **不会**写配置（只提示 `would append … to …`）。
 
+### `pp runbook [场景] [--markdown] [--json]`
+
+这台机群**真的发生过**的事故，按"一个冷静的人会怎么走"的顺序写下来：先一条只读命令，再写清楚"健康的
+答案长什么样"，最后才是那条会改变现状的命令。
+
+```bash
+$ pp runbook
+the incidents this fleet has actually had — pp runbook <scenario>
+
+  nothing-runs         Every session is gone
+                       pp ls says 0/N running, tmux ls says nothing
+  no-delivery          A cron job is not delivering
+  ...
+```
+
+```bash
+$ pp runbook disk-full
+The disk is filling up
+  pp doctor shows ✗ logs, writes start failing
+
+Nothing rotates anything by design: …
+
+ 1  pp doctor --brief
+    expect: ✗ logs  cron.log 57.2 MB — shrink: pp clean
+ 2  pp clean --dry-run
+    expect: would shrink <file> 57.2 MB → 2.0 MB
+ ...
+
+when you are ready to change something: pp clean
+```
+
+场景可以按 id 或标题片段查（`pp runbook quiet`）。`--markdown` 输出整本手册 —— `docs/runbook.md`
+就是它生成的（e2e 里有一条 `diff` 检查，所以文档不可能和代码走散）。pp 不会替你执行任何步骤。
+
 ### `pp plan [--json]`
 
 把 `doctor`、`why`、`status` 已经知道的事实汇总成**带顺序**的一串动作：每一步都是可以直接敲的一条命令，

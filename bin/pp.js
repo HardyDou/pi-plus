@@ -66,6 +66,10 @@ function parseArgs(argv) {
           else options.wait = "60";
           break;
         }
+      case "--markdown":
+        options.markdown = true;
+        break;
+
       case "--from":
         options.from = takeValue("--from", inline);
         break;

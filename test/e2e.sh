@@ -927,6 +927,15 @@ check "and it is really gone"          1 ''                  bash -c "tmux -L $S
 
 tmux -L "$SOCK" kill-session -t far-x 2>/dev/null || true
 
+section "runbook"
+check "runbook lists the incidents"     0 'nothing-runs'        bash -c "cd $E2E && $ROOT/bin/pp.js runbook"
+check "runbook prints one scenario"     0 'pp clean'            bash -c "cd $E2E && $ROOT/bin/pp.js runbook disk-full"
+check "runbook finds a scenario by title" 0 'pp logs'            bash -c "cd $E2E && $ROOT/bin/pp.js runbook 'quiet'"
+check "runbook --json is data"          0 '"steps"'             bash -c "cd $E2E && $ROOT/bin/pp.js runbook --json | grep -m1 '\"steps\"'"
+check "runbook --markdown is the manual" 0 '^# 事故处理手册'      bash -c "cd $E2E && $ROOT/bin/pp.js runbook --markdown | head -1"
+check "runbook refuses an unknown scenario" 2 'no scenario'      bash -c "cd $E2E && $ROOT/bin/pp.js runbook nonsense"
+check "the manual is generated from the code" 0 ''               bash -c "cd $ROOT && $ROOT/bin/pp.js runbook --markdown | diff -q - docs/runbook.md"
+
 section "new --from (clone a session)"
 CLONECFG=$E2E/clone.yml
 rm -f $CLONECFG
