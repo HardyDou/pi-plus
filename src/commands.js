@@ -5724,7 +5724,15 @@ export function cmdRole(config, options, ui) {
     for (const entry of roles) {
       ui.out(`  ${String(entry.role).padEnd(width)}  ${ui.paint("dim", `${entry.count}`.padStart(2))}  ${entry.sessions.join(", ")}`);
     }
-    const unlabeled = config.sessions.filter((session) => !session.role).length;
+    // which ones, not just how many: "3 sessions without one" sends you to `pp ls`
+    // to work out which three, and the list is right here
+    const bare = config.sessions.filter((session) => !session.role).map((session) => session.name);
+    if (bare.length) {
+      const shown = bare.slice(0, 6).join(", ");
+      const rest2 = bare.length > 6 ? ` (+${bare.length - 6} more)` : "";
+      ui.out(`  ${ui.paint("dim", "unlabelled".padEnd(width))}  ${ui.paint("yellow", `${bare.length}`.padStart(2))}  ${shown}${rest2}`);
+    }
+    const unlabeled = bare.length;
     ui.info(
       ui.paint(
         "dim",

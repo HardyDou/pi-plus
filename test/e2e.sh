@@ -209,6 +209,7 @@ printf "version: 1\nsort: name\ntmux:\n  socket: $SOCK\nsessions:\n  - name: ris
 check "role shows the current label"   0 'pm'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role risk-10"
 check "role sets a new label"          0 'risk-2  dev' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role risk-2 dev"
 check "role is written to the config"  0 'role: dev'     bash -c "grep 'role: dev' $ROLECFG"
+check "role --list names the unlabelled ones" 0 'unlabelled' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role --list 2>&1"
 check "status grows a ROLE column"     0 'ROLE'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK status"
 check "status --role filters"          0 'risk-2.*dev'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role dev status"
 check "status --role is case-insensitive" 0 'risk-10.*pm' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role PM status"
