@@ -48,6 +48,14 @@ function parseArgs(argv) {
         case "--socket": options.socket = takeValue(flag, inline); break;
         case "--json": options.json = true; break;
         case "--dry-run": options.dryRun = true; break;
+        case "--wait": {
+          // bare --wait means "use the default timeout"; a number is seconds
+          const next = args[0];
+          if (inline !== undefined) options.wait = inline;
+          else if (next !== undefined && /^\d+(\.\d+)?$/.test(next)) options.wait = args.shift();
+          else options.wait = "60";
+          break;
+        }
         case "--drift": options.drift = true; break;
         case "--wait": {
           // `pp up --wait 30` blocks until the sessions are actually up; the

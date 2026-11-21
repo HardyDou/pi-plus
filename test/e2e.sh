@@ -188,6 +188,15 @@ check "logs --dry-run"           0 'capture-pane'               PFc logs e-alway
 check "send --dry-run"           0 'send-keys'                  PFc send e-always 'echo hi' --dry-run
 check "down --dry-run"           0 'stopped|absent|not running'              PFc down --dry-run
 
+section "ready"
+# bash never draws pi's input box, so --wait has to time out honestly, with a
+# reason, instead of pretending the pane is ready. Its own config keeps this out
+# of the way of the sessions other sections assert on.
+READYCFG=$E2E/ready.yml
+printf "version: 1\ntmux:\n  socket: $SOCK\nsessions:\n  - name: ready-x\n    cwd: $E2E\n    agent: bash\n    restart: \"no\"\n" > "$READYCFG"
+check "up --wait times out with a reason" 1 'not ready after .*no prompt yet' bash -c "cd $E2E && $ROOT/bin/pp.js -c $READYCFG --socket $SOCK up ready-x --wait 1 2>&1"
+check "a timed-out session is left running" 0 'ready-x.*running' bash -c "cd $E2E && $ROOT/bin/pp.js -c $READYCFG --socket $SOCK status ready-x"
+
 section "up / status"
 check "bare up starts 3"         0 '3 started'                  PFc up
 check "up is idempotent"         0 '0 started'                  PFc up
@@ -352,9 +361,11 @@ check "update help page"         0 'npm i -g'    pp help update
 section "mesh (fake broker)"
 MESH_HOME=$E2E/fake
 MESH=("env" "REMOTE_PI_HOME=$MESH_HOME")
-node "$ROOT/test/fake-broker.js" "$MESH_HOME/.pi/remote/sessions/local/broker.sock" &
+MESH_SOCK="$MESH_HOME/.pi/remote/sessions/local/broker.sock"
+node "$ROOT/test/fake-broker.js" "$MESH_SOCK" &
 FAKE_PID=$!
-sleep 0.6
+# wait for the socket rather than guessing how long a node start takes
+for _ in $(seq 1 50); do [[ -S "$MESH_SOCK" ]] && break; sleep 0.1; done
 # exec so the background pid *is* node (a subshell would swallow the SIGINT)
 bash -c "cd '$E2E' && exec env REMOTE_PI_HOME='$MESH_HOME' pp mesh inbox --as e-inbox" > "$E2E/inbox.out" 2>&1 &
 INBOX_PID=$!
@@ -414,7 +425,10 @@ for i in $(seq 1 30); do
   grep -q 'connected as "e-pi-mesh"' "$E2E/e-pi.log" 2>/dev/null && break
   sleep 1
 done
-check "pi joined mesh"           0 'connected as "e-pi-mesh"'   bash -c "grep -o 'connected as \"e-pi-mesh\"[^\"]*' $E2E/e-pi.log | head -1"
+# what we own: the agent name we wrote. What remote-pi then announces on a live
+# broker depends on that machine's peers, so it is asserted loosely.
+check "pi joined a mesh"         0 'connected as "'            bash -c "grep -o 'connected as \"[^\"]*\"' $E2E/e-pi.log | head -1"
+check "remote-pi name written"   0 'e-pi-mesh'                 bash -c "cat $E2E/piws/.pi/remote-pi/config.json"
 check "remote-pi config written" 0 'e-pi-mesh'                  bash -c "python3 -c 'import json;print(json.load(open(\"/tmp/e2e-pifarm/piws/.pi/remote-pi/config.json\"))[\"agent_name\"])'"
 check "pi answers a prompt"      0 'sent to e-pi'               pp -c "$E2E/pi.yml" --socket "$SOCK" send e-pi 'reply with the single word OK'
 for i in $(seq 1 40); do

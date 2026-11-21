@@ -33,7 +33,7 @@ import {
   listAliases,
   removeAlias,
 } from "./aliases.js";
-import { looksBusy, resolveExecutable, screenSignature, Tmux } from "./tmux.js";
+import { hasEditor, looksBusy, resolveExecutable, screenSignature, Tmux } from "./tmux.js";
 import {
   authSummary,
   DEFAULT_PORT,
@@ -753,6 +753,18 @@ async function cmdUp(config, options, ui) {
       markRestart(config.path, session.name, { why, by: auditActor(process.env) });
       started++;
       ui.info(`${ui.paint("green", "started")} ${session.name} ${ui.paint("dim", `→ tmux:${session.tmuxName}  cwd:${session.cwd}`)}`);
+      if (options.wait) {
+        const asked = Number(options.wait) > 0 ? Number(options.wait) : 0;
+        const fromEnv = Number(process.env.PP_READY_SECONDS ?? 0);
+        const timeoutMs = (asked || fromEnv || 60) * 1000;
+        const ready = await waitReady(tmux, session, { timeoutMs });
+        if (ready.ready) {
+          ui.info(`${ui.paint("green", "ready")} ${session.name} ${ui.paint("dim", `in ${ready.seconds}s — it will take a prompt now`)}`);
+        } else {
+          failures.push({ session: session.name, error: `not ready after ${ready.seconds}s (${ready.reason})` });
+          ui.warn(`${session.name} is not ready after ${ready.seconds}s — ${ready.reason}; look: pp logs ${session.name}`);
+        }
+      }
       if (session.pi) {
         const bits = [];
         if (session.piSessionName) bits.push(`name=${session.piSessionName}`);
@@ -4548,6 +4560,35 @@ function deliverJob(job, options) {
     return { status: `failed: ${job.session} — ${why}${tail ? ` — pane showed: ${tail}` : ""}` };
   }
   return { status: "delivered" };
+}
+
+/**
+ * Wait until a session's agent will accept a prompt.
+ *
+ * `pp up` returns as soon as tmux has created the session, which is seconds
+ * before pi has drawn its input box. Scripts and `pp up --wait` need the later
+ * moment: "ready" means the editor region exists and no spinner is turning.
+ */
+export async function waitReady(tmux, session, { timeoutMs = 60000, intervalMs = 500, env = process.env } = {}) {
+  const started = Date.now();
+  // an explicit timeout wins over the environment; the env var is for scripts
+  const fromEnv = Number(env.PP_READY_SECONDS ?? 0);
+  const limit = timeoutMs > 0 ? timeoutMs : fromEnv > 0 ? fromEnv * 1000 : 60000;
+  for (;;) {
+    if (!tmux.sessionExists(session.tmuxName)) return { ready: false, reason: "it is not running", seconds: 0 };
+    const screen = tmux.capture(session.tmuxName, 40);
+    if (!looksBusy(screen) && hasEditor(screen)) {
+      return { ready: true, seconds: Math.round((Date.now() - started) / 100) / 10 };
+    }
+    if (Date.now() - started > limit) {
+      return {
+        ready: false,
+        reason: looksBusy(screen) ? "still working" : "no prompt yet",
+        seconds: Math.round((Date.now() - started) / 100) / 10,
+      };
+    }
+    await sleep(intervalMs);
+  }
 }
 
 /** Local wall-clock stamp: `2026-11-21 09:00` (the timezone cron jobs run in). */

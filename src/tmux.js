@@ -64,6 +64,17 @@ function isRule(line) {
  * Whatever is sitting in the input box: the lines between the last two rules of
  * a pi screen. Empty means the box is empty, i.e. nothing is waiting to be sent.
  */
+/**
+ * Does this screen have pi's input box at all?
+ *
+ * An empty box is a ready box: the draft being "" just means nobody typed yet.
+ * What matters is that the two rule lines are drawn, which only happens once pi
+ * has painted its editor.
+ */
+export function hasEditor(text) {
+  return String(text ?? "").split("\n").filter(isRule).length >= 2;
+}
+
 export function editorDraft(text) {
   const lines = String(text)
     .replace(ANSI, "")

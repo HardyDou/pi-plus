@@ -10,7 +10,7 @@
 // with `?reply ` makes the broker answer *as the target* (`re` = your message
 // id), which is how `pp mesh send --reply` is covered without a second agent.
 import { createServer } from "node:net";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -20,6 +20,13 @@ if (!sockPath) {
   process.exit(2);
 }
 mkdirSync(dirname(sockPath), { recursive: true });
+// a socket file left behind by the previous run makes bind() fail with
+// EADDRINUSE, and then every check silently talks to nothing
+try {
+  unlinkSync(sockPath);
+} catch {
+  // nothing to remove
+}
 
 const peers = new Map(); // address -> socket
 
