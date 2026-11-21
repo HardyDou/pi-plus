@@ -619,7 +619,7 @@ pp cron ls
 pp cron install
 ```
 
-### `pp why <会话> [--json]`
+### `pp why <会话|机器> [--json]`
 
 3am 的那一个问题："它为什么是这个状态？"——把配置、tmux、`state.json`、cron 文件里的既有事实读出来，
 只打印一行结论。
@@ -639,6 +639,22 @@ look     pp logs api · pp audit --target api · pp status api
 
 结论按优先级给：机器不可达 → drained → 手工停过 → 在跑 → `restart: no` → 该在跑却没在跑。
 **只读**，不改任何东西；`--json` 输出同样的事实（含 `reason`、`lastStart`、`restarts`、`cron`、`todos`）。
+
+`--node <机器>` 问的是同一件事，对象是整台机器：能不能 ssh 上去、那边的 tmux 答不答话、这台机器是不是
+在维护（drained）、以及它的每个会话是不是该起来。
+
+```bash
+$ pp why --node t114
+t114  user@192.168.5.114 · tags:test,baohan
+state    reachable — 1 of 2 session(s) down  (358ms)
+machine  Linux 6.8.0-142-generic x86_64 · tmux v3.4 · pi installed
+load     0.58 0.71 0.81 · up 50d
+api      up   2m idle
+web      down  restart: no — pp up web
+look     pp node test t114 · pp status --node t114 · pp node exec t114 -- uptime
+```
+
+结论优先级：ssh 不通 → tmux 不应答 → 机器在维护 → 这台机器上压根没有配置会话 → 全起 → 有 N 个没起。
 
 ### `pp role <会话> [角色|-]`
 
