@@ -533,7 +533,7 @@ pp mv 3 --node prod-01 --cwd /srv/app # 顺便换目录（会在目标机上检�
 `STATE` 取值：`running`、`attached`（有人正在看）、`dead`（pane 退出但被 `remain-on-exit` 保留）、`off`（配置了但没跑 / `restart: no` / 手动停过）。
 
 选项：`--idle-over 30m`（只列安静超过这么久的会话，`s`/`m`/`h`/`d`）、
-`--sort config|idle|name`（`idle` 是"最久没动优先"）、`--node <名>`、`--json`、`-q`。
+`--sort config|idle|name|role`（`idle` 是"最久没动优先"，`role` 把同一标签的会话挨在一起）、`--node <名>`、`--json`、`-q`。
 
 `--idle-over` 和面板里 `s` 的琥珀 `!` 是同一件事的两种用法：一个看快照，一个盯着看。
 

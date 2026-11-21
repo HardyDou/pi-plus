@@ -1973,10 +1973,10 @@ function cmdStatus(config, options, ui) {
     };
   })();
 
-  const SORT_KEYS = new Set(["config", "idle", "name"]);
+  const SORT_KEYS = new Set(["config", "idle", "name", "role"]);
   const sortKey = options.sort ?? config.sort ?? "config";
   if (!SORT_KEYS.has(sortKey)) {
-    ui.error(`unknown --sort "${sortKey}" (try config, idle, name)`);
+    ui.error(`unknown --sort "${sortKey}" (try config, idle, name, role)`);
     process.exit(2);
   }
   const idleOver = options.idleOver ? parseDuration(options.idleOver, { what: "--idle-over" }) : null;
@@ -2073,6 +2073,18 @@ function cmdStatus(config, options, ui) {
   } else if (sortKey === "name") {
     // risk-2 before risk-10, and risk-01/risk-02/risk-pm next to each other
     shown = [...shown].sort((a, b) => compareNames(a.name, b.name));
+  } else if (sortKey === "role") {
+    // same label next to each other; unlabelled sessions sink to the bottom
+    shown = [...shown].sort((a, b) => {
+      const left = String(a.role ?? "");
+      const right = String(b.role ?? "");
+      if (left !== right) {
+        if (!left) return 1;
+        if (!right) return -1;
+        return compareNames(left, right);
+      }
+      return compareNames(a.name, b.name);
+    });
   }
 
   if (ui.json) {
@@ -2457,6 +2469,18 @@ async function cmdTui(config, options, ui) {
       // --once should show the same order the live panel would
       if (key === "name") return [...rows].sort((a, b) => compareNames(a.name, b.name));
       if (key === "idle") return [...rows].sort((a, b) => (b.idleSeconds ?? -1) - (a.idleSeconds ?? -1));
+      if (key === "role") {
+        return [...rows].sort((a, b) => {
+          const left = String(a.role ?? "");
+          const right = String(b.role ?? "");
+          if (left !== right) {
+            if (!left) return 1;
+            if (!right) return -1;
+            return compareNames(left, right);
+          }
+          return compareNames(a.name, b.name);
+        });
+      }
       return rows;
     }
     // same drift sentence as the live panel, so --once is a fair sample

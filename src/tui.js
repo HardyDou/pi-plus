@@ -22,7 +22,7 @@ const SHOW_CURSOR = `${ESC}?25h`;
 const ALT_SCREEN = `${ESC}?1049h`;
 const MAIN_SCREEN = `${ESC}?1049l`;
 /** How the session list can be ordered (`s` cycles through these). */
-const SORTS = ["config", "idle", "name"];
+const SORTS = ["config", "idle", "name", "role"];
 
 /** Trailers keep the cursor from ever wrapping onto a new line. */
 const WRAP_OFF = `${ESC}?7l`;
@@ -356,7 +356,7 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     todoRows: 0,
     /** false = the preview keeps the last frame it showed (someone is reading it) */
     follow: true,
-    /** config | idle (quietest first) | name — see SORTS */
+    /** config | idle (quietest first) | name | role — see SORTS */
     sort: SORTS.includes(sort) ? sort : "config",
     /** substring the session list is narrowed to; "" = everything */
     filter: "",
@@ -423,6 +423,21 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     if (state.sort === "idle") {
       // quietest first; rows with no activity at all (stopped) come last
       indices.sort((a, b) => (rows[b].idleSeconds ?? -1) - (rows[a].idleSeconds ?? -1));
+    } else if (state.sort === "role") {
+      // a label is the thing you group by: same role adjacent, none last
+      indices.sort((a, b) => {
+        const left = String(rows[a].role ?? "");
+        const right = String(rows[b].role ?? "");
+        if (left !== right) {
+          if (!left) return 1;
+          if (!right) return -1;
+          return left.localeCompare(right, undefined, { numeric: true, sensitivity: "base" });
+        }
+        return String(rows[a].name ?? "").localeCompare(String(rows[b].name ?? ""), undefined, {
+          numeric: true,
+          sensitivity: "base",
+        });
+      });
     } else if (state.sort === "name") {
       indices.sort((a, b) =>
         String(rows[a].name ?? "").localeCompare(String(rows[b].name ?? ""), undefined, {
@@ -644,7 +659,9 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
           ? "sorted: quietest first (s cycles)"
           : next === "name"
             ? "sorted: by name (s cycles)"
-            : "sorted: config order (s cycles)",
+            : next === "role"
+              ? "sorted: by role (s cycles)"
+              : "sorted: config order (s cycles)",
       );
       return;
     }

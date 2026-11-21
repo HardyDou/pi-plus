@@ -332,7 +332,7 @@ test("a config can ask for name ordering, and roles are labels", () => {
 test("a bad sort key or role is refused with the reason", () => {
   assert.throws(
     () => normalizeConfig(parseYaml("sort: sideways\nsessions: []\n"), { configPath: "t.yml" }),
-    /sort "sideways" must be one of config, idle, name/,
+    /sort "sideways" must be one of config, idle, name, role/,
   );
   assert.throws(
     () => normalizeConfig(parseYaml("sessions:\n  - name: a\n    cwd: /tmp\n    role: '!!'\n"), { configPath: "t.yml" }),

@@ -540,6 +540,12 @@ test("s cycles the session order and keeps the cursor on the same session", asyn
   await settle();
   assert.match(frame(), /by name/);
 
+  // a fourth档: by role (no roles in this fixture, so name order stands in)
+  input.emit("data", "s");
+  await settle();
+  assert.match(frame(), /by role/);
+  assert.equal(order(), "1 a 2 b 3 c", "by role falls back to name when nothing is labelled");
+
   input.emit("data", "s");
   await settle();
   assert.equal(order(), "2 b 1 a 3 c", "and back round to config order");

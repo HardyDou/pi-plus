@@ -280,6 +280,12 @@ check "a session role still wins"            0 'dev.*boxdocs'  bash -c "cd $E2E 
 # sort: name in the config means risk-2 and risk-10 sit in numeric order
 check "config sort orders by name"     0 'alpha'         bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK status | sed -n '2p'"
 
+# sort: role groups by label, and leaves the unlabelled at the bottom
+check "sort role puts one label together" 0 'risk-10'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --sort role status | grep -E 'risk-10|alpha' | head -1"
+# the last row must be one without a label (its ROLE column is a bare dash)
+check "sort role sinks the unlabelled"    0 '^-$'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --sort role status | grep -E '^[0-9]+ ' | tail -1 | awk '{print \$NF}'"
+check "an unknown sort lists the four"    2 'name, role' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --sort nope status 2>&1"
+
 # --role is a filter for the fan-out verbs too, not just for the table
 check "send --role only reaches that role" 0 'risk-10:' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role pm send --dry-run 'hey' 2>&1"
 check "send --role skips other roles"  0 '^1$'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role pm send --dry-run 'hey' 2>&1 | grep -c 'send-keys'"

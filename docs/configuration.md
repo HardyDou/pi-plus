@@ -123,7 +123,7 @@ defaults:
   env:
     TZ: Asia/Shanghai
 
-sort: name            # config | idle | name — default row order
+sort: name            # config | idle | name | role — default row order
 sessions:
   # ① 最简：只想后台跑一个 pi，名字/目录都用默认规则
   - name: backend
@@ -188,10 +188,14 @@ name: backend
 ## 默认排序：`sort:`
 
 ```yaml
-sort: name      # config（默认，按文件顺序）| idle（最安静优先）| name（按名字）
+sort: name      # config（默认，按文件顺序）| idle（最安静优先）| name（按名字）| role（按角色）
 ```
 
 `name` 是给"同族会话要挨在一起"用的：`risk-01`、`risk-02`、`risk-pm` 会连成一片，即使 `risk-pm`
 是后来才加进文件的。排序是**数字感知**的（`risk-2` 在 `risk-10` 之前），大小写不敏感。
-命令行 `--sort config|idle|name` 随时覆盖配置里的默认值；`pp tui` 的 `s` 键三档循环。
+
+`role` 是按标签分组：同一个 `role` 的会话连成一片，组内按名字排，**没有角色的排到最后**
+（所以 `/` 过滤之外，你还能从表格底部一眼看到"还没分类的那几台"）。
+
+命令行 `--sort config|idle|name|role` 随时覆盖配置里的默认值；`pp tui` 的 `s` 键四档循环。
 

@@ -427,7 +427,7 @@ export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
 
   // `sort: name` lets a machine default to "related sessions next to each
   // other" without every command line saying so.
-  const SORT_CHOICES = new Set(["config", "idle", "name"]);
+  const SORT_CHOICES = new Set(["config", "idle", "name", "role"]);
   let sort = "config";
   if (raw.sort !== undefined && raw.sort !== null) {
     const value = String(raw.sort).trim().toLowerCase();
