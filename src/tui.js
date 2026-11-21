@@ -139,6 +139,7 @@ export function parseKeys(input) {
       else if (char === "f") keys.push("follow");
       else if (char === "s") keys.push("sort");
       else if (char === "D") keys.push("drift");
+      else if (char === "/") keys.push("filter");
       i += 1;
     }
   }
@@ -357,6 +358,12 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     follow: true,
     /** config | idle (quietest first) | name — see SORTS */
     sort: SORTS.includes(sort) ? sort : "config",
+    /** substring the session list is narrowed to; "" = everything */
+    filter: "",
+    /** true while the `/` box has the keyboard */
+    typing: false,
+    /** what has been typed into that box so far */
+    input: "",
   };
   let running = false;
   /**
@@ -378,7 +385,14 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     const off = state.sessions.filter((row) => row.state === "off" || row.state === "dead" || row.state === "stopped").length;
     const unmanaged = state.sessions.filter((row) => row.unmanaged).length;
     const drift = [off ? `${off} off` : null, unmanaged ? `${unmanaged} unmanaged` : null].filter(Boolean).join(" · ");
-    const base = " ↑↓ move · PgUp/PgDn · Tab · Enter attach · d done · D start what is off · [ ] width · -/+ rows · f follow · q quit ";
+    if (state.typing) {
+      const typed = `/ ${state.input}▌`;
+      return `${DIM}${padWidth(` ${typed}  (Enter filter · Esc clear · ${filteredIndices().length} match)`, io.size().cols)}${RESET}`;
+    }
+    const total = state.sessions.length;
+    const shown = filteredIndices().length;
+    const filterNote = state.filter ? `filter: ${state.filter} (${shown}/${total}) · / clear · ` : "/ find · ";
+    const base = ` ↑↓ move · PgUp/PgDn · Tab · Enter attach · ${filterNote}d done · D start what is off · [ ] width · -/+ rows · f follow · q quit `;
     const text = extra ? `${paused}${extra}  ${base}` : `${paused}${base}`;
     return `${drift ? `${YELLOW}${drift}${RESET}${DIM} · ` : ""}${DIM}${padWidth(text, io.size().cols)}${RESET}`;
   }
@@ -389,9 +403,23 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
    * otherwise a list that reorders itself every second (idle sort) would move
    * the cursor under the user's hands.
    */
+  /** Rows that pass the substring filter (`/risk`), by index into state.sessions. */
+  function filteredIndices() {
+    // while the box is open the list narrows as you type, so you see the match
+    // count next to what you are typing instead of after pressing Enter
+    const needle = String((state.typing ? state.input : state.filter) ?? "").trim().toLowerCase();
+    const indices = state.sessions.map((_, i) => i);
+    if (!needle) return indices;
+    return indices.filter((index) => {
+      const row = state.sessions[index] ?? {};
+      const hay = `${row.name ?? ""} ${row.node ?? ""} ${row.state ?? ""}`.toLowerCase();
+      return hay.includes(needle);
+    });
+  }
+
   function sessionOrder() {
     const rows = state.sessions;
-    const indices = rows.map((_, i) => i);
+    const indices = filteredIndices();
     if (state.sort === "idle") {
       // quietest first; rows with no activity at all (stopped) come last
       indices.sort((a, b) => (rows[b].idleSeconds ?? -1) - (rows[a].idleSeconds ?? -1));
@@ -420,6 +448,43 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     const visible = state.todos.slice(state.todoOffset, state.todoOffset + 200);
     const todos = visible.map((item, index) => ({ ...item, selected: state.todoOffset + index === state.todoIndex }));
     return { ...state, sessions, todos };
+  }
+
+  /** While the filter box is open every keystroke is text, not a command. */
+  async function handleFilterInput(chunk) {
+    const text = String(chunk ?? "");
+    let changed = false;
+    for (const char of text) {
+      if (char === "\r" || char === "\n") {
+        state.filter = state.input.trim();
+        state.typing = false;
+        state.input = "";
+        state.sessionOffset = 0;
+        const rows = filteredIndices();
+        if (!rows.includes(state.sessionIndex) && rows.length) state.sessionIndex = rows[0];
+        changed = true;
+        break;
+      }
+      if (char === "\u001b") {
+        // escape: forget the filter entirely — the list is never a hidden state
+        state.typing = false;
+        state.input = "";
+        state.filter = "";
+        state.sessionOffset = 0;
+        changed = true;
+        break;
+      }
+      if (char === "\u007f" || char === "\b") {
+        state.input = state.input.slice(0, -1);
+        changed = true;
+        continue;
+      }
+      if (char !== "\u0003" && char >= " ") {
+        state.input += char;
+        changed = true;
+      }
+    }
+    if (changed) draw();
   }
 
   function draw() {
@@ -491,7 +556,7 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     const visible = panelHeight(state.focus);
     const window = state.focus === "sessions" ? "sessionOffset" : "todoOffset";
     const index = state.focus === "sessions" ? sessionPos() : state.todoIndex;
-    const total = state.focus === "sessions" ? state.sessions.length : state.todos.length;
+    const total = state.focus === "sessions" ? filteredIndices().length : state.todos.length;
     let offset = Math.max(0, state[window] ?? 0);
     if (index < offset) offset = index;
     else if (index >= offset + visible) offset = index - visible + 1;
@@ -499,6 +564,21 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
   }
 
   async function handle(key) {
+    if (key === "filter") {
+      state.typing = true;
+      state.input = state.filter ?? "";
+      draw();
+      return;
+    }
+    if (key === "escape" && state.filter) {
+      // Esc undoes the narrowest thing first: the filter, then the panel
+      state.filter = "";
+      state.input = "";
+      state.sessionOffset = 0;
+      keepVisible();
+      draw();
+      return;
+    }
     if (key === "quit" || key === "escape") {
       quit();
       return;
@@ -619,6 +699,10 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
       io.input.resume();
       io.input.setEncoding("utf8");
       io.input.on("data", (chunk) => {
+        if (state.typing) {
+          handleFilterInput(chunk).catch(() => {});
+          return;
+        }
         for (const key of parseKeys(chunk)) {
           handle(key).catch(() => {});
         }

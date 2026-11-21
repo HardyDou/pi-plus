@@ -547,3 +547,33 @@ test("s cycles the session order and keeps the cursor on the same session", asyn
   input.emit("data", "q");
   await done;
 });
+
+test("the / box narrows the session list to a substring, and Esc forgets it", async () => {
+  const { input, io, lastFrame } = fakeIo({
+    sessions: [
+      { label: "1 risk-01  running", name: "risk-01", state: "running" },
+      { label: "2 risk-02  running", name: "risk-02", state: "running" },
+      { label: "3 mango-release-01  running", name: "mango-release-01", state: "running" },
+    ],
+    todos: [],
+    preview: ["x"],
+  });
+  const tui = createTui({ io });
+  const done = tui.start();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  input.emit("data", "/");
+  input.emit("data", "risk");
+  assert.match(lastFrame(), /Enter filter · Esc clear · 2 match/, "the box counts what it matches");
+  input.emit("data", "\r");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  const narrowed = lastFrame();
+  assert.match(narrowed, /risk-01/);
+  assert.match(narrowed, /risk-02/);
+  assert.doesNotMatch(narrowed, /mango-release-01/, "the filtered-out row is gone, not dimmed");
+  assert.match(narrowed, /filter: risk \(2\/3\)/);
+  input.emit("data", "\u001b");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  assert.match(lastFrame(), /mango-release-01/, "Esc puts the whole list back");
+  input.emit("data", "q");
+  await done;
+});
