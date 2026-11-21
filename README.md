@@ -700,4 +700,5 @@ works via `agent:`).
 
 MIT © 2026 HardyDou
 
+| `pp why risk-01` | 一句话解释它为什么是这个状态（drain/手工停/该在跑却没在跑） |
 | `pp role risk-01 pm` | 给会话贴角色标签（`dev`/`pm`/`qa`）；`--role` 可筛选表，也能筛选批量动作（`pp send --role pm "…"`） |

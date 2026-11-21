@@ -210,6 +210,9 @@ bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK up risk-10" >/dev
 check "logs --role reads that role"    0 '' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role pm logs -n 2 2>&1"
 check "logs --role with no match says so" 2 'no session has role' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role qa logs -n 2 2>&1"
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK down risk-10 --force" >/dev/null 2>&1
+check "why explains a stopped session" 0 'should be up but is not' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK why risk-2 2>&1"
+check "why --json gives the facts"     0 '"state"'                 bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK why risk-2 --json 2>&1"
+check "why rejects an unknown session" 2 'unknown session'         bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK why nosuch 2>&1"
 check "up --role starts that role"     0 'risk-10' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role pm up --dry-run 2>&1"
 
 section "ready"

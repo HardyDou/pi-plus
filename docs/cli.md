@@ -619,6 +619,27 @@ pp cron ls
 pp cron install
 ```
 
+### `pp why <会话> [--json]`
+
+3am 的那一个问题："它为什么是这个状态？"——把配置、tmux、`state.json`、cron 文件里的既有事实读出来，
+只打印一行结论。
+
+```bash
+$ pp why api
+api  tmux:api · node:t114 · role:pm
+state    off (drain) — machine t114 is drained — pp node undrain t114
+cwd      /srv/api
+agent    pi  pid -
+restart  always
+last start  12m ago by heal (bob@host#8123)
+restarts    3× in 20m — heal
+cron     a59cfc prompt (in 4m (10:41))
+look     pp logs api · pp audit --target api · pp status api
+```
+
+结论按优先级给：机器不可达 → drained → 手工停过 → 在跑 → `restart: no` → 该在跑却没在跑。
+**只读**，不改任何东西；`--json` 输出同样的事实（含 `reason`、`lastStart`、`restarts`、`cron`、`todos`）。
+
 ### `pp role <会话> [角色|-]`
 
 给会话贴一个"它是干什么的"标签。角色是给**人**看的，不参与任何调度决策——`pp up` / `heal` / `--drift`

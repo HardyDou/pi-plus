@@ -2753,6 +2753,140 @@ export function grepLines(text, pattern, { context = 0, ignoreCase = false } = {
   return { text: out.join("\n"), matches };
 }
 
+/**
+ * `pp why <session>`: one screen that answers "why is it like this".
+ *
+ * Every fact it prints already exists in state.json, the config, tmux and the
+ * cron file — the point is that an exhausted person at 3am should not have to
+ * know where. Nothing here changes anything.
+ */
+async function cmdWhy(config, options, ui) {
+  const ref = (options.names ?? [])[0];
+  if (!ref) {
+    ui.error("usage: pp why <name|#> [--json]");
+    process.exit(2);
+  }
+  const session = resolveSessionRef(config, ref);
+  if (!session) {
+    ui.error(`unknown session "${ref}" (${config.sessions.length} session(s) configured; see pp ls)`);
+    process.exit(2);
+  }
+  const tmux = makeTmux(config, options, session);
+  let entry = null;
+  let reachable = true;
+  try {
+    reachable = tmux.reachable();
+    entry = reachable ? tmux.listSessions().get(session.tmuxName) ?? null : null;
+  } catch {
+    reachable = false;
+  }
+  const pane = entry?.panes?.[0] ?? null;
+  const running = Boolean(entry && pane && !pane.dead);
+  const state = !reachable ? "unreachable" : !entry ? "stopped" : pane?.dead ? "dead" : entry.attached > 0 ? "attached" : "running";
+  const stopped = isStopped(config.path, session.name);
+  const drain = drainOf(config, session);
+  const guard = guardOf(config, session);
+  const cwdMissing = session.node ? null : !existsSync(expandPath(session.cwd));
+  const started = startedOf(config.path, session.name, process.env);
+  const restarts = restartsOf(config.path, session.name, process.env);
+  const now = Date.now();
+  const recent = restarts.filter((item) => now - Date.parse(item.at) < 60 * 60 * 1000);
+
+  const jobs = (() => {
+    try {
+      return readJobs().filter((job) => job.session === session.tmuxName || job.session === ALL_SESSIONS);
+    } catch {
+      return [];
+    }
+  })();
+  const todos = (() => {
+    try {
+      return readTodos().filter((todo) => todo.state !== "done" && todo.session === session.tmuxName).length;
+    } catch {
+      return 0;
+    }
+  })();
+
+  // the one-line diagnosis: what stops it from being up, in priority order
+  let verdict;
+  if (!reachable) verdict = `machine ${session.node} is not reachable — check it, then pp node test ${session.node}`;
+  else if (drain) verdict = `machine ${session.node} is drained — pp node undrain ${session.node} to let it start`;
+  else if (stopped) verdict = "stopped on purpose — pp up " + session.name + " brings it back";
+  else if (running) verdict = "up and answering \u2014 pp logs " + session.name + " to see what it is doing";
+  else if (session.restart === "no") verdict = "not running, and its restart policy is `no` — pp up " + session.name;
+  else verdict = "should be up but is not \u2014 pp up " + session.name;
+
+  if (ui.json) {
+    ui.out(
+      JSON.stringify(
+        {
+          name: session.name,
+          tmux: session.tmuxName,
+          node: session.node,
+          role: session.role,
+          state,
+          verdict,
+          reason: { stopped, drained: Boolean(drain), guarded: Boolean(guard), cwdMissing },
+          cwd: session.cwd,
+          agent: session.agent,
+          restart: session.restart,
+          lastStart: started ?? null,
+          restarts,
+          busy: running ? Boolean(tmux.isAgentBusy()) : false,
+          cron: jobs.map((job) => job.id),
+          todos,
+        },
+        null,
+        2,
+      ),
+      null,
+    );
+    return;
+  }
+
+  const line = (label, text) => ui.out(`${ui.paint("dim", label.padEnd(9))}${text}`);
+  const inside = session.tmuxName === session.name ? "" : `tmux:${session.tmuxName}`;
+  const target = [inside, session.node ? `node:${session.node}` : "", session.role ? `role:${session.role}` : ""]
+    .filter(Boolean)
+    .join(" \u00b7 ");
+  ui.out(`${ui.paint("bold", session.name)}${target ? `  ${ui.paint("dim", target)}` : ""}`);
+  line("state", `${state === "running" && running ? ui.paint("green", state) : state} — ${verdict}`);
+  line("cwd", `${session.cwd}${cwdMissing ? ui.paint("red", "  (missing!)") : ""}`);
+  line("agent", `${session.agent.join(" ")}${running && pane?.pid ? ui.paint("dim", `  pid ${pane.pid}`) : ""}`);
+  line("restart", `${session.restart}${session.restart === "no" ? ui.paint("dim", "  (never started automatically)") : ""}`);
+  if (guard) line("guarded", ui.paint("yellow", "pp down/rm ask for --force"));
+  if (started) {
+    line("last start", `${agoText(started.at, new Date(now))} ago by ${started.why}${started.by ? ui.paint("dim", ` (${started.by})`) : ""}`);
+  }
+  if (restarts.length) {
+    const whys = [...new Set(restarts.map((item) => item.why))].join(", ");
+    const text = `${restarts.length}× in ${agoText(restarts[0].at, new Date(now))} — ${whys}`;
+    line("restarts", recent.length >= 3 ? ui.paint("yellow", text) : text);
+  }
+  if (jobs.length) {
+    line(
+      "cron",
+      jobs
+        .map((job) => {
+          const next = describeNext(nextRun(job, new Date(now)), new Date(now));
+          return `${job.id} ${job.action ?? job.schedule.kind}${next.text !== "-" ? ` (${next.text})` : ""}`;
+        })
+        .join(" · "),
+    );
+  }
+  if (todos) line("todos", `${todos} waiting — pp todo`);
+  if (running) {
+    let busy = false;
+    try {
+      busy = tmux.isAgentBusy();
+    } catch {
+      busy = false;
+    }
+    if (busy) line("agent", ui.paint("dim", "mid-turn — a prompt sent now would be queued or lost"));
+  }
+  line("look", `pp logs ${session.name}  ·  pp audit --target ${session.name}  ·  pp status ${session.name}`);
+}
+
 function cmdLogs(config, options, ui) {
   const names = (options.names ?? []).filter((name) => name !== undefined);
   if (names.length === 0 && !options.all && !options.role) {
@@ -5230,6 +5364,10 @@ export async function runCommand(command, options) {
     case "adopt": {
       const config = requireConfig(options, ui);
       return cmdAdopt(config, options, ui);
+    }
+    case "why":
+    case "explain": {
+      return cmdWhy(requireConfig(options, ui), options, ui);
     }
     case "role": {
       const config = requireConfig(options, ui);
