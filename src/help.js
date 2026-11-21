@@ -356,7 +356,7 @@ export const COMMANDS = [
   {
     name: "role",
     summary: "Label a session with what it is for (dev, pm, qa …)",
-    usage: "pp role <name|#> [role|-]",
+    usage: "pp role <name|#> [role|-]  ·  pp role --list",
     details: [
       "A role is a label for people: `pp status` grows a ROLE column once any",
       "session has one, `pp tui` shows it next to the name, and `--role` narrows",
@@ -366,6 +366,11 @@ export const COMMANDS = [
       "`--drift` treat a session the same whatever its label says. That keeps a",
       "typo in a label from silently changing what starts at 3am.",
       "",
+      "`pp role --list` answers the other half of the question — what words do we",
+      "actually use? Each label, its members, and how many sessions are still",
+      "unlabeled, so `--role` is not guessed from memory at 3am.",
+      "",
+      "  pp role --list            every label in use, with its sessions",
       "  pp role risk-01 pm        set it",
       "  pp role risk-01           show it",
       "  pp role risk-01 -         clear it",
@@ -381,7 +386,8 @@ export const COMMANDS = [
       "and every change lands in `pp audit --action config.changed`.",
     ].join("\n"),
     options: [],
-    examples: ["pp role risk-01 pm", "pp status --role pm", "pp tui"],
+    options: ["--list          every label in use, with the sessions carrying it", "--json          machine-readable list (with --list)"],
+    examples: ["pp role --list", "pp role risk-01 pm", "pp status --role pm", "pp tui"],
     see: ["status", "audit", "new"],
   },
   {

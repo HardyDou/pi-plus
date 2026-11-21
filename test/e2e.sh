@@ -215,6 +215,10 @@ check "status --role is case-insensitive" 0 'risk-10.*pm' bash -c "cd $E2E && $R
 check "an unknown role says so"        2 'no session has role "qa"' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role qa status"
 check "role - clears the label"        0 'no role'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role risk-2 -"
 check "clearing removes the line"      0 '^1$'           bash -c "grep -c 'role:' $ROLECFG"
+# "what words do we use?" — the list has to be readable, not machine-only
+check "role --list names label and members" 0 'pm.*risk-10' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role --list"
+check "role --list --json is a list"   0 '\"role\": \"pm\"'     bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role --list --json"
+check "no role at all says so"         0 'no session carries a role' bash -c "cd $E2E && sed 's/^    role: pm$//' $ROLECFG > $ROLECFG.bare && $ROOT/bin/pp.js -c $ROLECFG.bare --socket $SOCK role --list"
 # sort: name in the config means risk-2 and risk-10 sit in numeric order
 check "config sort orders by name"     0 'alpha'         bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK status | sed -n '2p'"
 

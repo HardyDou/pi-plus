@@ -5469,10 +5469,50 @@ function deliverJob(job, options) {
  * The role is a label for people ("what is this one for?"), so it never changes
  * how pp schedules or heals anything.
  */
+export function rolesInUse(config) {
+  // what can go into --role: the labels actually written down, with how many
+  // sessions carry each — `pp role --list` answers "what words do we use?".
+  const counts = new Map();
+  for (const session of config.sessions) {
+    const role = session.role;
+    if (!role) continue;
+    const key = counts.get(role) ?? { role, sessions: [] };
+    key.sessions.push(session.name);
+    counts.set(role, key);
+  }
+  return [...counts.values()]
+    .map((entry) => ({ ...entry, sessions: [...entry.sessions].sort(compareNames), count: entry.sessions.length }))
+    .sort((a, b) => b.count - a.count || compareNames(a.role, b.role));
+}
+
 export function cmdRole(config, options, ui) {
   const [ref, ...rest] = options.names ?? [];
+  if (options.list || ref === "--list") {
+    const roles = rolesInUse(config);
+    if (ui.json) {
+      ui.out(JSON.stringify(roles, null, 2));
+      return;
+    }
+    if (!roles.length) {
+      ui.out(ui.paint("dim", `no session carries a role yet — pp role <name> <role>`));
+      return;
+    }
+    // roles are ASCII by contract (roleOf rejects the rest), so length is width
+    const width = Math.max(...roles.map((entry) => String(entry.role).length));
+    for (const entry of roles) {
+      ui.out(`  ${String(entry.role).padEnd(width)}  ${ui.paint("dim", `${entry.count}`.padStart(2))}  ${entry.sessions.join(", ")}`);
+    }
+    const unlabeled = config.sessions.filter((session) => !session.role).length;
+    ui.info(
+      ui.paint(
+        "dim",
+        `${roles.length} role${roles.length === 1 ? "" : "s"} · ${unlabeled} session${unlabeled === 1 ? "" : "s"} without one${unlabeled ? " — pp role <name> <role>" : ""}`,
+      ),
+    );
+    return;
+  }
   if (!ref) {
-    ui.error("give a session: pp role <name|#> [role]");
+    ui.error("give a session: pp role <name|#> [role] — or: pp role --list");
     process.exitCode = 2;
     return;
   }

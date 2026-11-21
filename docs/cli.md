@@ -896,7 +896,15 @@ next: pp status --role pm
 $ pp status --role pm        # 只看 pm（大小写不敏感）
 $ pp role risk-01            # 看当前标签
 $ pp role risk-01 -          # 清除
+
+$ pp role --list             # 我们到底用了哪些词？
+  risk  2  risk-01, risk-02
+  dev   1  web
+2 roles · 1 session without one — pp role <name> <role>
 ```
+
+`pp role --list` 是 `--role` 的另一半：它把**实际写过**的标签连同成员一起列出来（按用得多少排序），
+末尾告诉你还有几个会话没标签。`--json` 给机器：`[{ "role": "risk", "sessions": ["risk-01", "risk-02"], "count": 2 }]`。
 
 `--role` 也能收窄任何"批量"动作（过滤发生在 `selectSessions`，与 `--node`/`--tag` 同一个关卡）：
 
