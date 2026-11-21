@@ -3202,7 +3202,7 @@ export async function planFacts(config, options) {
   const extensionNow = installedExtension(env);
   const own = ownVersion();
   facts.extension = extensionNow
-    ? { stale: extensionNow.version !== own, want: own, command: `npm install --prefix ${dirname(extensionNow.dir)} pi-farm@${own} --registry https://registry.npmjs.org/` }
+    ? { stale: extensionNow.version !== own, want: own, command: `npm install --prefix ${extensionPrefix(extensionNow.dir)} pi-farm@${own} --registry https://registry.npmjs.org/` }
     : null;
   return facts;
 }
@@ -4374,7 +4374,7 @@ function ownVersion() {
 function describeExtension(installed, own) {
   if (!installed) return "not installed — pi install npm:pi-farm  (needed for /pp-* commands)";
   if (installed.version !== own) {
-    return `${installed.version} but this cli is ${own} — npm install --prefix ${dirname(installed.dir)} pi-farm@${own} --registry https://registry.npmjs.org/`;
+    return `${installed.version} but this cli is ${own} — npm install --prefix ${extensionPrefix(installed.dir)} pi-farm@${own} --registry https://registry.npmjs.org/`;
   }
   return `pi-farm@${installed.version} in ${installed.dir}`;
 }
@@ -4955,6 +4955,29 @@ function cmdUninstall(options, ui) {
   ui.info(`removed ${result.removed.join(", ")}`);
 }
 
+/**
+ * `--prefix` wants the directory whose `node_modules` holds the package, not
+ * the package directory itself. `…/npm/node_modules/pi-farm` → `…/npm`.
+ */
+export function extensionPrefix(dir) {
+  const parts = String(dir ?? "").split("/");
+  if (parts.length < 3) return String(dir ?? "");
+  if (parts[parts.length - 2] === "node_modules") return parts.slice(0, -2).join("/") || "/";
+  return parts.slice(0, -1).join("/") || "/";
+}
+
+/**
+ * The one-liner that upgrades the pi extension, or null when it is current.
+ *
+ * `/pp-*` commands come from the extension, not from the cli, and npm never
+ * upgrades it: `pp update` and `pp doctor` both have to say this out loud.
+ */
+export function extensionUpgradeHint(extension, own) {
+  if (!extension || !own || !extension.version) return null;
+  if (compareVersions(extension.version, own) >= 0) return null;
+  return `npm install --prefix ${extensionPrefix(extension.dir)} pi-farm@${own} --registry https://registry.npmjs.org/`;
+}
+
 async function cmdUpdate(options, ui) {
   const current = readManifest(packageRoot()).version;
   const info = installKind(scriptPath(options));
@@ -5030,6 +5053,15 @@ async function cmdUpdate(options, ui) {
   }
   const after = readManifest(packageRoot()).version;
   if (compareVersions(after, latest) >= 0) ui.info(`now pi-farm ${after}`);
+  // the /pp-* commands live in the pi extension, which npm does not touch:
+  // upgrading the cli alone leaves a stale extension behind (it has bitten us
+  // twice — a command that "does not exist" although the version looked right)
+  const extension = installedExtension(process.env);
+  const hint = extensionUpgradeHint(extension, after);
+  if (extension && hint) {
+    ui.warn(`the pi extension is still ${extension.version} — /pp-* commands come from it, not from the cli`);
+    ui.info(ui.paint("dim", `${hint}  (then /reload inside pi)`));
+  }
   else if (result.status === 0) {
     ui.error(`npm finished but this copy is still ${after} (another pi-farm may shadow it: type -a pp)`);
     process.exitCode = 1;

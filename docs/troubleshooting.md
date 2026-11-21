@@ -437,6 +437,18 @@ pp up backend --dry-run -v                    # 打印最终 argv + env
 [dry-run] tmux new-session -d -s backend -c /home/you/code/backend -- env ... pi --name backend
 ```
 
+## 升级之后 `/pp-xxx` 还是"命令不存在"
+
+`/pp-*` 来自 **pi 扩展**，npm 只升级 cli，从不升级它 —— 版本号看着对，命令却是旧的。
+
+`pp doctor` 和 `pp update` 现在都会直接给命令（`--prefix` 指向 `node_modules` 的**上一级**）：
+
+```
+✗ pi extension   0.73.1 but this cli is 0.74.0 — npm install --prefix ~/.pi/agent/npm pi-farm@0.74.0 --registry https://registry.npmjs.org/
+```
+
+跑完在 pi 里 `/reload`。`pi install npm:pi-farm` 对已装过的包只会说 `up to date`，所以**必须**用上面这条 `npm install --prefix …`。
+
 ## `pp doctor` 本身不工作
 
 `pp doctor` 的价值在于"什么坏了都能告诉你"，包括 **tmux 没装**（0.70.0 之前它在这种情况下直接 `exit 1` 并只打一行

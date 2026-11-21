@@ -945,6 +945,15 @@ check "quarantine moves it aside"        0 'broken-'                      bash -
 check "the broken copy is kept"          0 '^1$'                         bash -c "ls $XDG_STATE_HOME/pi-plus/state.json.broken-* | wc -l | tr -d ' '"
 check "afterwards it is clean"           0 'nothing to quarantine'        bash -c "cd $E2E && $ROOT/bin/pp.js doctor --quarantine"
 
+section "update tells you about the extension"
+# npm upgrades the cli, never the pi extension: say it with the right --prefix
+mkdir -p "$E2E/state/fakeext/pi-farm" && printf '{"name":"pi-farm","version":"0.1.0"}\n' > "$E2E/state/fakeext/pi-farm/package.json"
+check "doctor names the extension upgrade"  1 'npm install --prefix' bash -c "cd $E2E && PP_EXT_DIR=$E2E/state/fakeext/pi-farm $ROOT/bin/pp.js -c $CFG doctor 2>&1"
+# the prefix must be the directory that *contains* node_modules: …/fakeext, not
+# …/fakeext/node_modules (which is where `dirname(pkg dir)` used to land)
+check "and the prefix stops at node_modules"  0 'state/fakeext '  bash -c "cd $E2E && PP_EXT_DIR=$E2E/state/fakeext/pi-farm $ROOT/bin/pp.js -c $CFG doctor 2>&1 | grep 'npm install --prefix' | sed 's/.*--prefix //'"
+rm -rf "$E2E/state/fakeext"
+
 section "backup / restore"
 check "a backup copies the config"        0 'plus.yml'      bash -c "cd $E2E && PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG --socket $SOCK backup 2>&1"
 check "it lists what it took"             0 'backup.* in '   bash -c "cd $E2E && PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG backup --list 2>&1"
