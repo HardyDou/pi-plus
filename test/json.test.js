@@ -173,6 +173,8 @@ test("doctor --json: every check carries the command that fixes it", () => {
   const box = sandbox();
   try {
     const result = box.pp(["doctor", "--json"]);
+    assert.equal(result.status, 0, `doctor --json exited ${result.status}: ${result.stderr}`);
+    assert.notEqual(result.text.trim(), "", `doctor --json printed nothing (stderr: ${result.stderr})`);
     const payload = JSON.parse(result.text);
     shape(payload, { checks: "array", failed: "array", warnings: "array" }, "doctor");
     for (const check of payload.checks) shape(check, { label: "string", ok: "boolean", detail: "string", fix: "string|null" }, `doctor.checks[${check.label}]`);
