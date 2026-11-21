@@ -437,6 +437,17 @@ check "cron add command job"      0 'scheduled [0-9a-f]'           bash -c "cd $
 CMD_ID=$(cd "$E2E" && "$ROOT/bin/pp.js" -c "$CFG" cron ls --json | grep -o '"id": "[0-9a-f]*"' | head -1 | cut -d'"' -f4)
 check "cron add once job"         0 'scheduled [0-9a-f]'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-always --in 1m 'echo from-cron'"
 check "cron ls lists both"        0 'every 5m'                 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
+# a job stuck in the past is a doctor finding, not just a column
+node -e '
+  const fs = require("fs");
+  const path = process.env.XDG_STATE_HOME + "/pi-plus/cron.json";
+  const data = JSON.parse(fs.readFileSync(path, "utf8"));
+  const job = data.jobs.find((j) => j.schedule.kind !== "once");
+  job.lastRun = new Date(Date.now() - 3600 * 1000).toISOString();
+  job.lastStatus = "delivered";
+  fs.writeFileSync(path, JSON.stringify(data, null, 2));
+'
+check "doctor reports a stuck job" 1 'is .* late — pp cron run' bash -c "pp doctor 2>&1"
 check "cron ls says when next"    0 'in [0-9]+[smh] \('        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
 check "cron ls --json has nextRun" 0 'nextRun'                 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls --json"
 check "cron rejects --every 0"    1 'must be positive'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-always --every 0 --command true"

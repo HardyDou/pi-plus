@@ -446,3 +446,11 @@ pp up <name> -v --dry-run
 ```
 
 把这四条的输出贴到 issue（记得先脱敏路径）。
+
+### 定时任务类
+
+| 现象 | 原因 | 处理 |
+| --- | --- | --- |
+| `pp doctor` 说 `0eed5f is 15m late — pp cron run 0eed5f` | tick 在跑但这条任务卡住（目标会话不存在、投递一直失败） | `pp cron log` 看它每次的结果；`pp cron run <id>` 手动跑一次；不再需要就 `pp cron rm <id>` |
+| 所有任务一起 late | tick 本身没跑：crontab 被清、机器刚醒 | `pp install`（或 `pp cron install`）重装 tick |
+| `last` 一直是 `deferred: … is working` | 目标会话的 agent 长期在 Working，pp 故意不打断 | `pp logs <会话>` 看那轮卡在哪；必要时在会话里 `Ctrl+C` |

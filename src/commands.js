@@ -3730,12 +3730,17 @@ function cmdDoctor(config, options, ui) {
     }
     const lastTick = jobs.reduce((newest, job) => Math.max(newest, Date.parse(job.lastRun ?? "") || 0), 0);
     const ageMinutes = lastTick ? Math.round((Date.now() - lastTick) / 60000) : null;
+    const overdue = overdueJobs(jobs);
     const detail = !jobs.length
       ? "no jobs — pp cron add --every 10m \"…\""
-      : `${jobs.length} job${jobs.length === 1 ? "" : "s"}, tick ${ticked ? "installed" : "not installed"}` +
-        (ageMinutes === null ? "" : `, last fired ${ageMinutes}m ago`);
-    const healthy = !jobs.length || (ticked && (ageMinutes === null || ageMinutes < 60));
-    add("cron", healthy, detail, "pp install");
+      : overdue.length
+        ? `${overdue[0].id} is ${overdue[0].late} late — pp cron run ${overdue[0].id}` +
+          (overdue.length > 1 ? ` (+${overdue.length - 1} more)` : "")
+        : `${jobs.length} job${jobs.length === 1 ? "" : "s"}, tick ${ticked ? "installed" : "not installed"}` +
+          (ageMinutes === null ? "" : `, last fired ${ageMinutes}m ago`);
+    const healthy =
+      !jobs.length || (ticked && (ageMinutes === null || ageMinutes < 60) && overdue.length === 0);
+    add("cron", healthy, detail, overdue.length ? `pp cron run ${overdue[0].id}` : "pp install");
   }
   add("config", Boolean(config), config?.path ?? "not found", "pp init");
   if (config?.nodes?.length) {
@@ -4546,6 +4551,29 @@ function deliverJob(job, options) {
 }
 
 /** Local wall-clock stamp: `2026-11-21 09:00` (the timezone cron jobs run in). */
+/**
+ * Jobs whose next run is in the past by more than a minute.
+ *
+ * A `deferred:` last status is not late — the tick fired and the target was
+ * busy, so the same schedule legitimately comes due again next minute. Anything
+ * else overdue means either the tick stopped or this one job is stuck.
+ */
+export function overdueJobs(jobs, now = new Date(), { grace = 60 } = {}) {
+  const late = [];
+  for (const job of jobs) {
+    if (job.done) continue;
+    if (String(job.lastStatus ?? "").startsWith("deferred:")) continue;
+    const due = nextRun(job, now);
+    if (!due) continue;
+    const seconds = Math.round((now.getTime() - due.getTime()) / 1000);
+    if (seconds <= grace) continue;
+    const minutes = Math.round(seconds / 60);
+    late.push({ id: job.id, session: job.session ?? null, seconds, late: minutes < 60 ? `${minutes}m` : `${Math.round(minutes / 60)}h` });
+  }
+  // the oldest one is the one to look at
+  return late.sort((a, b) => b.seconds - a.seconds);
+}
+
 function localStamp(date) {
   const pad = (value) => String(value).padStart(2, "0");
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
