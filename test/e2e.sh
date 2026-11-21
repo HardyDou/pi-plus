@@ -221,6 +221,10 @@ check "a one-edit label is refused"    2 'one edit away'   bash -c "cd $E2E && $
 # a schedule can aim at a label instead of one session
 check "cron add --role targets a label" 0 'role pm'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron add --role pm --every 10m 'standup' 2>&1"
 check "cron ls shows the role target"   0 'role pm'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron ls 2>&1"
+# --role works on every fan-out verb, not just status: up/down/restart/logs
+check "up --role starts only that label" 0 'new-session -d -s risk-10' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --dry-run up --role pm 2>&1"
+check "down --role stops only that label" 0 'risk-10' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --dry-run down --role pm 2>&1"
+check "restart --role restarts only that label" 0 'new-session -d -s risk-10' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --dry-run restart --role pm 2>&1"
 check "audit --role names only its sessions" 0 'role' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role dev audit 2>&1; true"
 check "audit --role rejects a label nobody has" 2 'no session has role "qa"' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG audit --role qa 2>&1"
 # one read-only block you can paste: sessions, jobs, machines, audit tail

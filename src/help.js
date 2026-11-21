@@ -62,7 +62,7 @@ export const COMMANDS = [
     name: "up",
     aliases: ["start"],
     summary: "Create/start configured sessions, detached (default: all)",
-    usage: "pp up [name|#...] [options]",
+    usage: "pp up [name|#...] [options] [--role <label>]",
     details: [
       "Starts each session in a detached tmux session whose name is `tmux_name`",
       "(defaults to `name`) with the working directory `cwd`.",
@@ -89,6 +89,7 @@ export const COMMANDS = [
       "--reconcile      autostart/watch mode: skip sessions stopped by hand",
       "--wait [seconds] wait until the agent will take a prompt (default 60)",
       "--drift          start only the sessions that are configured but not running",
+      "--role <label>   only the sessions carrying that label (pp role --list)",
       "--dry-run        print the tmux command instead of running it",
       "--json           JSON output ({ sessions, drift })",
     ],
@@ -99,7 +100,7 @@ export const COMMANDS = [
     name: "down",
     aliases: ["stop"],
     summary: "Stop sessions",
-    usage: "pp down [name|#...] [options]",
+    usage: "pp down [name|#...] [options] [--role <label>]",
     details: [
       "Stops tmux sessions (and everything running inside them).",
       "With no names every configured session is stopped, whatever its policy.",
@@ -117,6 +118,7 @@ export const COMMANDS = [
       "--dry-run        print what would be stopped",
       "--json           JSON output",
       "--yes            allow --force to stop sessions on a drained machine",
+      "--role <label>   only the sessions carrying that label (pp role --list)",
     ],
     examples: ["pp down backend", "pp down", "pp down backend docs"],
     see: ["up", "restart", "status"],
@@ -156,13 +158,17 @@ export const COMMANDS = [
   {
     name: "restart",
     summary: "Restart sessions (kill + up)",
-    usage: "pp restart [name|#...] [options]",
+    usage: "pp restart [name|#...] [options] [--role <label>]",
     details: [
       "Equivalent to `down <names>` followed by `up <names>`, including the",
       "`--force` behaviour. Sessions with `restart: no` are skipped when no name",
       "is given, and are restarted when named explicitly.",
     ].join("\n"),
-    options: ["--dry-run        print the tmux commands instead of running them", "--json           JSON output"],
+    options: [
+      "--dry-run        print the tmux commands instead of running them",
+      "--role <label>   only the sessions carrying that label (pp role --list)",
+      "--json           JSON output",
+    ],
     examples: ["pp restart backend", "pp restart"],
     see: ["up", "down"],
   },
@@ -482,7 +488,7 @@ export const COMMANDS = [
     name: "status",
     aliases: ["ls", "list"],
     summary: "Show config, tmux state, pi session and remote-pi name",
-    usage: "pp status [name|#...] [options]",
+    usage: "pp status [name|#...] [options] [--role <label>]",
     details: [
       "Prints one row per configured session: #, tmux name, state, restart policy,",
       "pid, agent, cwd, pi session and remote-pi name.",
@@ -573,7 +579,7 @@ export const COMMANDS = [
     name: "logs",
     aliases: ["log"],
     summary: "Print recent pane output (several sessions, --follow)",
-    usage: "pp logs <name|#...> | --all [options]",
+    usage: "pp logs <name|#...> | --all [options] [--role <label>]",
     details: [
       "Dumps the tail of the tmux pane, so you can see what the agent printed",
       "without attaching. Use `log:` in the config to keep the full output in a",
@@ -612,7 +618,7 @@ export const COMMANDS = [
   {
     name: "send",
     summary: 'Type text into the pane and press Enter (--no-enter)',
-    usage: 'pp send <name|#> "text" [options]',
+    usage: 'pp send <name|#> "text" [--role <label>] [options]',
     details: [
       "Sends keystrokes to the session's pane and presses Enter, which is handy",
       "for pushing a prompt into a running agent from another shell or a script.",
@@ -623,6 +629,7 @@ export const COMMANDS = [
       "it loses the thread.",
     ].join("\n"),
     options: [
+      ["--role <label>", "only the sessions carrying that label (pp role --list)"],
       "--no-enter       do not press Enter after the text",
       "--all            send to every configured session (--node/--tag narrow it)",
       "--node <name>    only sessions on that machine",
