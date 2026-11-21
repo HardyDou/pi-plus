@@ -2525,6 +2525,24 @@ function cmdLogs(config, options, ui) {
     return;
   }
 
+  // tmux does not record when a program wrote a line, only what is on screen.
+  // So --stamp prints when *pp* saw the line: for a snapshot that is the capture
+  // time, while following it is the time the line appeared (within --interval).
+  const stamp = () => {
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, "0");
+    return `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())} `;
+  };
+  // the previous batch's last line can come back as "new" (it was the cursor
+  // line when the last capture happened), so remember what was already printed
+  const lastOut = new Map();
+  const stamped = (text, when = stamp()) =>
+    String(text)
+      .replace(/\n$/, "")
+      .split("\n")
+      .map((line) => `${ui.paint("dim", when)}${line}`)
+      .join("\n");
+
   let failures = 0;
   for (const session of sessions) {
     const tmux = handleFor(session);
@@ -2535,7 +2553,13 @@ function cmdLogs(config, options, ui) {
     }
     if (labelled) process.stdout.write(`\n${ui.paint("bold", `── ${session.name}${session.node ? ` @${session.node}` : ""} ` + "─".repeat(Math.max(0, 20 - session.name.length)))}\n`);
     const output = tmux.capture(session.tmuxName, lines);
-    process.stdout.write(output.endsWith("\n") ? output : `${output}\n`);
+    const lastLine = output.replace(/\n$/, "").split("\n").filter((line) => line.trim()).pop();
+    if (lastLine) lastOut.set(session.name, lastLine);
+    if (options.stamp) {
+      process.stdout.write(`${stamped(output)}\n`);
+    } else {
+      process.stdout.write(output.endsWith("\n") ? output : `${output}\n`);
+    }
   }
   if (failures) process.exitCode = 1;
   // --follow: re-read each pane on an interval and print what is new, so one
@@ -2554,7 +2578,15 @@ function cmdLogs(config, options, ui) {
       seen.set(session.name, now);
       const added = diffLines(before, now);
       if (!added.length) continue;
-      process.stdout.write(`${ui.paint("dim", `[${session.name}${session.node ? ` @${session.node}` : ""}]`)} ${added.join("\n")}\n`);
+      if (added[0] === lastOut.get(session.name)) added.shift();
+      if (!added.length) continue;
+      lastOut.set(session.name, added[added.length - 1]);
+      const when = stamp();
+      const body = options.stamp ? stamped(added.join("\n"), when) : added.join("\n");
+      // with one session the name is noise, with several it is the only way to
+      // tell the timelines apart
+      const head = options.stamp && sessions.length === 1 ? "" : `${ui.paint("dim", `[${session.name}${session.node ? ` @${session.node}` : ""}]`)} `;
+      process.stdout.write(`${head}${body}\n`);
     }
   }, interval);
   process.on("SIGINT", () => {

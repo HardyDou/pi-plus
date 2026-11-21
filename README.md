@@ -320,7 +320,7 @@ pp todo ls --all --json       # 连已完成的、机器可读
 │ 6 risk-01  running                     │ │   a1b2c3d fix: ...                                    │
 │ 7 risk-02  running                     │ │ ⏳ Working...                                          │
 └────────────────────────────────────────┘ └───────────────────────────────────────────────────────┘
- ↑↓ move   PgUp/PgDn scroll   Tab panel   Enter attach   d done   [ ] width   -/+ rows   f follow   q quit
+ ↑↓ move   PgUp/PgDn scroll   Tab panel   Enter attach   d done   [ ] width   -/+ rows   f follow   / find   q quit
 ```
 
 - 待办框的高度跟着内容走（空 3 行、每条 +1、最多 9 行），预览拿走剩下的行；

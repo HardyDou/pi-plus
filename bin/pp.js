@@ -81,6 +81,7 @@ function parseArgs(argv) {
       case "--lines": options.lines = Number(takeValue(flag, inline)) || 200; break;
       case "-f":
       case "--follow": options.follow = true; break;
+      case "--stamp": options.stamp = true; break;
       case "--interval": options.interval = Number(takeValue(flag, inline)) || 2; break;
       case "--actor": options.actor = takeValue(flag, inline); break;
         case "--no-enter": options.noEnter = true; break;
