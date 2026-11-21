@@ -437,6 +437,20 @@ pp up backend --dry-run -v                    # 打印最终 argv + env
 [dry-run] tmux new-session -d -s backend -c /home/you/code/backend -- env ... pi --name backend
 ```
 
+## 状态文件类（`pp doctor` 报 `own files`）
+
+pp 自己的文件在 `~/.local/state/pi-plus/`：`state.json`（谁被手工停过、上次谁拉起的、几次重启）、
+`cron.json`（定时任务）、`panel.json`（面板在哪）、`audit.log`（做了什么）。所有读取方都是"解析失败就当空"
+—— 3am 不能让一个坏文件挡住 `pp up` —— 代价是坏掉时**不会有人告诉你**，下一次写入还会把它永久覆盖。
+`pp doctor` 是唯一会说出来地方。
+
+| 症状 | 原因 | 下一步 |
+| --- | --- | --- |
+| `✗ own files  state.json is not valid JSON` | 掉电 / 并发写 / 手工编辑 | `pp doctor --quarantine`（保留 `.broken-*`），pp 会写新的 |
+| `cron.json … job(s) have no id or schedule` | 手工编辑过任务文件 | 同上；或 `pp cron rm <id>` 后重新 `pp cron add` |
+| 手工停过的会话被自启拉起 | `state.json` 被隔离过，记录清空 | 重新 `pp down <name>` 记一次，`pp status` 里 `off (hand)` 会回来 |
+| `pp doctor` 自己崩了 | 上游 bug（0.68.0 修过一次：坏 job 让 `nextRun` 抛异常） | `pp update`；坏的 `cron.json` 先 `--quarantine` |
+
 ## 还是不行
 
 ```bash

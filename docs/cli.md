@@ -222,6 +222,19 @@ watching ~/.pi/plus.yml — every 5s, ctrl-c to stop  10:31:04
 两个刻意的边界：只看**本机** pane 的静默（远端每个会话一次 ssh 太贵），远端只报 `unreachable`；
 退出用 `ctrl-c`（SIGINT/SIGTERM 都会让当前画面收尾再退出）。
 
+### `pp doctor --quarantine`
+
+把解析不了的 pp 状态文件移到一边（`state.json.broken-2026-11-21T13-44-09-397Z` 这样的名字），**不是删除**：
+坏文件可能仍是"谁手工停了什么"的唯一记录。移动后 pp 会写新的，`pp doctor` 也就不再报。
+
+```bash
+$ pp doctor
+✗ own files      cron.json 1 of 2 job(s) have no id or schedule (they will never run) — pp doctor --quarantine moves it aside
+$ pp doctor --quarantine
+moved cron.json → /home/u/.local/state/pi-plus/cron.json.broken-2026-11-21T13-44-09-397Z
+1 file(s) kept as .broken-*; pp will write fresh ones
+```
+
 ### `pp doctor --brief`：先做哪一件
 
 ```bash

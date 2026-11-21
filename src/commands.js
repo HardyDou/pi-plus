@@ -63,6 +63,7 @@ import {
   launchAgentPath,
   systemdUserDir,
 } from "./autostart.js";
+import { describeStateFiles, inspectStateFiles, quarantineStateFile } from "./selfcheck.js";
 import {
   activityOf,
   busySinceOf,
@@ -4323,9 +4324,42 @@ async function doctorNodes(config, options, ui) {
   if (results.some((r) => !r.ok)) process.exitCode = 1;
 }
 
+/**
+ * `pp doctor --quarantine`: move the unreadable state files aside.
+ *
+ * Deleting them would be simpler and worse — the whole point of a broken file
+ * is that it may still hold the evidence (which sessions were stopped by hand,
+ * which jobs are due). rename keeps it readable while the next write starts
+ * clean.
+ */
+function doctorQuarantine(ui, options) {
+  const broken = inspectStateFiles(process.env).filter((entry) => !entry.ok);
+  if (!broken.length) {
+    ui.out("nothing to quarantine — every state file parses");
+    return;
+  }
+  const moved = [];
+  for (const entry of broken) {
+    try {
+      const target = quarantineStateFile(entry.path, process.env);
+      if (target) moved.push({ file: entry.file, target });
+    } catch (error) {
+      ui.error(`could not move ${entry.file}: ${error.message}`);
+      process.exitCode = 1;
+    }
+  }
+  if (ui.json) {
+    process.stdout.write(`${JSON.stringify(moved, null, 2)}\n`);
+    return;
+  }
+  for (const entry of moved) ui.out(`moved ${ui.paint("bold", entry.file)} → ${entry.target}`);
+  ui.out(ui.paint("dim", `${moved.length} file(s) kept as .broken-*; pp will write fresh ones`));
+}
+
 function cmdDoctor(config, options, ui) {
   // the machine park, not this machine: a different question, a different table
   if (options.nodes) return doctorNodes(config, options, ui);
+  if (options.quarantine) return doctorQuarantine(ui, options);
   const tmux = makeTmux(config, options);
   const checks = [];
   // `fix` is the command that makes the check pass: at 3am "what do I type" beats
@@ -4454,6 +4488,17 @@ function cmdDoctor(config, options, ui) {
       stuck.length ? `pp logs ${stuck[0].name}` : null,
     );
   }
+  // pp's own files: every reader here swallows a parse error on purpose (a
+  // corrupt state.json must not block `pp up` at 3am), but swallowing it
+  // silently means the work you did quietly disappears — so say it out loud
+  const stateFiles = inspectStateFiles(process.env);
+  const brokenFiles = stateFiles.filter((entry) => !entry.ok);
+  add(
+    "own files",
+    brokenFiles.length === 0,
+    describeStateFiles(stateFiles, process.env),
+    brokenFiles.length ? "pp doctor --quarantine" : null,
+  );
   const autostart = autostartState();
   add(
     "autostart",
@@ -4478,6 +4523,7 @@ function cmdDoctor(config, options, ui) {
     "pi extension",
     "autostart",
     "cron",
+    "own files",
     "drift",
     "logs",
     "stalls",
@@ -5275,7 +5321,15 @@ export function overdueJobs(jobs, now = new Date(), { grace = 60 } = {}) {
   for (const job of jobs) {
     if (job.done) continue;
     if (String(job.lastStatus ?? "").startsWith("deferred:")) continue;
-    const due = nextRun(job, now);
+    // a hand-edited or half-written cron.json can hold a job with no schedule;
+    // that must not take down `pp doctor` (it is the command you run when
+    // something is wrong, so it has to survive wrong input)
+    let due;
+    try {
+      due = nextRun(job, now);
+    } catch {
+      continue;
+    }
     if (!due) continue;
     const seconds = Math.round((now.getTime() - due.getTime()) / 1000);
     if (seconds <= grace) continue;

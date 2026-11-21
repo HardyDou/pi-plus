@@ -927,6 +927,16 @@ check "and it is really gone"          1 ''                  bash -c "tmux -L $S
 
 tmux -L "$SOCK" kill-session -t far-x 2>/dev/null || true
 
+section "own files (pp checks its own state)"
+# a reader here swallows a parse error on purpose; doctor is where it gets said out loud
+printf '{"broken":' > "$XDG_STATE_HOME/pi-plus/state.json"
+check "doctor names the broken file"     1 'state.json is not valid JSON' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK doctor 2>&1"
+check "brief puts the fix first"         1 'pp doctor --quarantine'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK doctor --brief 2>&1"
+check "doctor keeps working anyway"      0 'own files'                    bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK doctor 2>&1 | grep 'own files'"
+check "quarantine moves it aside"        0 'broken-'                      bash -c "cd $E2E && $ROOT/bin/pp.js doctor --quarantine"
+check "the broken copy is kept"          0 '^1$'                         bash -c "ls $XDG_STATE_HOME/pi-plus/state.json.broken-* | wc -l | tr -d ' '"
+check "afterwards it is clean"           0 'nothing to quarantine'        bash -c "cd $E2E && $ROOT/bin/pp.js doctor --quarantine"
+
 section "first screen (pp with no argument)"
 check "no argument summarises the fleet" 0 'running'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK"
 check "it names the config it read"      0 'plus.yml'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK | head -1"
