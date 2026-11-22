@@ -3,7 +3,7 @@
 > 这份文件由 `src/runbook.js` 生成：`pp runbook --markdown > docs/runbook.md`。
 > 每一步都是先**只读**地看清楚，再决定要不要动。
 
-场景一览：`nothing-runs` · `no-delivery` · `session-dies` · `machine-unreachable` · `disk-full` · `agent-stuck` · `after-reboot` · `config-broken`
+场景一览：`nothing-runs` · `no-delivery` · `session-dies` · `machine-unreachable` · `disk-full` · `agent-stuck` · `after-reboot` · `remote-reboot` · `config-broken`
 
 ## Every session is gone（`nothing-runs`）
 
@@ -112,6 +112,21 @@ Autostart has three parts and all three must hold: the unit is installed, it is 
 | 5 | `pp up --drift` | the sessions that should be up and are not, started |
 
 准备好动的时候：`pp install`
+
+## A machine I manage rebooted and its sessions did not come back（`remote-reboot`）
+
+**症状**：pp status shows every session on one NODE as off, while the other machines are fine
+
+Nothing on that machine starts pp sessions: pp is not installed there, and this machine reaches it over ssh. Only this side can bring them back — by hand, or by the --heal job.
+
+| # | 跑什么 | 应该看到 |
+| --- | --- | --- |
+| 1 | `pp node test <machine>` | reachable — tmux 3.4 · pi installed (350ms) |
+| 2 | `pp why --node <machine>` | 2 of 2 session(s) down, each with its own line |
+| 3 | `pp up --drift` | starting 2 missing: … — and then the same sessions are running again |
+| 4 | `pp cron add --heal --every 5m` | so the next reboot fixes itself before you notice |
+
+准备好动的时候：`pp up --drift`
 
 ## Somebody edited the config and now it is not right（`config-broken`）
 

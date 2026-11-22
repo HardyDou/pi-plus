@@ -115,6 +115,20 @@ export const RUNBOOK = [
     fix: "pp install",
   },
   {
+    id: "remote-reboot",
+    title: "A machine I manage rebooted and its sessions did not come back",
+    symptom: "pp status shows every session on one NODE as off, while the other machines are fine",
+    means:
+      "Nothing on that machine starts pp sessions: pp is not installed there, and this machine reaches it over ssh. Only this side can bring them back — by hand, or by the --heal job.",
+    steps: [
+      { do: "pp node test <machine>", see: "reachable — tmux 3.4 · pi installed (350ms)" },
+      { do: "pp why --node <machine>", see: "2 of 2 session(s) down, each with its own line" },
+      { do: "pp up --drift", see: "starting 2 missing: … — and then the same sessions are running again" },
+      { do: "pp cron add --heal --every 5m", see: "so the next reboot fixes itself before you notice" },
+    ],
+    fix: "pp up --drift",
+  },
+  {
     id: "config-broken",
     title: "Somebody edited the config and now it is not right",
     symptom: "a command fails with a yaml/session error, sessions went missing from the list, or the file is shorter than you remember",

@@ -70,3 +70,14 @@ test("the manual covers the case where the config itself was the casualty", () =
   assert.match(scenario.fix, /pp restore/);
   assert.equal(findScenario("config"), scenario, "a title fragment should find it");
 });
+
+test("the runbook covers a machine that rebooted on the other side of an ssh", () => {
+  const reboot = findScenario("remote-reboot");
+  assert.ok(reboot, "a remote reboot is a different answer than a local one");
+  const text = renderScenario(reboot);
+  // The point of this page: nothing on the remote starts pp sessions by itself.
+  assert.match(text, /pp up --drift/);
+  assert.match(text, /--heal/, "the recipe has to make the next reboot self-healing");
+  const local = findScenario("after-reboot");
+  assert.notEqual(local?.id, reboot.id, "local and remote reboots are separate scenarios");
+});

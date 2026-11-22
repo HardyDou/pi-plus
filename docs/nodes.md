@@ -416,6 +416,30 @@ MACHINE    TARGET              PING   TMUX  LOAD  UP  SESSIONS  DISK  MEM
 - `pp tui` 的会话列表会混进远端会话，名字后面带 ` @节点名`；预览也是抓远端 pane。
 - `pp cron` 的 job 记的是会话名，投递时按会话归属找到对应节点（`--all` 会按节点分别广播）。
 
+## 那台机器重启了，会话怎么回来
+
+**远端不需要装 pp。** 那台机器上没有任何东西会去启动这些会话 —— 拉起它们的永远是"这一侧"：
+
+```bash
+pp node test t114      # 先确认它回来了：reachable — tmux 3.4 · pi installed (350ms)
+pp why --node t114     # 每台机器、每个会话的结论（down 的行会写上原因）
+pp up --drift          # 只起"该起没起"的，已经跑着的不动
+```
+
+想让它在重启后自己回来（不必等人发现）：
+
+```bash
+pp cron add --heal --every 5m
+```
+
+`--heal` 在本机的 cron tick 里跑：它按配置算出每台机器"该有却没有"的会话，用 ssh 过去
+`tmux new-session`。所以**远端重启后最多五分钟自己回来**，代价是每条 tick 都要 ssh 一次。
+
+两个会挡住自愈的东西，都是设计：
+
+- `restart: no` 的会话不会被 `--heal` 拉起（那是不该自启的）
+- `pp node drain <machine>` 期间的会话不会被拉起（维护窗口，见下一节）
+
 ## 维护一台机器：`pp node drain`
 
 `guarded` 防的是"手滑把它停了"，`drain` 防的是反过来的那件事——**手滑让它起来**。
