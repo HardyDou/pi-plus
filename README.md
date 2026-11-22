@@ -518,32 +518,70 @@ pp help instal          # 拼错会给建议：did you mean 'pp help install'?
 凡是接 `<name>` 的地方都可以写成 `pp ls` 的 `#` 序号（1 起，按配置顺序；
 若真有会话叫这个名字，名字优先）：`pp attach 3`、`pp logs 3`、`pp down 2 5`。
 
-```
-pp new [name] [opts]       在当前目录/指定目录临时开一个（别名 n、create）
-pp up [name|#...]          后台创建/启动（--force 重建已在跑的；别名 start）
-pp down [name|#...]        停止
-pp rm <name|#>...          删除（杀掉会话 + 从配置里删掉这一条）
-pp restart [name|#...]     重启（遵守 restart 策略）
-pp status [name|#...]      状态表，第一列是 # 序号（--json 机器可读；--started 看最近一次是谁拉起来的）
-pp attach <name|#>         进入；不存在则先启动
-pp logs <name|#> [-n 200]  打印滚动输出
-pp send <name|#> "文本"     往 pane 里打字并回车（--no-enter 不回车）
-pp mesh ls|resolve|send    直连 remote-pi broker：看谁在线 / 查地址 / 发消息（--reply 等回复）
-pp cron add|ls|rm|tick     定时把 prompt/命令送进会话（--in/--every/--cron；见下节）
-pp todo [ls|attach|done]   谁在等我决策：列表 / 进去 / 完成（--all、--session）
-pp node ls|add|test        管别的机器：登记节点、体检（os/tmux/pi/负载）、按参数 ssh
-pp tui                     一块屏管所有会话和待办（左侧会话、右侧待办、下方预览）
-pp check                   校验配置
-pp doctor                  环境诊断（含自启状态、WSL 提示）
-pp init                    写示例配置
-pp install [--watch N]     安装开机自启（别名 autostart）
-pp uninstall               卸载自启
-pp alias [ls|add|rm]       换/加一个命令名（pp 被别的程序占用时用）
-pp update [--check]        升级到最新发布版（npm / git 安装自动判断）
-pp help [命令]             帮助（不带参数为总览）
-pp version                 打印版本
-```
+念不清的那些，按"我遇到什么"排：
 
+| 我想 | 命令 |
+| --- | --- |
+| `pp new --from risk-01 --save` | 照着一个跑对的会话克隆（同名族第 N 个不用重打） |
+| `pp`（不带参数） | 三行现状 + 六个常用命令 |
+| `pp plan` | 该先做哪一件、再做什么（带顺序与原因） |
+| `pp handover` | 换班那一页：过去 24h 变了什么、现在什么没起、还有什么要人决定 |
+| `pp plan --node t114` | 只问那一台机器：要让它现在能接活，按顺序敲哪几条 |
+| `pp backup` / `pp restore` | 改配置前留一份，改坏了拿回来（普通目录拷贝，带 diff 预演） |
+| `pp runbook` | 事故处理手册：会话全没了 / 不投递 / 机器连不上 … 各自按序怎么查 |
+| `pp snapshot` | 把会话表、定时任务、机器、审计尾部打成一块，直接贴进工单 |
+| `pp why risk-01` | 一句话解释它为什么是这个状态（drain/手工停/该在跑却没在跑） |
+| `pp why --node t114` | 同一问题问整台机器（ssh/tmux/维护中/哪些没起） |
+| `pp role risk-01 pm` | 给会话贴角色标签（`dev`/`pm`/`qa`）；`--role` 可筛选表，也能筛选批量动作（`pp send --role pm "…"`） |
+
+```
+# 会话
+pp new [name] [opts]          在当前目录/指定目录临时开一个（别名 n、create；--from 克隆、--node 远端、--role、--save）
+pp up [name|#...]             后台创建/启动（别名 start；--drift 只补没起的、--wait 等到能接话、--node/--tag/--role 批量）
+pp down [name|#...]           停止（--force 连 guarded/drained 一起、--yes 确认维护窗口内的操作）
+pp rm <name|#>...             删除（杀掉会话 + 从配置里删掉这一条）
+pp restart [name|#...]        重启（遵守 restart 策略）
+pp adopt [name...]            把已在跑但配置里没有的会话登记进来（--all、--node）
+pp mv <name|#> --node <机器>  把会话搬到别的机器（--local 搬回本机、--cwd 换目录）
+
+# 看
+pp status [name|#...]         状态表，第一列是 # 序号（--json、--watch、--started、--role、--sort、--node）
+pp logs <name|#> [-n 200]     打印滚动输出（-f 跟随，--grep/--context、--stamp、--save）
+pp why <会话|机器>            一句话解释它为什么是这个状态（--node 问整台机器、--role 问一个标签）
+pp plan                       该先做哪一件、再做什么（--node 只看一台机器）
+pp handover [--since 24h]     换班那一页：变了什么 / 现在什么没起 / 还有什么要人决定（--send 交给某个会话）
+pp snapshot                   会话表 + 定时任务 + 机器 + 审计尾部打成一块，直接贴进工单
+pp audit [target]             这台机器改过什么、谁改的（--action、--since、--role、--prune）
+pp runbook [场景]             事故处理手册（--markdown 输出整本 docs/runbook.md）
+pp tui                        一块屏管所有会话和待办（Enter 进入、pp back 回来）
+
+# 动
+pp attach <name|#>            进入；不存在则先启动
+pp send <name|#> "文本"        往 pane 里打字并回车（--no-enter 不回车；--all/--node/--tag/--role 撒网，忙的跳过）
+pp todo [ls|attach|done]      谁在等我决策：列表 / 进去 / 完成（--all、--session）
+pp role <会话> [角色|-]       给会话贴标签（--list 看所有标签与未贴的）
+pp cron add|ls|rm|run|tick    定时把 prompt/命令送进会话（--in/--every/--cron，--all/--role，--heal/--sweep）
+pp mesh ls|resolve|send       直连 remote-pi broker：看谁在线 / 查地址 / 发消息（--reply 等回复）
+
+# 多机
+pp node ls|show|add|rm        管别的机器：登记、看详情（--from-ssh-config 抄 ~/.ssh/config）
+pp node test [name|--all]     体检：ssh / os / tmux / pi / 负载 / 磁盘 / 会话数（--json）
+pp node exec <name> -- <cmd>  在机器上跑一条命令（--tag/--all、--parallel、--timeout）
+pp node ssh <name>            用登记的认证方式开一个交互 shell
+pp node drain|undrain <name>  维护窗口：期间 pp up / 自启 / --heal 都不动它的会话
+
+# 本机与自身
+pp check                      校验配置（--remote 连远端会话、--brief 只报结论）
+pp clean [--keep 2m]          把 pp 自己写大的日志原地收回（--dry-run）
+pp doctor                     环境诊断：配置/自启/扩展/漂移/日志/卡住/定时任务（--brief 给下一条命令）
+pp init                       写示例配置
+pp install [--watch N]        安装开机自启（别名 autostart）
+pp uninstall                  卸载自启
+pp alias [ls|add|rm]          换/加一个命令名（pp 被别的程序占用时用）
+pp update [--check]           升级到最新发布版（npm / git 安装自动判断）
+pp help [命令]                帮助（不带参数为总览）
+pp version                    打印版本
+```
 全局选项：`-c/--config`、`--socket`、`--json`、`--dry-run`、`--force`、`--all`、`-q`、`-v`、`-h`、`-V`。
 
 `--reconcile` 是给自启/巡检用的：跳过被手动停止的 `unless-stopped` / `on-failure` 会话。
@@ -700,15 +738,3 @@ works via `agent:`).
 ## License
 
 MIT © 2026 HardyDou
-
-| `pp new --from risk-01 --save` | 照着一个跑对的会话克隆（同名族第 N 个不用重打） |
-| `pp`（不带参数） | 三行现状 + 六个常用命令 |
-| `pp plan` | 该先做哪一件、再做什么（带顺序与原因） |
-| `pp handover` | 换班那一页：过去 24h 变了什么、现在什么没起、还有什么要人决定 |
-| `pp plan --node t114` | 只问那一台机器：要让它现在能接活，按顺序敲哪几条 |
-| `pp backup` / `pp restore` | 改配置前留一份，改坏了拿回来（普通目录拷贝，带 diff 预演） |
-| `pp runbook` | 事故处理手册：会话全没了 / 不投递 / 机器连不上 … 各自按序怎么查 |
-| `pp snapshot` | 把会话表、定时任务、机器、审计尾部打成一块，直接贴进工单 |
-| `pp why risk-01` | 一句话解释它为什么是这个状态（drain/手工停/该在跑却没在跑） |
-| `pp why --node t114` | 同一问题问整台机器（ssh/tmux/维护中/哪些没起） |
-| `pp role risk-01 pm` | 给会话贴角色标签（`dev`/`pm`/`qa`）；`--role` 可筛选表，也能筛选批量动作（`pp send --role pm "…"`） |
