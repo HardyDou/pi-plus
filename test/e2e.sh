@@ -617,6 +617,8 @@ export XDG_STATE_HOME="$E2E/state"
 rm -rf "$XDG_STATE_HOME"; mkdir -p "$XDG_STATE_HOME"
 check "cron ls is empty"          0 'no scheduled jobs'                  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
 check "cron add command job"      0 'scheduled [0-9a-f]'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-always --every 5m --command 'echo cron-ok'"
+check "cron add --timeout is for command jobs" 0 'killed after 9s' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-always --every 5m --command 'echo slow' --timeout 9 --dry-run 2>&1"
+check "cron rejects --timeout on a prompt"     1 'only applies to --command' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add 'hi' --session e-always --timeout 5 2>&1"
 CMD_ID=$(cd "$E2E" && "$ROOT/bin/pp.js" -c "$CFG" cron ls --json | grep -o '"id": "[0-9a-f]*"' | head -1 | cut -d'"' -f4)
 check "cron add once job"         0 'scheduled [0-9a-f]'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-always --in 1m 'echo from-cron'"
 check "cron ls lists both"        0 'every 5m'                 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"

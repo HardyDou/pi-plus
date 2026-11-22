@@ -435,3 +435,9 @@ ID      TARGET         SCHEDULE        NEXT              RUNS  LAST
 
 `--json` 里是 `nextRun`（ISO）与 `late`（布尔）。
 
+### 命令型任务一定会被杀掉
+
+`pp cron add --command "…"` 跑的是 `sh -c`，没有 deadline 的话一条挂住的命令会一直握着
+tick 的锁，**所有别的任务都会悄悄停摆**。所以命令型任务永远有时限：默认 300 秒，用
+`--timeout 600` 调；超时的状态是 `failed: timed out after 300s`，`cron ls` 里直接读得出来。
+

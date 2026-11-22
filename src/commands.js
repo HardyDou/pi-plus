@@ -5100,6 +5100,9 @@ export async function cmdBusy(config, options, ui) {
   }
 }
 
+/** How long a `--command` job may run before the tick kills it. */
+export const COMMAND_TIMEOUT_SECONDS = 300;
+
 const CLEAN_KEEP_BYTES = 2 * 1024 * 1024;
 const LOG_WARN_BYTES = 50 * 1024 * 1024;
 
@@ -6616,13 +6619,28 @@ function healDrift(job, options) {
   return { status: "delivered", text: `${tail}${skippedNote}` };
 }
 
-function deliverJob(job, options) {
+export function deliverJob(job, options) {
   if (job.action === "heal") return healDrift(job, options);
   if (job.action === "sweep") return sweepFleet(job, options);
   if (job.action === "command") {
-    const result = spawnSync("sh", ["-c", job.command], { encoding: "utf8" });
-    if (result.error) return { status: `failed: ${result.error.message}` };
-    if (result.status !== 0) return { status: `failed: exit ${result.status}` };
+    // A hung command would hold the tick lock forever and every other job would
+    // quietly stop running — so a command job always has a deadline.
+    const timeout = Number(job.timeout ?? COMMAND_TIMEOUT_SECONDS) * 1000;
+    const started = Date.now();
+    const result = spawnSync("sh", ["-c", job.command], {
+      encoding: "utf8",
+      timeout,
+      killSignal: "SIGKILL",
+    });
+    if (result.error) {
+      const why = result.error.code === "ETIMEDOUT" ? `timed out after ${Math.round(timeout / 1000)}s` : result.error.message;
+      return { status: `failed: ${why}` };
+    }
+    if (result.status !== 0) {
+      const took = Math.round((Date.now() - started) / 1000);
+      const why = result.signal === "SIGKILL" && timeout && took * 1000 >= timeout * 0.9 ? `timed out after ${Math.round(timeout / 1000)}s` : `exit ${result.status}`;
+      return { status: `failed: ${why}` };
+    }
     return { status: "delivered" };
   }
 
@@ -6972,7 +6990,7 @@ export function cronRow(job, now = new Date()) {
     action: job.action,
     session: job.session ?? null,
     role: job.role ?? null,
-    schedule: `${describeSchedule(job.schedule)}${job.idleAfter ? ` · idle ${formatDuration(job.idleAfter)}` : ""}${job.window ? ` · quiet ${describeWindow(job.window)}` : ""}${job.maxPerDay ? ` · max ${job.maxPerDay}/day` : ""}`,
+    schedule: `${describeSchedule(job.schedule)}${job.idleAfter ? ` · idle ${formatDuration(job.idleAfter)}` : ""}${job.window ? ` · quiet ${describeWindow(job.window)}` : ""}${job.maxPerDay ? ` · max ${job.maxPerDay}/day` : ""}${job.timeout ? ` · ≤${job.timeout}s` : ""}`,
     next: waiting,
     late: deferred ? false : next.late,
     deferred,
@@ -7157,6 +7175,15 @@ async function cmdCronAdd(config, options, ui) {
     throw new CronError("--max-per-day only applies to prompts sent to sessions");
   }
 
+  // --timeout: a command job always has a deadline, but the default is a guess
+  const commandTimeout = options.commandTimeout === undefined ? null : Number(options.commandTimeout);
+  if (options.commandTimeout !== undefined && (!Number.isFinite(commandTimeout) || commandTimeout <= 0)) {
+    throw new CronError("--timeout needs a number of seconds bigger than zero (try 600)");
+  }
+  if (commandTimeout !== null && !command) {
+    throw new CronError("--timeout only applies to --command jobs (a prompt to a session waits as long as the agent takes)");
+  }
+
   const schedule = buildSchedule({ at: options.in ? new Date(Date.now() + parseDuration(options.in, { what: "--in" }) * 1000).toISOString() : options.at, every: options.every, cron: options.cronExpr });
 
   let session = null;
@@ -7242,7 +7269,7 @@ async function cmdCronAdd(config, options, ui) {
       : sweeping
         ? { session, socket }
         : command
-          ? { command }
+          ? { command, ...(commandTimeout ? { timeout: commandTimeout } : {}) }
           : targetRole
             ? { prompt: text, role: targetRole, socket }
             : { prompt: text, session, socket }),
@@ -7260,7 +7287,8 @@ async function cmdCronAdd(config, options, ui) {
   const due = nextRun(job);
   if (options.dryRun) {
     const who = targetRole ? `role ${targetRole}` : `session ${session}`;
-    ui.out(`[dry-run] would schedule ${job.id}: ${describeSchedule(schedule)} → ${job.action === "heal" ? "heal (up --drift)" : job.action === "command" ? `$ ${command}` : who}`);
+    const deadline = job.timeout ? ` (killed after ${job.timeout}s)` : "";
+    ui.out(`[dry-run] would schedule ${job.id}: ${describeSchedule(schedule)} → ${job.action === "heal" ? "heal (up --drift)" : job.action === "command" ? `$ ${command}` : who}${deadline}`);
     ui.out(`[dry-run] first run ${due ? due.toISOString() : "never"}`);
     if (idleAfter) ui.out(`[dry-run] only sessions quiet for ${formatDuration(idleAfter)} or more are nudged`);
     if (window) ui.out(`[dry-run] nothing is sent between ${describeWindow(window)}`);

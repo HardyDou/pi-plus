@@ -204,7 +204,14 @@ function parseArgs(argv) {
           (options.tags ??= []).push(value);
           break;
         }
-        case "--timeout": options.timeout = Number(takeValue(flag, inline)); break;
+        case "--timeout": {
+          // one flag, two readers: `pp send --until-idle` counts seconds, a
+          // `pp cron add --command` job keeps the raw text and parses it itself
+          const value = takeValue(flag, inline);
+          options.timeout = Number(value);
+          options.commandTimeout = value;
+          break;
+        }
         case "--parallel": options.parallel = true; break;
         case "--guard": options.guard = true; break;
         case "--no-guard": options.noGuard = true; break;
