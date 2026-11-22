@@ -371,7 +371,7 @@ check "logs --grep fails when nothing matches" 1 'no line matches' bash -c "$ROO
 check "logs --grep rejects a bad pattern" 2 'not a valid pattern' bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK logs e-always --grep '[-'"
 check "logs --context needs a number"    2 'takes a number'    bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK logs e-always --grep x --context nope"
 check "log file written"         0 '^[1-9][0-9]*$'              bash -c "sleep 1; grep -c hello-e2e $E2E/e-always.log"
-check "send --no-enter"          0 'sent to e-onfail'           PFc send e-onfail 'touch /tmp/e2e-pifarm/noenter.flag' --no-enter
+check "send --no-enter"          0 'typed into e-onfail'           PFc send e-onfail 'touch /tmp/e2e-pifarm/noenter.flag' --no-enter
 sleep 0.5
 check "no-enter did not run"     1 ''                           test -f "$E2E/noenter.flag"
 check "clear the typed line"     0 ''                           bash -c "tmux -L $SOCK send-keys -t '=e-onfail:' C-u"
@@ -951,6 +951,7 @@ check "up --drift is quiet when aligned"    0 'nothing to start' bash -c "cd $E2
 check "send --all --dry-run plans every session" 0 "send-keys.*drift-b" bash -c "cd $E2E && $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK send --all --dry-run \"echo hi\""
 check "send --all types into each one" 0 "2 sent"            bash -c "cd $E2E && $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK send --all \"echo fanout-ok\""
 check "send --all needs text"          2 "usage: pp send"    bash -c "cd $E2E && $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK send --all"
+check "send --until-idle prints the reply" 0 'idle-marker' bash -c "cd $E2E && $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK send drift-b \"echo idle-marker\" --until-idle --lines 20"
 check "up --drift leaves a hand-stopped one alone" 0 'stopped by hand' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK down drift-c --force && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK up --drift"
 check "status marks a hand-stopped session" 0 'off \(hand\)'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK status"
 check "status says why it is off"      0 '"reason": "hand"'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK status --json"

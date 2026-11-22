@@ -557,7 +557,7 @@ pp tui                        一块屏管所有会话和待办（Enter 进入�
 
 # 动
 pp attach <name|#>            进入；不存在则先启动
-pp send <name|#> "文本"        往 pane 里打字并回车（--no-enter 不回车；--all/--node/--tag/--role 撒网，忙的跳过）
+pp send <name|#> "文本"        往 pane 里打字并回车（--no-enter 不回车；--all/--node/--tag/--role 撒网，忙的跳过；--until-idle 干完再打印屏幕）
 pp todo [ls|attach|done]      谁在等我决策：列表 / 进去 / 完成（--all、--session）
 pp role <会话> [角色|-]       给会话贴标签（--list 看所有标签与未贴的）
 pp cron add|ls|rm|run|tick    定时把 prompt/命令送进会话（--in/--every/--cron，--all/--role，--heal/--sweep）

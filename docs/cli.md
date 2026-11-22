@@ -580,12 +580,23 @@ JSON：行对象数组，每行带 `activity`（epoch 秒）与 `idleSeconds`。
 
 ### `pp send <name|#> "文本"`
 
-往 pane 里打字并回车（`--no-enter` 只打字）。本质是 `tmux send-keys`，适合给跑着的 agent 推提示词、回 `y/n`。**不返回 agent 的输出**，要看结果用 `pp logs`。
+往 pane 里打字并回车（`--no-enter` 只打字）。本质是 `tmux send-keys`，适合给跑着的 agent 推提示词、回 `y/n`。默认立刻返回；要看结果用 `pp logs` 或下面的 `--until-idle`。
 
 ```bash
 pp send backend "跑一下 npm test，失败就把报错贴出来"
 pp send 3 --no-enter "git status"      # 先不执行
+pp send backend "跑一下测试" --until-idle        # 等这一轮干完，把屏幕打出来
+pp send backend "跑一下测试" --until-idle --timeout 120 --lines 80
 ```
+
+`--until-idle` 把"发一句"变成阻塞调用：等到 agent 不再 Working，然后打印 pane 的最后 `--lines` 行（默认 40）。这是运维每天手搓的那个循环（发 → `logs -f` → 眯眼看）的命令化版本，所以在脚本里可以直接用：
+
+```bash
+out=$(pp send api "跑一遍 npm test，只回一行结论" --until-idle --lines 20)
+echo "$out" | tail -3
+```
+
+退出码：会话在等待中退出 → 1（`exited while waiting`）；到 `--timeout`（默认 600 秒）还在跑 → 1（`still working after Ns`，并给出 `pp logs <name> -f`）。
 
 ### `pp mesh <ls|resolve|send>`
 

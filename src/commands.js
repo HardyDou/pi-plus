@@ -4050,7 +4050,7 @@ function cmdLogs(config, options, ui) {
   });
 }
 
-function cmdSend(config, options, ui) {
+async function cmdSend(config, options, ui) {
   // --all: one sentence into every session, the same fan-out pp cron uses.
   // Busy sessions are skipped on purpose: queueing a second prompt into an
   // agent that is mid-turn is how you get it to lose the thread.
@@ -4108,9 +4108,57 @@ function cmdSend(config, options, ui) {
     ui.error(`session "${session.name}" is not running`);
     process.exit(1);
   }
-  tmux.sendText(session.tmuxName, text, { enter: !options.noEnter });
+  const result = tmux.sendText(session.tmuxName, text, { enter: !options.noEnter });
   note("send", session.name, { node: session.node ?? null, detail: text.length > 120 ? `${text.slice(0, 117)}…` : text, result: options.noEnter ? "typed" : "sent" });
-  ui.info(`sent to ${session.name}`);
+  if (options.noEnter) {
+    ui.info(`typed into ${session.name} (Enter not pressed)`);
+    return;
+  }
+  if (!result.submitted) {
+    ui.error(`${session.name}: the text is in the box but Enter never took it — look: pp logs ${session.name}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (!options.untilIdle) {
+    ui.info(`sent to ${session.name}`);
+    return;
+  }
+
+  // --until-idle turns one line into a blocking call: useful for "do this, then
+  // show me what it said", which is otherwise send + logs -f + eyeballs.
+  const limit = Math.max(5, Number(options.timeout ?? 600) || 600);
+  ui.info(`sent to ${session.name} — waiting up to ${limit}s for it to finish`);
+  const waited = waitTillIdle(tmux, session.tmuxName, { limit, lines: options.lines });
+  if (waited.reason === "exited") {
+    ui.error(`${session.name} exited while waiting`);
+    process.exitCode = 1;
+    return;
+  }
+  if (waited.reason === "timeout") {
+    ui.error(`${session.name} is still working after ${limit}s — watch it with: pp logs ${session.name} -f`);
+    process.exitCode = 1;
+    return;
+  }
+  ui.out(String(waited.text ?? "").replace(/\s+$/u, ""));
+}
+
+/**
+ * Block until an agent stops working, then hand back its screen.
+ *
+ * "Send a line, wait for the turn to end, print what it said" is the one loop
+ * every operator writes by hand (send + logs -f + squinting). Returns instead of
+ * printing so the waiting logic can be tested without a live agent.
+ */
+export function waitTillIdle(tmux, name, { limit = 600, lines = 40, sleep: pause = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms), now = () => Date.now(), pollMs = 1000 } = {}) {
+  const started = now();
+  for (;;) {
+    if (!tmux.sessionExists(name)) return { ok: false, reason: "exited", text: null };
+    if (!tmux.isAgentBusy(name)) {
+      return { ok: true, reason: "idle", text: tmux.capture(name, Number(lines) || 40) };
+    }
+    if (now() - started >= limit * 1000) return { ok: false, reason: "timeout", text: null };
+    pause(pollMs);
+  }
 }
 
 function sessionForAddress(config, address) {
