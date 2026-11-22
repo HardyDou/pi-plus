@@ -242,8 +242,10 @@ export const COMMANDS = [
     summary: "One page for the next shift: what changed, what is wrong, what needs a human",
     usage: "pp handover [--since <window>] [--json]",
     details: [
-      "The page you paste into the group chat at the end of a shift. Four parts,",
-      "in the order someone picking this up needs them:",
+      "The page you paste into the group chat at the end of a shift. Five parts,",
+      "in the order someone picking this up needs them — including who is",
+      "mid-turn right now (do not restart those) and the questions parked",
+      "inside sessions:",
       "",
       "  changed   every recorded change in the window (pp audit), newest last,",
       "            with who did it — sends are left out, they are the work itself",

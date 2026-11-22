@@ -313,6 +313,7 @@ check "check catches one label in two spellings" 1 'differ only by case' bash -c
 check "handover has its three sections" 0 'changed' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --since 7d 2>&1"
 check "handover says who needs a human" 0 'human'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --since 7d 2>&1"
 check "handover --json is an object"    0 '"changes"' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --json 2>&1"
+check "handover --json says who is mid-turn" 0 '"busy"' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --json 2>&1"
 # the first screen is the front door: the newest verbs have to be on it
 check "the first screen points at handover" 0 'pp handover' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK 2>&1"
 check "the first screen points at why"     0 'pp why <name>' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK 2>&1"

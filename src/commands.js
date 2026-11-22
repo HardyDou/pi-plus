@@ -3858,6 +3858,22 @@ async function cmdHandover(config, options, ui) {
   for (const entry of changes) counts.set(entry.action, (counts.get(entry.action) ?? 0) + 1);
 
   const problems = fleetProblems(config, options);
+  // who is mid-turn right now: the next shift must not restart these, and a
+  // session that has been busy for hours is a different kind of "still going"
+  const busyNow = [];
+  for (const session of config.sessions) {
+    const handle = makeTmux(config, options, session);
+    let reading = null;
+    try {
+      reading = stallWatch(config, handle, session, { now: now.getTime() });
+    } catch {
+      reading = null;
+    }
+    if (reading?.busy) {
+      busyNow.push({ name: session.name, node: session.node ?? null, minutes: reading.busyMinutes ?? 0, doing: reading.doing ?? "" });
+    }
+  }
+  busyNow.sort((a, b) => b.minutes - a.minutes);
   const jobs = (() => {
     try {
       return readJobs();
@@ -3889,7 +3905,7 @@ async function cmdHandover(config, options, ui) {
             detail: entry.detail ?? null,
             actor: entry.actor ?? null,
           })),
-          now: { sessions: total, problems: problems.map((item) => item.text), cron: jobs.length, late },
+          now: { sessions: total, problems: problems.map((item) => item.text), cron: jobs.length, late, busy: busyNow },
           todos: waiting.map((todo) => ({ id: todo.id, session: todo.session, title: todo.title })),
         },
         null,
@@ -3919,6 +3935,11 @@ async function cmdHandover(config, options, ui) {
   const tmuxDown = problems.find((item) => item.kind === "tmux");
   const upLocal = tmuxDown ? null : local.length - off.length;
   line("now", `${total} session(s) configured${upLocal === null ? "" : `, ${upLocal}/${local.length} local up`}${unmanaged.length ? `, ${unmanaged.length} unmanaged` : ""}`);
+  if (busyNow.length) {
+    const shown = busyNow.slice(0, 3);
+    const detail = shown.map((row) => `${row.name} ${shortAge(row.minutes * 60)}`).join(", ");
+    line("busy", `${busyNow.length} mid-turn — ${detail}${busyNow.length > shown.length ? ui.paint("dim", ` (+${busyNow.length - shown.length})`) : ""}  · pp busy`);
+  }
   if (jobs.length) {
     const installed = (() => {
       try {
