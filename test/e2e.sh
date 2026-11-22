@@ -8,7 +8,8 @@
 #
 # Requirements: tmux, bash, a working `pi` CLI (only the last two sections).
 #
-#   ./test/e2e.sh              # full run (~3 minutes)
+#   ./test/e2e.sh                        # full run (~5 minutes)
+#   PP_E2E_ONLY='^(drift|tui)$' ./test/e2e.sh   # just those sections (debugging)
 #
 # It cleans up after itself (kills its own tmux server, stops/uninstalls its own
 # unit, removes /tmp/e2e-pifarm). The unit is named `pi-plus-e2e` (PP_UNIT_NAME),
@@ -26,8 +27,15 @@ export PP_UNIT_NAME=pi-plus-e2e
 CFG=$E2E/plus.yml
 PASS=0; FAIL=0; FAILED_NAMES=()
 
+SKIP=0
+SECTION_ACTIVE=1
+
 check() { # name want_rc pattern cmd...
   local name="$1" want_rc="$2" pat="$3"; shift 3
+  if [[ $SECTION_ACTIVE -eq 0 ]]; then
+    SKIP=$((SKIP+1))
+    return 0
+  fi
   local out rc
   out=$("$@" 2>&1); rc=$?
   local ok=1
@@ -56,7 +64,15 @@ ncheck() { # name pattern cmd...
   fi
 }
 
-section() { printf '\n### %s\n' "$1"; }
+# PP_E2E_ONLY=<regex> runs only the sections whose title matches — handy while
+# chasing one feature. Section bodies still execute (their setup is what the
+# checks need), so a filtered run is a debugging aid, not a smaller suite.
+section() {
+  printf '\n### %s\n' "$1"
+  if [[ -n ${PP_E2E_ONLY:-} ]]; then
+    if [[ "$1" =~ $PP_E2E_ONLY ]]; then SECTION_ACTIVE=1; else SECTION_ACTIVE=0; printf '     (skipped)\n'; fi
+  fi
+}
 
 cleanup() {
   [[ -n ${INBOX_PID:-} ]] && kill "$INBOX_PID" >/dev/null 2>&1
@@ -1210,5 +1226,6 @@ check "extension exposes the seven commands" 0 '^7$'         bash -c "cd $ROOT &
 check "extension records todos from pi events" 0 '^2$'        bash -c "cd $ROOT && grep -c 'agent_settled' extensions/pp-tmux.js"
 check "extension registers the todo tool" 0 '^1$'        bash -c "cd $ROOT && grep -c 'name: \"todo\"' extensions/pp-tmux.js"
 
-printf '\n==========================\nPASS %d  FAIL %d\n' "$PASS" "$FAIL"
+printf '\n==========================\nPASS %d  FAIL %d  SKIP %d\n' "$PASS" "$FAIL" "$SKIP"
+if [[ $SKIP -gt 0 ]]; then printf '(filtered by PP_E2E_ONLY=%s — not a full run)\n' "$PP_E2E_ONLY"; fi
 if [[ $FAIL -gt 0 ]]; then printf 'failed: %s\n' "${FAILED_NAMES[*]}"; exit 1; fi

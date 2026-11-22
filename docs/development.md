@@ -25,9 +25,12 @@ docs/                技术文档
 ```bash
 git clone https://github.com/HardyDou/pi-plus && cd pi-plus
 npm test                       # 41 个单测，不需要 tmux
-./test/e2e.sh                  # 86 项端到端，需要 tmux + pi，约 2–3 分钟
+./test/e2e.sh                        # 541 项端到端，需要 tmux + pi，约 5 分钟
+PP_E2E_ONLY='^(drift|tui)$' ./test/e2e.sh   # 只跑这两节（调试用，见下）
 node bin/pp.js --help
 ```
+
+改一个功能时不想等五分钟：`PP_E2E_ONLY` 是个正则，只有标题匹配的分节会真正执行，其余分节会打印 `(skipped)` 并把检查计入 `SKIP`。**这不是"小套件"** —— 分节体内的准备代码仍会跑（检查需要它们），所以被过滤掉的依赖会让某些检查假失败。它的用途是"改一处、看那一处"，最后仍然要跑一次完整的。
 
 `e2e.sh` 会在隔离环境里跑，不会碰你的真实会话：独立 socket（`pfe2e`）、独立配置（`/tmp/e2e-pifarm/plus.yml`）、独立 state 目录，退出时 `trap` 清理。它会真的装一个 `pi-plus.service` 再删掉，所以需要 systemd（或至少 `systemctl --user` 能跑）。
 
