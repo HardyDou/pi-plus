@@ -470,6 +470,7 @@ check "doctor runs"              0 'tmux|node'                  bash -c "pp --so
 check "doctor --json"            1 '"checks"|"ok"'              PFc doctor --json
 # a full disk is the failure where every other check starts lying
 check "doctor watches free space"  0 'free on'                      bash -c 'pp doctor 2>&1 | grep -F disk'
+check "plan puts free space first"  0 'free — below the'            bash -c 'PP_DISK_MIN_MB=999999 pp plan 2>&1' 
 check "an impossible floor fails the check" 1 'wants [0-9.]+ [GMT]B' bash -c 'PP_DISK_MIN_MB=999999 pp doctor --json 2>&1' 
 
 section "mesh"

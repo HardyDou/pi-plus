@@ -3165,7 +3165,7 @@ async function cmdWhyNode(config, options, ui) {
  * it, a drained machine makes every `up` a no-op, and so on. Read-only.
  */
 export function planSteps(facts) {
-  const { reach = [], drift = [], unmanaged = [], stuck = [], cron = [], dangling = [], waiting = [], logs = [], autostart = null, extension = null } = facts;
+  const { reach = [], drift = [], unmanaged = [], stuck = [], cron = [], dangling = [], waiting = [], logs = [], autostart = null, extension = null, disk = null } = facts;
   const steps = [];
   const add = (priority, title, command, why) => steps.push({ priority, title, command, why });
 
@@ -3227,6 +3227,14 @@ export function planSteps(facts) {
       : "pp adopt";
     add(6, `adopt ${unmanaged.length} session(s) that are not in the config`, command, `running but unwritten: ${unmanaged.slice(0, 4).join(", ")}`);
   }
+  if (disk) {
+    add(
+      1,
+      `${disk.free} free — below the ${disk.want} floor`,
+      "pp clean",
+      "a full disk makes every other fix fail quietly; pp clean shrinks the files pp wrote",
+    );
+  }
   for (const item of stuck) {
     add(7, `${item.name} has been quiet for ${item.quiet}m`, `pp logs ${item.name}`, "the agent is mid-turn and may be waiting on a tool");
   }
@@ -3248,7 +3256,15 @@ export function planSteps(facts) {
 /** The facts `pp plan` needs, gathered from the same helpers the other commands use. */
 export async function planFacts(config, options) {
   const env = options?.env ?? process.env;
-  const facts = { reach: [], drift: [], unmanaged: [], stuck: [], cron: [], dangling: [], waiting: [], logs: [], autostart: null, extension: null };
+  const facts = { reach: [], drift: [], unmanaged: [], stuck: [], cron: [], dangling: [], waiting: [], logs: [], autostart: null, extension: null, disk: null };
+  // Free space is the one fact that makes every other fix moot, so it is read
+  // first and cheaply (one statfs, no subprocess).
+  {
+    const free = freeSpace(stateDir(env));
+    if (free && free.bytes < diskFloorBytes(env)) {
+      facts.disk = { bytes: free.bytes, floor: diskFloorBytes(env), free: humanBytes(free.bytes), want: humanBytes(diskFloorBytes(env)), mount: free.mount };
+    }
+  }
   // A todo is work blocked on a human. One that has been sitting for a day is the
   // thing that quietly rots, so plan counts them oldest first.
   {

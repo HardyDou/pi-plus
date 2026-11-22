@@ -120,3 +120,18 @@ test("logs come after the questions, not before", () => {
   });
   assert.deepEqual(steps.map((step) => step.command), ["pp todo ls", "pp clean"]);
 });
+
+test("a nearly full disk comes before the smaller fixes", () => {
+  const steps = planSteps({
+    disk: { bytes: 200 * 1024 * 1024, floor: 1024 * 1024 * 1024, free: "200.0 MB", want: "1.0 GB", mount: "/home/user/.local/state/pi-plus" },
+    logs: [{ label: "cron.log", size: "60.0 MB" }],
+  });
+  assert.equal(steps[0].command, "pp clean");
+  assert.match(steps[0].title, /200\.0 MB free — below the 1\.0 GB floor/);
+  assert.ok(steps.length >= 2, "the log step is still there, just not first");
+});
+
+test("plenty of space adds nothing", () => {
+  const steps = planSteps({ disk: null });
+  assert.equal(steps.length, 0);
+});
