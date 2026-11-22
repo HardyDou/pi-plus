@@ -107,6 +107,7 @@ import {
   cronMatches,
   CronError,
   cronLogPath,
+  dailyRuns,
   formatDuration,
   jobsPath,
   newJobId,
@@ -3114,6 +3115,8 @@ export async function cmdWhyJob(config, options, ui, job) {
           schedule: job.schedule,
           catchUp: job.catchUp ?? null,
           idleAfter: job.idleAfter ?? null,
+          maxPerDay: job.maxPerDay ?? null,
+          dayRuns: dailyRuns(job, new Date(now)),
           verdict,
           tick,
           nextRun: due ? due.toISOString() : null,
@@ -3174,7 +3177,9 @@ export async function cmdWhyJob(config, options, ui, job) {
       : `${nextText}${next.late && !deferredJob ? ui.paint("yellow", "  (late)") : deferredJob ? ui.paint("dim", "  (retries every tick)") : ""}`,
   );
   line("last run", job.lastRun ? `${agoText(job.lastRun, now)}${job.lastStatus ? ui.paint("dim", ` — ${job.lastStatus}`) : ""}` : "never");
-  line("counts", `ran ${job.runs ?? 0}× · skipped ${job.skipped ?? 0}×`);
+  const today = dailyRuns(job, new Date(now));
+  const capText = job.maxPerDay ? ` · today ${today} of ${job.maxPerDay}` : today ? ` · today ${today}` : "";
+  line("counts", `ran ${job.runs ?? 0}× · skipped ${job.skipped ?? 0}×${capText}`);
   if (inQuietHours(job, now)) {
     line("now", ui.paint("dim", `quiet hours — nothing is sent until ${describeWindow(job.window).split("-").pop()}`));
   } else if (plan) {
@@ -6755,7 +6760,7 @@ export function cronRow(job, now = new Date()) {
     action: job.action,
     session: job.session ?? null,
     role: job.role ?? null,
-    schedule: `${describeSchedule(job.schedule)}${job.idleAfter ? ` · idle ${formatDuration(job.idleAfter)}` : ""}${job.window ? ` · quiet ${describeWindow(job.window)}` : ""}`,
+    schedule: `${describeSchedule(job.schedule)}${job.idleAfter ? ` · idle ${formatDuration(job.idleAfter)}` : ""}${job.window ? ` · quiet ${describeWindow(job.window)}` : ""}${job.maxPerDay ? ` · max ${job.maxPerDay}/day` : ""}`,
     next: waiting,
     late: deferred ? false : next.late,
     deferred,
@@ -6764,6 +6769,8 @@ export function cronRow(job, now = new Date()) {
     last: job.lastStatus ?? "-",
     paused: Boolean(job.paused),
     idleAfter: job.idleAfter ?? null,
+    maxPerDay: job.maxPerDay ?? null,
+    dayRuns: dailyRuns(job, now),
   };
 }
 
@@ -6927,6 +6934,15 @@ async function cmdCronAdd(config, options, ui) {
     throw new CronError("--window only applies to prompts sent to sessions");
   }
 
+  // --max-per-day: a fan-out job is a firehose unless somebody caps it
+  const maxPerDay = options.maxPerDay === undefined ? 0 : Number(options.maxPerDay);
+  if (options.maxPerDay !== undefined && (!Number.isInteger(maxPerDay) || maxPerDay <= 0)) {
+    throw new CronError("--max-per-day needs a whole number bigger than zero (try 24)");
+  }
+  if (maxPerDay && (healing || sweeping || command)) {
+    throw new CronError("--max-per-day only applies to prompts sent to sessions");
+  }
+
   const schedule = buildSchedule({ at: options.in ? new Date(Date.now() + parseDuration(options.in, { what: "--in" }) * 1000).toISOString() : options.at, every: options.every, cron: options.cronExpr });
 
   let session = null;
@@ -7021,6 +7037,7 @@ async function cmdCronAdd(config, options, ui) {
     startSession: Boolean(options.start),
     ...(idleAfter ? { idleAfter } : {}),
     ...(window ? { window } : {}),
+    ...(maxPerDay ? { maxPerDay } : {}),
     configPath,
     createdAt: new Date().toISOString(),
     runs: 0,
@@ -7033,6 +7050,7 @@ async function cmdCronAdd(config, options, ui) {
     ui.out(`[dry-run] first run ${due ? due.toISOString() : "never"}`);
     if (idleAfter) ui.out(`[dry-run] only sessions quiet for ${formatDuration(idleAfter)} or more are nudged`);
     if (window) ui.out(`[dry-run] nothing is sent between ${describeWindow(window)}`);
+    if (maxPerDay) ui.out(`[dry-run] at most ${maxPerDay} delivery(ies) a day`);
     return;
   }
 
@@ -7429,8 +7447,12 @@ export function deliveryPlan(tmux, job, { config = null } = {}) {
   } else {
     names = [job.session];
   }
+  // a daily cap is checked before anything else: past it, nothing is sent no
+  // matter how idle, free or healthy the target looks
+  const capped = job.maxPerDay ? dailyRuns(job) >= Number(job.maxPerDay) : false;
   const targets = names.map((name) => {
     const activity = live.get(name)?.activity;
+    if (capped) return { name, verdict: "cap", sent: dailyRuns(job), cap: Number(job.maxPerDay) };
     if (config && drainedTarget(config, name)) return { name, verdict: "drained" };
     if (!live.has(name)) return { name, verdict: "down" };
     if (tooFresh(activity, job.idleAfter)) {
@@ -7467,6 +7489,10 @@ async function cmdCronDryRun(config, options, ui) {
       continue;
     }
     const config = jobConfig(job);
+    if (job.maxPerDay && dailyRuns(job) >= Number(job.maxPerDay)) {
+      rows.push({ id, target: job.session === ALL_SESSIONS ? "all sessions" : job.session, verdict: "cap", detail: `already delivered ${dailyRuns(job)} of ${job.maxPerDay} today` });
+      continue;
+    }
     if (inQuietHours(job)) {
       rows.push({ id, target: job.session === ALL_SESSIONS ? "all sessions" : job.session, verdict: "quiet", detail: `nothing is sent between ${describeWindow(job.window)}` });
       continue;
@@ -7487,7 +7513,7 @@ async function cmdCronDryRun(config, options, ui) {
     rows.push({ id, target: job.session === ALL_SESSIONS ? "all sessions" : job.session, plan: deliveryPlan(tmux, job, { config }) });
   }
 
-  const label = { send: "would send", busy: "busy — skipped", lately: "moved recently — skipped", down: "not running", drained: "drained machine", run: "would run", quiet: "quiet hours — skipped" };
+  const label = { send: "would send", busy: "busy — skipped", lately: "moved recently — skipped", down: "not running", drained: "drained machine", run: "would run", quiet: "quiet hours — skipped", cap: "daily cap reached — skipped" };
   if (ui.json) {
     // the plan is a promise about a tick: keep the per-target verdicts and their
     // reasons, and say what the summary sentence would be

@@ -136,6 +136,10 @@ function parseArgs(argv) {
         case "--window":
           options.window = takeValue("--window", inline);
           break;
+        case "--max-per-day":
+          options.maxPerDay = takeValue("--max-per-day", inline);
+          break;
+
         case "--idle-after":
           options.idleAfter = takeValue("--idle-after", inline);
           break;

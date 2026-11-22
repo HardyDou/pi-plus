@@ -337,6 +337,12 @@ export function tick({ now = new Date(), env = process.env, deliver, dryRun = fa
         skipped.push({ id: job.id, reason: "quiet hours" });
         continue;
       }
+      // A fan-out job can be a firehose (nine sessions, 144 times a day); a cap
+      // is the difference between "nudge the idle ones" and "wake the building".
+      if (job.maxPerDay && dailyRuns(job, now) >= Number(job.maxPerDay)) {
+        skipped.push({ id: job.id, reason: `daily cap reached (${job.maxPerDay})` });
+        continue;
+      }
       const due = nextRun(job, now);
       if (!due || due.getTime() > now.getTime()) {
         if (job.schedule.kind === "once" && job.lastRun) {
@@ -369,6 +375,7 @@ export function tick({ now = new Date(), env = process.env, deliver, dryRun = fa
       if (result.status === "delivered") {
         job.lastRun = now.toISOString();
         job.runs = (job.runs ?? 0) + 1;
+        bumpDaily(job, now);
         ran.push({ id: job.id, session: job.session, lateBy });
         logLine(
           `delivered ${job.id} → ${job.session}${result.text ? ` ${result.text}` : ""}${lateBy > 60000 ? ` (late by ${formatDuration(Math.round(lateBy / 1000))})` : ""}`,
@@ -398,12 +405,33 @@ export function tick({ now = new Date(), env = process.env, deliver, dryRun = fa
 }
 
 /** Mark a job as run right now (used by `pp cron run <id>`). */
+/** Local calendar day, the unit a daily cap counts in. */
+export function dayKey(at = new Date()) {
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
+}
+
+/** How many times this job has delivered today (0 when the day rolled over). */
+export function dailyRuns(job, at = new Date()) {
+  return job.day === dayKey(at) ? Number(job.dayRuns ?? 0) : 0;
+}
+
+function bumpDaily(job, at) {
+  const key = dayKey(at);
+  if (job.day !== key) {
+    job.day = key;
+    job.dayRuns = 0;
+  }
+  job.dayRuns = Number(job.dayRuns ?? 0) + 1;
+}
+
 export function recordRun(job, status, env = process.env) {
   job.lastAttempt = new Date().toISOString();
   job.lastStatus = status;
   if (status === "delivered") {
     job.lastRun = job.lastAttempt;
     job.runs = (job.runs ?? 0) + 1;
+    bumpDaily(job, new Date());
   }
   if (job.schedule.kind === "once") job.done = true;
   writeJobs(readJobs(env).map((entry) => (entry.id === job.id ? job : entry)), env);

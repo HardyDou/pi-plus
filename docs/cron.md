@@ -43,6 +43,20 @@ pp cron add --all --every 10m --idle-after 10m "忽略我的心跳检测，请�
 - 部分跳过时写 `to 3/9, 4 busy, 2 busy lately`——"busy lately" = 刚有输出、被 `--idle-after` 放过
 - `pp cron ls` 的 SCHEDULE 列会显示 `every 10m · idle 10m`，`pp why <id>` 的 `schedule` 行也会注明
 
+## 硬上限：`--max-per-day`
+
+`--idle-after` 是"别打扰忙的"，`--max-per-day` 是"今天到此为止"。给扇出任务一个绝对
+上限，达到之后 tick 直接跳过，不看目标状态：
+
+```bash
+pp cron add --all --every 10m --idle-after 10m --max-per-day 24 "…"
+```
+
+- 按**本地日**切（零点归零），计数存在 job 的 `day`/`dayRuns` 上
+- `pp cron run <id>` 也计数 —— 手动补一次不能悄悄把上限改掉
+- 跳过时日志与 `cron ls` 都写 `daily cap reached (24)`，`dryrun` 也这么说而不是许诺投递
+- `pp why <id>` 的 `counts` 行会显示 `today 3 of 24`
+
 ## 先看清楚会推给谁：`dryrun`
 
 给广播任务打开之前，先问一句"现在这一拍会碰到谁"。`pp cron dryrun <id>` 只读不写：

@@ -236,6 +236,7 @@ pp cron add --session docs --cron "0 9 * * *" "汇总昨天的提交，写到 do
 pp cron add --every 5m --command "curl -fsS http://localhost:8080/health"
 pp cron add --all --every 10m --idle-after 10m "忽略我的心跳检测，请继续你的任务"   # 只在安静 10 分钟后才推
 pp cron dryrun 636b62                       # 只读：这一拍会推给谁，其余为什么被跳过
+pp cron add --all --every 10m --max-per-day 24 "…"       # 硬上限：一天最多 24 次
 pp cron add --all --every 10m --window 23:00-08:00 "…"   # 夜里不推（本地时间，可跨午夜）
 pp cron add --heal --every 5m                     # 自愈：只补"该在没在的"会话
 

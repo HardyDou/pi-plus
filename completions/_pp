@@ -94,6 +94,9 @@ _pp() {
     '--every[repeat on an interval]:duration:' \
     '--cron[repeat on a crontab expression]:expr:' \
     '--command[run a shell command]:cmd:' \
+    '--idle-after[only nudge sessions quiet for this long]:duration:' \
+    '--max-per-day[refuse to deliver more than n a day]:n:' \
+    '--window[keep the job quiet between these local times]:from-to:' \
     '--catch-up[how late a missed run may be]:duration:' \
     '--heal[no prompt: run pp up --drift]' \
     '--start[start the session if it is not running]' \

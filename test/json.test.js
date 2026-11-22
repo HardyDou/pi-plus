@@ -312,6 +312,8 @@ test("why <job> --json: the schedule, the counts, and the reach", () => {
       schedule: "object",
       catchUp: "number|null",
       idleAfter: "number|null",
+      maxPerDay: "number|null",
+      dayRuns: "number",
       verdict: "string",
       tick: "boolean",
       nextRun: "string|null",
