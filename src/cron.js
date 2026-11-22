@@ -503,6 +503,27 @@ export function describeWindow(window) {
   return `${pad(window.from)}-${pad(window.to)}`;
 }
 
+/**
+ * Change a job's knobs in place. A null value removes the knob; anything else
+ * replaces it. The schedule, the id and the counts are left alone — that is the
+ * whole point of editing instead of deleting and re-adding.
+ */
+export function updateJob(id, patch = {}, env = process.env) {
+  const jobs = readJobs(env);
+  const job = jobs.find((entry) => entry.id === id);
+  if (!job) return null;
+  const before = {};
+  for (const [key, value] of Object.entries(patch)) {
+    before[key] = job[key] ?? null;
+    if (value === null) delete job[key];
+    else job[key] = value;
+  }
+  writeJobs(jobs, env);
+  const after = {};
+  for (const key of Object.keys(patch)) after[key] = job[key] ?? null;
+  return { before, after };
+}
+
 /** Pause or resume a job without touching its schedule or its history. */
 export function setJobPaused(id, paused, env = process.env) {
   const jobs = readJobs(env);

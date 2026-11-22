@@ -708,6 +708,11 @@ check "cron run defers on a drained machine" 0 'is on a drained machine \(dead\)
 check "a daily cap is stored" 0 'max 2/day' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron add --all --every 10m --max-per-day 2 'cap probe' && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron ls 2>&1 | grep -F 'max 2/day'"
 CAP_ID=$(cd "$E2E" && XDG_STATE_HOME="${XDG_STATE_HOME:-$HOME/.local/state}" node -e 'const j=require(process.env.XDG_STATE_HOME+"/pi-plus/cron.json").jobs.find(x=>x.maxPerDay===2);process.stdout.write(j?j.id:"none")')
 check "the dry run reports the cap it has not reached" 0 'would send' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron dryrun $CAP_ID 2>&1 | head -2"
+check "cron set changes the cap in place" 0 'maxPerDay: 2 -> 24' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron set $CAP_ID --max-per-day 24"
+check "cron set keeps the schedule and the counts" 0 'every 10m · max 24/day' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron ls 2>&1 | grep -F '$CAP_ID'"
+check "cron set can add a knob" 0 'idleAfter: .none. -> 30m' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron set $CAP_ID --idle-after 30m"
+check "cron set can remove a knob" 0 'idleAfter: 30m -> .none.' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron set $CAP_ID --idle-after none"
+check "cron set with nothing to change is a usage error" 2 'nothing to change' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron set $CAP_ID 2>&1"
 check "cron rm drops the capped job" 0 '' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron rm $CAP_ID"
 check "a deferred job is not called late" 0 'deferred …' bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml cron ls 2>&1 | grep -F '$DRAIN_JOB'"
 check "pp why <session> says the job is waiting on it" 0 'waiting on it' bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml why dw 2>&1 | grep '^cron'"

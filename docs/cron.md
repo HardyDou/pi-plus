@@ -57,6 +57,21 @@ pp cron add --all --every 10m --idle-after 10m --max-per-day 24 "…"
 - 跳过时日志与 `cron ls` 都写 `daily cap reached (24)`，`dryrun` 也这么说而不是许诺投递
 - `pp why <id>` 的 `counts` 行会显示 `today 3 of 24`
 
+### 改已有的任务：`pp cron set`
+
+上限、安静窗口、静默时段都能在任务建好之后改，不用删了重建 —— 删掉会连 `id`、调度、
+`runs` 历史一起丢：
+
+```bash
+pp cron set 636b62 --max-per-day 96      # 压到一天最多 96 次
+pp cron set 636b62 --idle-after 30m      # 改成安静 30 分钟才推
+pp cron set 636b62 --window none         # 去掉静默时段
+pp cron set 636b62 --dry-run             # 先看改动
+```
+
+`none` / `off` / `0` 表示"去掉这一项"。改完会落一条审计（`cron.set`，含 `24 -> 96` 这样的
+前后值），`pp audit --action cron.set` 可以查"谁在什么时候把上限从 24 调到 96"。
+
 ## 先看清楚会推给谁：`dryrun`
 
 给广播任务打开之前，先问一句"现在这一拍会碰到谁"。`pp cron dryrun <id>` 只读不写：

@@ -123,6 +123,7 @@ import {
   setJobPaused,
   setJobTarget,
   tick as cronTick,
+  updateJob,
   writeJobs,
 } from "./cron.js";
 import {
@@ -7359,6 +7360,69 @@ async function cmdCronPause(config, options, ui, { paused = true } = {}) {
   if (touched && paused) ui.info(ui.paint("dim", `back on: pp cron resume ${ids[0]}`));
 }
 
+/**
+ * `pp cron set <id> --max-per-day 96 --idle-after 30m` — change what a job
+ * considers "too much" without deleting it and losing its history.
+ */
+async function cmdCronSet(config, options, ui) {
+  const [id] = options.names ?? [];
+  if (!id) {
+    ui.error("which job? pp cron set <id> --max-per-day <n>");
+    process.exit(2);
+  }
+  const jobs = readJobs();
+  const job = jobs.find((entry) => entry.id === id);
+  if (!job) {
+    ui.error(`no job "${id}" — see: pp cron ls`);
+    process.exit(2);
+  }
+  const off = (value) => ["none", "off", "0", ""].includes(String(value).toLowerCase());
+  const patch = {};
+  const parseCap = (value) => {
+    if (off(value)) return null;
+    const n = Number(value);
+    if (!Number.isInteger(n) || n <= 0) throw new CronError("--max-per-day needs a whole number bigger than zero (try 24)");
+    return n;
+  };
+  if (options.maxPerDay !== undefined) patch.maxPerDay = parseCap(options.maxPerDay);
+  if (options.idleAfter !== undefined) {
+    patch.idleAfter = off(options.idleAfter) ? null : parseDuration(options.idleAfter, { what: "--idle-after" });
+  }
+  if (options.window !== undefined) {
+    patch.window = off(options.window) ? null : parseWindow(options.window, { what: "--window" });
+  }
+  if (options.catchUp !== undefined) {
+    if (off(options.catchUp)) patch.catchUp = null;
+    else {
+      const seconds = parseDuration(options.catchUp, { what: "--catch-up" });
+      patch.catchUp = Math.max(1, seconds);
+    }
+  }
+  if (!Object.keys(patch).length) {
+    ui.error("nothing to change — try: pp cron set <id> --max-per-day 96 | --idle-after 30m | --window 23:00-08:00 | --catch-up 2h");
+    process.exit(2);
+  }
+  const show = (key, value) => {
+    if (value === null || value === undefined) return "(none)";
+    if (key === "window") return describeWindow(value);
+    if (key === "idleAfter" || key === "catchUp") return formatDuration(Number(value));
+    return String(value);
+  };
+  if (options.dryRun) {
+    for (const [key, value] of Object.entries(patch)) ui.out(`[dry-run] ${id} ${key}: ${show(key, job[key] ?? null)} -> ${show(key, value)}`);
+    return;
+  }
+  const result = updateJob(id, patch, process.env);
+  if (!result) {
+    ui.error(`no job "${id}" — see: pp cron ls`);
+    process.exit(2);
+  }
+  for (const key of Object.keys(patch)) {
+    ui.out(`${id} ${key}: ${show(key, result.before[key])} -> ${show(key, result.after[key])}`);
+  }
+  note("cron.set", id, { detail: Object.keys(patch).map((key) => `${key} ${show(key, result.before[key])} -> ${show(key, result.after[key])}`).join(", ") });
+}
+
 async function cmdCronRetarget(config, options, ui) {
   const [id, ...rest] = options.names;
   if (!id) {
@@ -7752,6 +7816,9 @@ async function cmdCron(config, options, ui) {
     case "resume":
     case "unpause":
       return cmdCronPause(config, { ...restOptions, names: rest }, ui, { paused: false });
+    case "set":
+    case "edit":
+      return cmdCronSet(config, { ...restOptions, names: rest }, ui);
     case "retarget":
     case "reaim":
       return cmdCronRetarget(config, { ...restOptions, names: rest }, ui);
