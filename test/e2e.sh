@@ -333,8 +333,8 @@ check "sort role sinks the unlabelled"    0 '^-$'      bash -c "cd $E2E && $ROOT
 check "an unknown sort lists the four"    2 'name, role' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --sort nope status 2>&1"
 
 # --role is a filter for the fan-out verbs too, not just for the table
-check "send --role only reaches that role" 0 'risk-10:' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role pm send --dry-run 'hey' 2>&1"
-check "send --role skips other roles"  0 '^1$'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role pm send --dry-run 'hey' 2>&1 | grep -c 'send-keys'"
+check "send --role only reaches that role" 0 'would send *risk-10' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role pm send --dry-run 'hey' 2>&1"
+check "send --role skips other roles"  0 ''   bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role pm send --dry-run 'hey' 2>&1 | grep -qv 'risk-2$'"
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK up risk-10" >/dev/null 2>&1
 check "logs --role reads that role"    0 '' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role pm logs -n 2 2>&1"
 check "logs --role with no match says so" 2 'no session has role' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --role qa logs -n 2 2>&1"
@@ -1117,7 +1117,10 @@ printf 'version: 1\nsessions:\n  - name: drift-b\n    cwd: /tmp\n    agent: bash
 check "up --drift says what it will start" 0 'starting 2 missing' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK up --drift --dry-run"
 check "up --drift starts the missing ones"  0 '2 started'        bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK up --drift"
 check "up --drift is quiet when aligned"    0 'nothing to start' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK up --drift"
-check "send --all --dry-run plans every session" 0 "send-keys.*drift-b" bash -c "cd $E2E && $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK send --all --dry-run \"echo hi\""
+check "send --all --dry-run plans every session" 0 "would send *drift-b" bash -c "cd $E2E && $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK send --all --dry-run \"echo hi\""
+check "send --all --dry-run counts the targets" 0 "would take it" bash -c "cd $E2E && $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK send --all --dry-run \"echo hi\""
+check "send --all --dry-run shows the argv when asked" 0 "send-keys" bash -c "cd $E2E && $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK -v send --all --dry-run \"echo hi\""
+check "send --all --dry-run types nothing"     0 "nothing was typed" bash -c "cd $E2E && $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK send --all --dry-run \"dry-probe\" && tmux -L $SOCK capture-pane -p -t =drift-b: | grep -c dry-probe || true"
 check "send --all types into each one" 0 "2 sent"            bash -c "cd $E2E && $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK send --all \"echo fanout-ok\""
 check "send --all needs text"          2 "usage: pp send"    bash -c "cd $E2E && $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK send --all"
 check "send --until-idle prints the reply" 0 'idle-marker' bash -c "cd $E2E && $ROOT/bin/pp.js -c $DRIFTCFG --socket $SOCK send drift-b \"echo idle-marker\" --until-idle --lines 20"

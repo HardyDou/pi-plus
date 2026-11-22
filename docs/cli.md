@@ -444,6 +444,23 @@ last start 4m ago by heal (ops@dev#4121) — pp audit --action up
 `drift` 就是 footer 那两个数字的机器可读版本：`down` 用 `pp up --drift` 修，`unmanaged`/`stray` 用 `pp adopt` 修。
 （0.32.0 起是对象；之前的版本直接打数组。）
 
+### `pp send --all --dry-run "…"`
+
+广播前先看名单。不敲任何键，只回答"谁会收、谁在忙被跳过"：
+
+```
+[dry-run] 9 target(s) — 6 would take it, 3 busy, 0 not running
+  would send  bh-system-01
+  busy        mango-release-01  mid-turn 55m — skipped, it would lose the thread
+  busy        pp  mid-turn 2d — skipped, it would lose the thread
+  not running risk-02
+
+  text: probe
+  nothing was typed; drop --dry-run to send
+```
+
+`busy` 的时长来自 `stallWatch`，与 `pp busy` / `pp doctor` 同一套读数。
+
 ### `pp send --all "…"`
 
 一句话发到所有会话（`--node`/`--tag` 收窄范围）。正在跑的会话会被**跳过**而不是排队 —— 把第二句话塞进

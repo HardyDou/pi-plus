@@ -4432,10 +4432,39 @@ async function cmdSend(config, options, ui) {
       return;
     }
     if (options.dryRun) {
-      for (const session of sessions) {
+      // dry-run answers the question people actually have before broadcasting:
+      // "who takes this, and who is busy enough to be skipped?"
+      const plan = sessions.map((session) => {
         const tmux = makeTmux(config, options, session);
-        ui.info(`[dry-run] ${tmux.args(["send-keys", "-t", `=${session.tmuxName}:`, "--", text]).join(" ")}${options.noEnter ? "" : " Enter"}`);
+        let verdict = "send";
+        let minutes = 0;
+        try {
+          if (!tmux.sessionExists(session.tmuxName)) verdict = "down";
+          else if (tmux.isAgentBusy(session.tmuxName)) {
+            verdict = "busy";
+            minutes = stallWatch(config, tmux, session)?.busyMinutes ?? 0;
+          }
+        } catch {
+          verdict = "unreachable";
+        }
+        return { session, tmux, verdict, minutes };
+      });
+      const tally = (kind) => plan.filter((row) => row.verdict === kind).length;
+      ui.info(
+        `[dry-run] ${sessions.length} target(s) — ${tally("send")} would take it, ${tally("busy")} busy, ${tally("down") + tally("unreachable")} not running${options.noEnter ? " (Enter will not be pressed)" : ""}`,
+      );
+      for (const row of plan) {
+        if (row.verdict === "send") {
+          const argv = options.verbose ? `  ${row.tmux.args(["send-keys", "-t", `=${row.session.tmuxName}:`, "--", text]).join(" ")}` : "";
+          ui.out(`  ${ui.paint("green", "would send ")} ${row.session.tmuxName}${ui.paint("dim", argv)}`);
+        } else if (row.verdict === "busy") {
+          ui.out(`  ${ui.paint("yellow", "busy       ")} ${row.session.tmuxName}  ${ui.paint("dim", `mid-turn ${row.minutes ? shortAge(row.minutes * 60) : "just now"} — skipped, it would lose the thread`)}`);
+        } else {
+          ui.out(`  ${ui.paint("dim", `${row.verdict.padEnd(11)}`)} ${row.session.tmuxName}`);
+        }
       }
+      ui.out(ui.paint("dim", `\n  text: ${text.slice(0, 100)}${text.length > 100 ? "…" : ""}`));
+      ui.out(ui.paint("dim", "  nothing was typed; drop --dry-run to send"));
       return;
     }
     let sent = 0;
