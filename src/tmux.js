@@ -56,7 +56,7 @@ export function screenSignature(text) {
 const ANSI = /\u001b\[[0-9;?]*[A-Za-z]/g;
 
 /** The rule lines a pi TUI draws above and below its input box. */
-function isRule(line) {
+export function isRule(line) {
   return /^─{10,}$/.test(line.trim());
 }
 
@@ -368,6 +368,10 @@ export class Tmux {
       if (left === "" || !sameDraft(left, text)) {
         return { submitted: true, retries: attempts, typed: !reused, reused };
       }
+      // An empty box is the usual proof, but pi can start the turn while the
+      // editor still shows the submitted text for a moment. A turn that has
+      // begun is proof enough — pressing Enter again would queue a second one.
+      if (this.isAgentBusy(name)) return { submitted: true, retries: attempts, typed: !reused, reused, viaBusy: true };
       if (attempts >= retries) break;
       sleep(settleMs * 2 ** attempts);
       attempts += 1;

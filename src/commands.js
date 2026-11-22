@@ -34,7 +34,7 @@ import {
   listAliases,
   removeAlias,
 } from "./aliases.js";
-import { hasEditor, looksBusy, resolveExecutable, screenSignature, Tmux } from "./tmux.js";
+import { hasEditor, isRule, looksBusy, resolveExecutable, screenSignature, Tmux } from "./tmux.js";
 import { findScenario, renderMarkdown, renderScenario, RUNBOOK } from "./runbook.js";
 import {
   authSummary,
@@ -4108,6 +4108,12 @@ async function cmdSend(config, options, ui) {
     ui.error(`session "${session.name}" is not running`);
     process.exit(1);
   }
+  const linesAsked = Number(options.lines ?? 40) || 40;
+  // Capture before typing: with --until-idle the caller wants the turn's output,
+  // not the whole pane, and the pane's previous content is the noise to subtract.
+  // The window reaches into scrollback, because a whole turn replaces the visible
+  // screen — diffing 24 visible lines says "everything changed" and shows nothing.
+  const scanLines = Math.max(linesAsked, 200);
   const result = tmux.sendText(session.tmuxName, text, { enter: !options.noEnter });
   note("send", session.name, { node: session.node ?? null, detail: text.length > 120 ? `${text.slice(0, 117)}…` : text, result: options.noEnter ? "typed" : "sent" });
   if (options.noEnter) {
@@ -4128,7 +4134,7 @@ async function cmdSend(config, options, ui) {
   // show me what it said", which is otherwise send + logs -f + eyeballs.
   const limit = Math.max(5, Number(options.timeout ?? 600) || 600);
   ui.info(`sent to ${session.name} — waiting up to ${limit}s for it to finish`);
-  const waited = waitTillIdle(tmux, session.tmuxName, { limit, lines: options.lines });
+  const waited = waitTillIdle(tmux, session.tmuxName, { limit, lines: scanLines });
   if (waited.reason === "exited") {
     ui.error(`${session.name} exited while waiting`);
     process.exitCode = 1;
@@ -4139,7 +4145,26 @@ async function cmdSend(config, options, ui) {
     process.exitCode = 1;
     return;
   }
-  ui.out(String(waited.text ?? "").replace(/\s+$/u, ""));
+  ui.out(trimPane(String(waited.text ?? ""), text, linesAsked).join("\n"));
+}
+
+/**
+ * The part of a captured pane that is worth showing a caller.
+ *
+ * A turn replaces the whole visible screen and pi runs in the alternate screen,
+ * so there is no scrollback to diff against (tmux returns the visible screen
+ * only). What can be removed reliably is the furniture: the input box at the
+ * bottom (everything from its rules down), the echo of the line we just sent,
+ * and trailing blank lines.
+ */
+export function trimPane(screen, sent, keep = 0) {
+  const lines = String(screen).split("\n").map((line) => line.replace(/\s+$/u, ""));
+  const rules = lines.map((line, index) => (isRule(line) ? index : -1)).filter((index) => index >= 0);
+  const cut = rules.length >= 2 ? rules[rules.length - 2] : lines.length;
+  const sentLines = new Set(String(sent ?? "").split("\n").map((line) => line.trim()).filter(Boolean));
+  const kept = lines.slice(0, cut).filter((line) => !sentLines.has(line.trim()));
+  while (kept.length && kept[kept.length - 1].trim() === "") kept.pop();
+  return keep > 0 ? kept.slice(-keep) : kept;
 }
 
 /**

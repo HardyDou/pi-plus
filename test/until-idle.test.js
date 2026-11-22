@@ -71,3 +71,28 @@ test("waitTillIdle reports a session that died mid-turn", () => {
   assert.equal(result.ok, false);
   assert.equal(result.reason, "exited");
 });
+
+test("trimPane drops the input box, the echo of what we sent, and blank tails", async () => {
+  const { trimPane } = await import("../src/commands.js");
+  const rule = "─".repeat(60);
+  const screen = [
+    "earlier transcript line",
+    "reply with exactly: pong",
+    "",
+    "pong",
+    "",
+    rule,
+    "the input box",
+    rule,
+    "/data/scratch  ↑1k ↓2k  $0.001",
+    "",
+  ].join("\n");
+  const kept = trimPane(screen, "reply with exactly: pong");
+  assert.deepEqual(kept, ["earlier transcript line", "", "pong"]);
+});
+
+test("trimPane keeps the last N lines when asked", async () => {
+  const { trimPane } = await import("../src/commands.js");
+  const screen = ["a", "b", "c", "d", "e"].join("\n");
+  assert.deepEqual(trimPane(screen, "ignored", 2), ["d", "e"]);
+});

@@ -589,7 +589,7 @@ pp send backend "跑一下测试" --until-idle        # 等这一轮干完，把
 pp send backend "跑一下测试" --until-idle --timeout 120 --lines 80
 ```
 
-`--until-idle` 把"发一句"变成阻塞调用：等到 agent 不再 Working，然后打印 pane 的最后 `--lines` 行（默认 40）。这是运维每天手搓的那个循环（发 → `logs -f` → 眯眼看）的命令化版本，所以在脚本里可以直接用：
+`--until-idle` 把"发一句"变成阻塞调用：等到 agent 不再 Working，然后打印这段时间屏幕上多了什么（默认最多 `--lines` 行，40）。打印前会去掉两样噪音：底部的输入框（连同状态行）和**你刚发出去的那句话的回显** —— 那是你自己写的，再回放一遍只占屏幕。这是运维每天手搓的那个循环（发 → `logs -f` → 眯眼看）的命令化版本，所以在脚本里可以直接用：
 
 ```bash
 out=$(pp send api "跑一遍 npm test，只回一行结论" --until-idle --lines 20)
