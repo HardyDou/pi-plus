@@ -4235,7 +4235,7 @@ async function cmdWhy(config, options, ui) {
     }
     if (busy) line("agent", ui.paint("dim", "mid-turn — a prompt sent now would be queued or lost"));
   }
-  line("look", `pp logs ${session.name}  ·  pp audit --target ${session.name}  ·  pp status ${session.name}`);
+  line("look", `pp logs ${session.name}  ·  pp audit ${session.name}  ·  pp status ${session.name}`);
 }
 
 function cmdLogs(config, options, ui) {

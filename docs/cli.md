@@ -938,7 +938,7 @@ restart  always
 last start  12m ago by heal (bob@host#8123)
 restarts    3× in 20m — heal
 cron     a59cfc prompt (in 4m (10:41))
-look     pp logs api · pp audit --target api · pp status api
+look     pp logs api · pp audit api · pp status api
 ```
 
 结论按优先级给：机器不可达 → drained → 手工停过 → 在跑 → `restart: no` → 该在跑却没在跑。
