@@ -3067,6 +3067,40 @@ async function cmdWhyJob(config, options, ui, job) {
   else if (next.late) verdict = `overdue by ${next.late} — the tick may not be running: pp doctor`;
   else verdict = `healthy — next ${next.text}`;
 
+  // Would it land right now? That is the question the schedule cannot answer, and
+  // the one that explains a job that "runs" while nobody hears it.
+  const liveNow = new Map();
+  for (const nodeName of [null, ...(config?.nodes ?? []).map((node) => node.name)]) {
+    try {
+      liveNow.set(nodeName ?? "", makeTmux(config, options, { node: nodeName }).listSessions());
+    } catch {
+      liveNow.set(nodeName ?? "", null);
+    }
+  }
+  const plan = (() => {
+    if (job.action !== "prompt") return null;
+    try {
+      if (job.role) {
+        const targets = [];
+        let note = null;
+        for (const session of roleTargets(config, job.role)) {
+          const own = makeTmux(config, options, session);
+          const one = deliveryPlan(own, { ...job, role: null, session: session.tmuxName }, { config });
+          targets.push(...one.targets);
+          if (one.note) note = one.note;
+        }
+        return { targets, note };
+      }
+      if (!liveNow.get("")) return { targets: [], note: "tmux is not answering here" };
+      return deliveryPlan(makeTmux(config, options), job, { config });
+    } catch (err) {
+      return { targets: [], note: err.message };
+    }
+  })();
+  const wouldReach = plan
+    ? { send: plan.targets.filter((entry) => entry.verdict === "send").length, total: plan.targets.length, note: plan.note ?? null }
+    : null;
+
   if (ui.json) {
     ui.out(
       JSON.stringify(
@@ -3087,6 +3121,7 @@ async function cmdWhyJob(config, options, ui, job) {
           skipped: job.skipped ?? 0,
           busyTarget,
           targetDetail: describeJobTarget(config, job, { running: () => null }).text,
+          wouldReach,
         },
         null,
         2,
@@ -3129,6 +3164,20 @@ async function cmdWhyJob(config, options, ui, job) {
   line("next", next.text === "-" ? "-" : `${next.text}${next.late ? ui.paint("yellow", "  (late)") : ""}`);
   line("last run", job.lastRun ? `${agoText(job.lastRun, now)}${job.lastStatus ? ui.paint("dim", ` — ${job.lastStatus}`) : ""}` : "never");
   line("counts", `ran ${job.runs ?? 0}× · skipped ${job.skipped ?? 0}×`);
+  if (plan) {
+    if (plan.note) {
+      line("now", ui.paint("yellow", plan.note));
+    } else {
+      const send = plan.targets.filter((entry) => entry.verdict === "send").length;
+      const only = plan.targets.length === 1 && send === 1;
+      line(
+        "now",
+        only
+          ? ui.paint("green", "would send")
+          : `${ui.paint(send ? "cyan" : "dim", `would reach ${send} of ${plan.targets.length}`)}${plan.targets.some((entry) => entry.verdict === "lately") ? ui.paint("dim", " — the rest moved recently") : ""}${plan.targets.some((entry) => entry.verdict === "busy") ? ui.paint("dim", " — some are mid-turn") : ""}`,
+      );
+    }
+  }
   line("look", `pp cron show ${job.id} · pp logs ${job.session && job.session !== ALL_SESSIONS ? job.session : "<session>"}`);
 }
 

@@ -36,3 +36,12 @@ test("deliveryPlan says when tmux is not answering", () => {
   assert.deepEqual(plan.targets, []);
   assert.match(plan.note, /not answering/);
 });
+
+test("the same plan backs the 'now' line of pp why <job>", () => {
+  // one session that just printed, one that has been quiet: the job would reach 1 of 2
+  const tmux = fakeTmux({ live: { quiet: ago(900), chatty: ago(1) } });
+  const plan = deliveryPlan(tmux, { session: "*", idleAfter: 300 });
+  const send = plan.targets.filter((entry) => entry.verdict === "send").length;
+  assert.equal(send, 1);
+  assert.equal(plan.targets.length, 2);
+});

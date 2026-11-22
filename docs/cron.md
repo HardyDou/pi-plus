@@ -56,6 +56,15 @@ pp cron add --all --every 10m --idle-after 10m "忽略我的心跳检测，请�
 每个被跳过的会话都会说原因：`moved recently`（`--idle-after` 放过）、`busy — skipped`
 （正在跑一轮）、`not running`、`drained machine`。命令类任务显示 `would run $ …`。`--json` 出原样结构。
 
+`pp why <id>` 的 `now` 行用的是同一份 `deliveryPlan`，所以两边永远一致：
+
+```
+$ pp why 636b62
+state    healthy — next in 9m (20:55)
+target   every session — 9 in the config
+now      would reach 2 of 9 — the rest moved recently
+```
+
 ## 静音而不删除：`pause` / `resume`
 
 ```
