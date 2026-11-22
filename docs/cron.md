@@ -5,9 +5,27 @@
 
 ```
 pp cron add  建作业      pp cron ls      看作业      pp cron rm      删作业
-pp cron tick 到点投递    pp cron run     立刻跑一次   pp cron logs    投递记录
+pp cron pause 静音       pp cron resume  恢复        pp cron run     立刻跑一次
+pp cron tick 到点投递    pp cron status  托管块状态   pp cron logs    投递记录
 pp cron install / uninstall / status      crontab 托管块
 ```
+
+## 静音而不删除：`pause` / `resume`
+
+```
+$ pp cron pause a59cfc
+paused a59cfc — its schedule and history are kept
+back on: pp cron resume a59cfc
+
+$ pp cron ls
+a59cfc  mango-release-01  cron */10 * * * *  paused   111  delivered
+1 paused — bring one back with: pp cron resume <id>
+```
+
+`paused` 的作业**不执行、不推进 `lastRun`、不写投递记录**，但调度、`runs` 计数、
+历史状态全部保留；`NEXT` 列显示 `paused`，一眼能看出"这不是 tick 坏了，是我自己关的"。
+
+删了再加会把这些都丢掉（尤其是 `runs` 和 `lastRun`），所以要"先歇一天"（而不是"不要了"）时用 `pause`。
 
 ## 数据在哪
 

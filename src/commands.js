@@ -114,6 +114,7 @@ import {
   readJobs,
   removeJob,
   resetJob,
+  setJobPaused,
   tick as cronTick,
   writeJobs,
 } from "./cron.js";
@@ -6350,6 +6351,7 @@ function cronRow(job, now = new Date()) {
     nextRun: due ? due.toISOString() : null,
     runs: job.runs ?? 0,
     last: job.lastStatus ?? "-",
+    paused: Boolean(job.paused),
   };
 }
 
@@ -6373,17 +6375,35 @@ function printCronJobs(jobs, ui, now = new Date()) {
           : session === ALL_SESSIONS
             ? "all sessions"
             : session ?? "-";
-  const table = records.map((row) => [row.id, target(row.session, row.action, row.role), row.schedule, row.next, String(row.runs), row.last]);
+  // A paused job is still a job: keep the row, but say in the NEXT column that
+  // nothing is coming, so a silenced reminder cannot be mistaken for a broken tick.
+  const table = records.map((row) => [
+    row.id,
+    target(row.session, row.action, row.role),
+    row.schedule,
+    row.paused ? "paused" : row.next,
+    String(row.runs),
+    row.last,
+  ]);
   const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
   const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
   ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
   table.forEach((row) => {
     const colored = [...row];
     colored[0] = ui.paint("dim", colored[0]);
-    colored[3] = records[table.indexOf(row)].late ? ui.paint("yellow", colored[3]) : ui.paint("cyan", colored[3]);
+    const record = records[table.indexOf(row)];
+    colored[3] = record.paused
+      ? ui.paint("dim", colored[3])
+      : record.late
+        ? ui.paint("yellow", colored[3])
+        : ui.paint("cyan", colored[3]);
     ui.out(colored.map((cell, index) => pad(cell, widths[index])).join("  ").trimEnd());
   });
-  const late = records.filter((row) => row.late).length;
+  const paused = records.filter((row) => row.paused).length;
+  if (paused) {
+    ui.out(ui.paint("dim", `${paused} paused — bring one back with: pp cron resume <id>`));
+  }
+  const late = records.filter((row) => row.late && !row.paused).length;
   if (late) {
     ui.out(
       ui.paint("yellow", `${late} job${late === 1 ? "" : "s"} past due — `) +
@@ -6803,6 +6823,26 @@ async function cmdCronRemove(config, options, ui) {
   if (!options.dryRun && removed && !options.quiet) ui.info(ui.paint("dim", `${removed} job(s) removed`));
 }
 
+async function cmdCronPause(config, options, ui, { paused = true } = {}) {
+  const ids = [...options.names];
+  if (ids.length === 0) {
+    ui.error(`usage: pp cron ${paused ? "pause" : "resume"} <id>`);
+    process.exit(2);
+  }
+  let touched = 0;
+  for (const id of ids) {
+    if (!setJobPaused(id, paused)) {
+      ui.error(`no job "${id}"`);
+      process.exitCode = 2;
+      continue;
+    }
+    touched += 1;
+    note(paused ? "cron.pause" : "cron.resume", id, { dryRun: options.dryRun });
+    ui.info(paused ? `paused ${id} — its schedule and history are kept` : `resumed ${id}`);
+  }
+  if (touched && paused) ui.info(ui.paint("dim", `back on: pp cron resume ${ids[0]}`));
+}
+
 async function cmdCronRun(config, options, ui) {
   if (!options.names.length) throw new CronError("which job? pp cron run <id>");
   for (const id of options.names) {
@@ -6983,6 +7023,12 @@ async function cmdCron(config, options, ui) {
     case "run":
     case "fire":
       return cmdCronRun(config, { ...restOptions, names: rest }, ui);
+    case "pause":
+    case "hold":
+      return cmdCronPause(config, { ...restOptions, names: rest }, ui, { paused: true });
+    case "resume":
+    case "unpause":
+      return cmdCronPause(config, { ...restOptions, names: rest }, ui, { paused: false });
     case "tick":
       return cmdCronTick(config, restOptions, ui);
     case "install":
@@ -7006,7 +7052,7 @@ async function cmdCron(config, options, ui) {
       return;
     }
     default:
-      throw new CronError(`unknown cron subcommand: ${sub} (add, ls, rm, run, tick, install, uninstall, status, logs)`);
+      throw new CronError(`unknown cron subcommand: ${sub} (add, ls, rm, run, pause, resume, tick, install, uninstall, status, logs)`);
   }
 }
 

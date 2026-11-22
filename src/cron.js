@@ -323,6 +323,12 @@ export function tick({ now = new Date(), env = process.env, deliver, dryRun = fa
     let changed = false;
 
     for (const job of jobs) {
+      // A paused job keeps its schedule and its history; it simply does not fire.
+      // Deleting and re-adding it would lose both, which is why the flag exists.
+      if (job.paused) {
+        skipped.push({ id: job.id, reason: "paused" });
+        continue;
+      }
       const due = nextRun(job, now);
       if (!due || due.getTime() > now.getTime()) {
         if (job.schedule.kind === "once" && job.lastRun) {
@@ -393,6 +399,17 @@ export function recordRun(job, status, env = process.env) {
   }
   if (job.schedule.kind === "once") job.done = true;
   writeJobs(readJobs(env).map((entry) => (entry.id === job.id ? job : entry)), env);
+}
+
+/** Pause or resume a job without touching its schedule or its history. */
+export function setJobPaused(id, paused, env = process.env) {
+  const jobs = readJobs(env);
+  const job = jobs.find((entry) => entry.id === id);
+  if (!job) return false;
+  if (paused) job.paused = true;
+  else delete job.paused;
+  writeJobs(jobs, env);
+  return true;
 }
 
 export function removeJob(id, env = process.env) {
