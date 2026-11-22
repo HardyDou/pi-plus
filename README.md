@@ -289,6 +289,7 @@ pp todo                       # 需要我决策的
 #  2  new    18m     backend     prompt   waiting: 选一个分支 — Enter to switch
 
 pp todo attach 1              # 进入那个会话（顺手标记 seen）
+pp todo answer 1 "用方案 B"    # 或者不回终端，就地答复并结掉这条
 pp todo done 1 2              # 处理完了
 pp todo ls --all --json       # 连已完成的、机器可读
 ```

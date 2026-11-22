@@ -978,7 +978,7 @@ export const COMMANDS = [
     name: "todo",
     aliases: ["todos"],
     summary: "Sessions that are waiting for a decision from you",
-    usage: "pp todo [ls|add|done|seen|attach|rm|clear] [ref] [options]",
+    usage: "pp todo [ls|add|answer|done|seen|attach|rm|clear] [ref] [options]",
     details: [
       "One list of everything that wants you. Entries arrive three ways:",
       "  prompt   a session is sitting on a blocking question",
@@ -992,6 +992,11 @@ export const COMMANDS = [
       "",
       "Refs are what `pp todo ls` prints: a 1-based # (newest first, stable) or",
       "a unique prefix of the id.",
+      "",
+      "`pp todo answer <#> \"text\"` sends the reply into the session that asked",
+      "and marks the entry done — the queue is only useful if answering costs one",
+      "command. It refuses when that session is mid-turn (then it is not waiting",
+      "for you) and when it is not running.",
       "",
       "How chatty it is: `PP_TODO_SETTLED=question` (default) records only runs",
       "that end on a question; `always` records every finished run; `off` keeps",
@@ -1007,6 +1012,7 @@ export const COMMANDS = [
     examples: [
       "pp todo                              # what needs me?",
       "pp todo attach 2                     # jump into the session that asked",
+      "pp todo answer 2 \"use option B\"    # reply in place, entry goes away",
       "pp todo done 2",
       'pp todo add "review the migration plan" --session backend',
       "pp todo ls --all --json",

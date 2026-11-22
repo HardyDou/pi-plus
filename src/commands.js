@@ -1077,6 +1077,44 @@ async function cmdTodo(config, options, ui) {
         const refs = todoRefs(rest, ui, "usage: pp todo attach <#>");
         return cmdTodoAttach(config, refs, options, ui);
       }
+      case "answer":
+      case "reply": {
+        const refs = todoRefs(rest.slice(0, 1), ui, "usage: pp todo answer <#> \"text\"");
+        const text = rest.slice(1).join(" ");
+        if (!text.trim()) {
+          ui.error('usage: pp todo answer <#> "text"');
+          process.exit(2);
+        }
+        // The todo exists because an agent is blocked on a human; answering it is
+        // the whole point of the queue, so it should not need a second command.
+        const todos = readTodos();
+        const todo = resolveTodo(todos, refs[0]).todo;
+        const owner = (config?.sessions ?? []).find((item) => item.tmuxName === todo.session || item.name === todo.session) ?? null;
+        const tmux = makeTmux(config, options, owner);
+        if (!tmux.sessionExists(todo.session)) {
+          ui.error(`${todo.session} is not running — the answer would go nowhere: pp up ${owner?.name ?? todo.session}`);
+          process.exit(1);
+        }
+        if (options.dryRun) {
+          ui.info(`[dry-run] tmux send-keys -t =${todo.session}: -l -- ${text}; Enter; mark #${todo.id} done`);
+          return;
+        }
+        if (tmux.isAgentBusy(todo.session)) {
+          ui.warn(`${todo.session} is mid-turn — it is not waiting for this answer; try again when it is idle`);
+          process.exitCode = 1;
+          return;
+        }
+        const sent = tmux.sendText(todo.session, text, { enter: !options.noEnter });
+        if (!sent.submitted && !options.noEnter) {
+          ui.error(`typed the answer into ${todo.session} but Enter never took it — read it with: pp logs ${todo.session}`);
+          process.exitCode = 1;
+          return;
+        }
+        setTodoState(todos, todo, "done");
+        note("todo.answer", todo.session, { detail: `#${todo.id} ${text.slice(0, 80)}` });
+        ui.info(`answered #${todo.id} in ${todo.session}${options.noEnter ? " (Enter not pressed)" : ""}`);
+        return;
+      }
       case "rm":
       case "remove":
       case "delete": {
@@ -1099,7 +1137,7 @@ async function cmdTodo(config, options, ui) {
       }
       default:
         ui.error(`unknown todo subcommand: ${sub}`);
-        ui.info("usage: pp todo [ls | add | done | seen | attach | rm | clear]");
+        ui.info("usage: pp todo [ls | add | answer | done | seen | attach | rm | clear]");
         process.exit(2);
     }
   } catch (err) {

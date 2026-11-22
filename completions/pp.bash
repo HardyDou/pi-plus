@@ -32,7 +32,7 @@ _pp() {
       return 0
       ;;
     todo|todos)
-      COMPREPLY=( $(compgen -W "ls list add done finish seen attach go rm remove delete clear prune" -- "$cur") )
+      COMPREPLY=( $(compgen -W "ls list add answer reply done finish seen attach go rm remove delete clear prune" -- "$cur") )
       return 0
       ;;
     node|nodes)

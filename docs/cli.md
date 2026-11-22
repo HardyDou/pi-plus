@@ -1105,6 +1105,7 @@ pp back --dry-run        # 只打印要执行的 tmux 命令
 | `ls`（默认） | `# / 状态 / 等了多久 / 会话 / 类型 / 内容`；`--all` 含已完成，`--session` 过滤 |
 | `add "文字"` | 手工登记（`--session` 指定；默认取当前 tmux 会话） |
 | `attach <#>` | 进入该待办对应的会话，并标记 `seen` |
+| `answer <#> "文字"` | **直接在该会话说出口并标记完成**（会话在忙或没跑时拒绝，`--no-enter` 只打字） |
 | `done <#>...` | 标记完成（可一次多条） |
 | `rm <#>...` | 从清单删掉（不是完成） |
 | `clear` | 清掉已完成的；`--force` 连未完成的也清 |
@@ -1114,6 +1115,7 @@ pp back --dry-run        # 只打印要执行的 tmux 命令
 ```bash
 pp todo
 pp todo attach 2
+pp todo answer 2 "用方案 B，别动数据库"   # 就地答复，条目随即消失
 pp todo done 2 5
 pp todo add "看一下这份迁移方案" --session backend
 pp todo ls --all --json

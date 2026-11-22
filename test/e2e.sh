@@ -752,6 +752,12 @@ check "todo unknown subcommand"    2 'unknown todo subcommand'  bash -c "cd $E2E
 check "todo help page"             0 'One list of everything'   bash -c "cd $E2E && $ROOT/bin/pp.js help todo"
 check "todo appears in the overview" 0 'todo \(todos\)'         bash -c "cd $E2E && $ROOT/bin/pp.js help"
 check "todo state file is separated" 0 'todos.json'             bash -c "ls '$XDG_STATE_HOME/pi-plus/todos.json'"
+# answering a question is the whole point of the queue: one command, in place
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo add 'which branch?' --session e-always" > /dev/null 2>&1
+check "todo answer needs text"      2 'usage: pp todo answer'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo answer 1"
+check "todo answer replies in place" 0 'answered #[0-9a-f]'     bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK todo answer 1 'echo answered-marker'"
+check "todo answer clears the entry" 0 'nothing needs you'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo ls"
+check "todo answer reaches the pane" 0 'answered-marker'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK logs e-always"
 
 section "tui"
 check "tui renders the sessions panel" 0 'sessions \('          bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
