@@ -3076,6 +3076,7 @@ async function cmdWhyJob(config, options, ui, job) {
           target: job.session ?? null,
           schedule: job.schedule,
           catchUp: job.catchUp ?? null,
+          idleAfter: job.idleAfter ?? null,
           verdict,
           tick,
           nextRun: due ? due.toISOString() : null,
@@ -3124,7 +3125,7 @@ async function cmdWhyJob(config, options, ui, job) {
     },
   });
   line("target", aim.ok ? aim.text : ui.paint("yellow", aim.text));
-  line("schedule", `${when}${job.catchUp ? ui.paint("dim", ` · catch-up ${formatDuration(job.catchUp)}`) : ""}`);
+  line("schedule", `${when}${job.idleAfter ? ui.paint("dim", ` · only after ${formatDuration(job.idleAfter)} of quiet`) : ""}${job.catchUp ? ui.paint("dim", ` · catch-up ${formatDuration(job.catchUp)}`) : ""}`);
   line("next", next.text === "-" ? "-" : `${next.text}${next.late ? ui.paint("yellow", "  (late)") : ""}`);
   line("last run", job.lastRun ? `${agoText(job.lastRun, now)}${job.lastStatus ? ui.paint("dim", ` — ${job.lastStatus}`) : ""}` : "never");
   line("counts", `ran ${job.runs ?? 0}× · skipped ${job.skipped ?? 0}×`);
@@ -5996,6 +5997,26 @@ export function danglingSessionJobs(jobs, config) {
   );
 }
 
+/**
+ * How long a tmux session has been quiet, in seconds — `activity` is the
+ * window-activity stamp from `listSessions()` (epoch seconds, moves whenever the
+ * pane prints anything). null when tmux cannot say, so a missing stamp never
+ * looks like "quiet".
+ */
+export function quietSeconds(activity, nowMs = Date.now()) {
+  const at = Number(activity);
+  if (!Number.isFinite(at) || at <= 0) return null;
+  return Math.max(0, Math.round((nowMs - at * 1000) / 1000));
+}
+
+/** Should a nudge skip this session because it moved less than `idleAfter` ago? */
+export function tooFresh(activity, idleAfter, nowMs = Date.now()) {
+  if (!idleAfter) return false;
+  const quiet = quietSeconds(activity, nowMs);
+  if (quiet === null) return false;
+  return quiet < idleAfter;
+}
+
 function deliverToRole(job, options) {
   const config = loadConfig({ configPath: job.configPath ?? null, cwd: process.cwd() });
   if (!config) return { status: `skipped: no config to read the role from` };
@@ -6010,11 +6031,24 @@ function deliverToRole(job, options) {
   const busy = [];
   const idle = [];
   const failed = [];
+  const fresh = [];
   for (const session of targets) {
     const tmux = makeTmux(config, options, session);
     if (!tmux.sessionExists(session.tmuxName)) {
       idle.push(session.tmuxName);
       continue;
+    }
+    if (job.idleAfter) {
+      let live = null;
+      try {
+        live = tmux.listSessions();
+      } catch {
+        live = null;
+      }
+      if (tooFresh(live?.get(session.tmuxName)?.activity, job.idleAfter)) {
+        fresh.push(session.tmuxName);
+        continue;
+      }
     }
     if (tmux.isAgentBusy(session.tmuxName)) {
       busy.push(session.tmuxName);
@@ -6033,6 +6067,7 @@ function deliverToRole(job, options) {
   const parts = [
     sent.length ? `${sent.length} sent` : null,
     busy.length ? `${busy.length} busy` : null,
+    fresh.length ? `${fresh.length} busy lately` : null,
     idle.length ? `${idle.length} not running` : null,
     failed.length ? `${failed.length} failed` : null,
   ].filter(Boolean);
@@ -6091,7 +6126,12 @@ function deliverToEverySession(tmux, job) {
   const sent = [];
   const busy = [];
   const failed = [];
+  const fresh = [];
   for (const name of names) {
+    if (tooFresh(live.get(name)?.activity, job.idleAfter)) {
+      fresh.push(name);
+      continue;
+    }
     if (tmux.isAgentBusy(name)) {
       busy.push(name);
       continue;
@@ -6106,6 +6146,9 @@ function deliverToEverySession(tmux, job) {
     if (result.submitted) sent.push(name);
     else failed.push(name);
   }
+  if (sent.length === 0 && failed.length === 0 && fresh.length && !busy.length) {
+    return { status: `deferred: every session moved within ${formatDuration(job.idleAfter)} — nothing to nudge yet` };
+  }
   if (sent.length === 0 && failed.length === 0) {
     return { status: `deferred: all ${busy.length} sessions are working — the next tick will deliver` };
   }
@@ -6114,6 +6157,7 @@ function deliverToEverySession(tmux, job) {
   }
   const detail = [`${sent.length}/${names.length}`];
   if (busy.length) detail.push(`${busy.length} busy`);
+  if (fresh.length) detail.push(`${fresh.length} busy lately`);
   if (failed.length) detail.push(`${failed.length} failed (${failed.join(", ")})`);
   return { status: "delivered", text: `to ${detail.join(", ")}` };
 }
@@ -6320,6 +6364,18 @@ function deliverJob(job, options) {
     spawnSync(process.execPath, args, { encoding: "utf8" });
     if (!tmux.sessionExists(job.session)) {
       return { status: `skipped: session "${job.session}" is not running (pp up failed)` };
+    }
+  }
+  // --idle-after: only nudge a session that has actually gone quiet
+  if (job.idleAfter) {
+    let live = null;
+    try {
+      live = tmux.listSessions();
+    } catch {
+      live = null;
+    }
+    if (tooFresh(live?.get(job.session)?.activity, job.idleAfter)) {
+      return { status: `deferred: ${job.session} moved less than ${formatDuration(job.idleAfter)} ago — nothing to nudge yet` };
     }
   }
   // pi holds input in the editor while a turn is running and does not submit it,
@@ -6611,13 +6667,14 @@ function cronRow(job, now = new Date()) {
     action: job.action,
     session: job.session ?? null,
     role: job.role ?? null,
-    schedule: describeSchedule(job.schedule),
+    schedule: `${describeSchedule(job.schedule)}${job.idleAfter ? ` · idle ${formatDuration(job.idleAfter)}` : ""}`,
     next: next.text,
     late: next.late,
     nextRun: due ? due.toISOString() : null,
     runs: job.runs ?? 0,
     last: job.lastStatus ?? "-",
     paused: Boolean(job.paused),
+    idleAfter: job.idleAfter ?? null,
   };
 }
 
@@ -6728,6 +6785,12 @@ async function cmdCronAdd(config, options, ui) {
     if (!text && !command) throw new CronError('nothing to say at that time — pass the prompt: pp cron add --at ... "check the build"');
     if (text && command) throw new CronError("give either a prompt or --command, not both");
   }
+  // --idle-after: nudge only sessions that have actually gone quiet
+  const idleAfter = options.idleAfter ? parseDuration(options.idleAfter, { what: "--idle-after" }) : 0;
+  if (options.idleAfter && !idleAfter) throw new CronError("--idle-after needs a duration bigger than zero (try 10m)");
+  if (idleAfter && (healing || sweeping || command)) {
+    throw new CronError("--idle-after only applies to prompts sent to sessions");
+  }
 
   const schedule = buildSchedule({ at: options.in ? new Date(Date.now() + parseDuration(options.in, { what: "--in" }) * 1000).toISOString() : options.at, every: options.every, cron: options.cronExpr });
 
@@ -6821,6 +6884,7 @@ async function cmdCronAdd(config, options, ui) {
     schedule,
     catchUp: options.catchUp ? parseDuration(options.catchUp, { what: "--catch-up" }) : DEFAULT_CATCH_UP_SECONDS,
     startSession: Boolean(options.start),
+    ...(idleAfter ? { idleAfter } : {}),
     configPath,
     createdAt: new Date().toISOString(),
     runs: 0,
@@ -6831,6 +6895,7 @@ async function cmdCronAdd(config, options, ui) {
     const who = targetRole ? `role ${targetRole}` : `session ${session}`;
     ui.out(`[dry-run] would schedule ${job.id}: ${describeSchedule(schedule)} → ${job.action === "heal" ? "heal (up --drift)" : job.action === "command" ? `$ ${command}` : who}`);
     ui.out(`[dry-run] first run ${due ? due.toISOString() : "never"}`);
+    if (idleAfter) ui.out(`[dry-run] only sessions quiet for ${formatDuration(idleAfter)} or more are nudged`);
     return;
   }
 

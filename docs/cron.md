@@ -28,6 +28,21 @@ $ pp cron ls
 所以"每 10 分钟给所有会话发一句"在 9 个会话上就是 **1296 轮/天** —— 加的时候没人算过，
 删的时候也没人知道值不值。先看见，再决定用 `pause` 静音。
 
+## 只在安静时才推：`--idle-after`
+
+心跳型提示词（"忽略我的心跳检测，请继续你的任务"）最怕两件事：打扰正在干活的会话、
+以及把同一个任务推进第二轮。`--idle-after` 解决前者：**只推"安静够久"的会话**。
+
+```bash
+pp cron add --all --every 10m --idle-after 10m "忽略我的心跳检测，请继续你的任务"
+```
+
+- 每次触发都会看每个会话的 `window_activity`：**N 分钟内有过输出就跳过**，不去打字
+- 判断是"安静"而不是"忙"：`isAgentBusy` 只看 spinner，安静几小时的会话也可能正停在等你确认
+- 一行都不发时日志写 `deferred: every session moved within 10m — nothing to nudge yet`
+- 部分跳过时写 `to 3/9, 4 busy, 2 busy lately`——"busy lately" = 刚有输出、被 `--idle-after` 放过
+- `pp cron ls` 的 SCHEDULE 列会显示 `every 10m · idle 10m`，`pp why <id>` 的 `schedule` 行也会注明
+
 ## 静音而不删除：`pause` / `resume`
 
 ```

@@ -234,6 +234,7 @@ pp cron add --session docs --cron "0 9 * * *" "汇总昨天的提交，写到 do
 
 # 重复：每 5 分钟跑一条命令（不经过 pi）
 pp cron add --every 5m --command "curl -fsS http://localhost:8080/health"
+pp cron add --all --every 10m --idle-after 10m "忽略我的心跳检测，请继续你的任务"   # 只在安静 10 分钟后才推
 pp cron add --heal --every 5m                     # 自愈：只补"该在没在的"会话
 
 # 每周一、周二、周三 9 点

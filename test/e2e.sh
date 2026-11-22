@@ -644,6 +644,12 @@ check "cron pause keeps the job"    0 'schedule and history are kept' bash -c "c
 check "cron ls shows it as paused"  0 'paused'                        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
 check "cron resume brings it back"  0 'resumed'                       bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron resume $PAUSE_ID"
 check "cron pause needs an id"      2 'usage: pp cron pause'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron pause"
+# --idle-after: a heartbeat that only bothers sessions which have gone quiet
+check "cron add takes --idle-after" 0 'scheduled [0-9a-f]'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --all --every 5m --idle-after 10m 'nudge the quiet ones' | tee $E2E/idlejob.out" 2>/dev/null
+IDLE_ID=$(node -e 'const d=require(process.env.XDG_STATE_HOME+"/pi-plus/cron.json");process.stdout.write(d.jobs.find((j)=>j.idleAfter===600).id)')
+check "cron ls shows the quiet gate" 0 'idle 10m'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
+check "it will not nudge a session that just moved" 0 'nothing to nudge yet' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron run $IDLE_ID"
+check "cron rm takes the idle job" 0 'removed'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $IDLE_ID"
 # a fan-out job that runs often must say what it costs
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --all --every 5m 'cheap words'" > /dev/null 2>&1
 check "cron ls names the loudest job" 0 'costs [0-9]+ agent turn'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
