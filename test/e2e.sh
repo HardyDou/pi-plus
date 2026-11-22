@@ -649,6 +649,11 @@ check "cron add takes --idle-after" 0 'scheduled [0-9a-f]'  bash -c "cd $E2E && 
 IDLE_ID=$(node -e 'const d=require(process.env.XDG_STATE_HOME+"/pi-plus/cron.json");process.stdout.write(d.jobs.find((j)=>j.idleAfter===600).id)')
 check "cron ls shows the quiet gate" 0 'idle 10m'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
 check "it will not nudge a session that just moved" 0 'nothing to nudge yet' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron run $IDLE_ID"
+# dryrun answers "who would this reach" without typing into anything
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron add --all --every 10m --idle-after 30s 'dryrun probe'" > /dev/null 2>&1
+DRY_ID=$(node -e 'const d=require(process.env.XDG_STATE_HOME+"/pi-plus/cron.json");process.stdout.write(d.jobs.find((j)=>j.prompt==="dryrun probe").id)')
+check "cron dryrun counts the reach" 0 'would send to' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron dryrun $DRY_ID"
+check "cron dryrun never types"      0 '^0$'          bash -c "tmux -L $SOCK capture-pane -p -t '=e-always:' | grep -c 'dryrun probe' || true"
 check "cron rm takes the idle job" 0 'removed'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $IDLE_ID"
 # a fan-out job that runs often must say what it costs
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --all --every 5m 'cheap words'" > /dev/null 2>&1

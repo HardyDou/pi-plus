@@ -43,6 +43,19 @@ pp cron add --all --every 10m --idle-after 10m "忽略我的心跳检测，请�
 - 部分跳过时写 `to 3/9, 4 busy, 2 busy lately`——"busy lately" = 刚有输出、被 `--idle-after` 放过
 - `pp cron ls` 的 SCHEDULE 列会显示 `every 10m · idle 10m`，`pp why <id>` 的 `schedule` 行也会注明
 
+## 先看清楚会推给谁：`dryrun`
+
+给广播任务打开之前，先问一句"现在这一拍会碰到谁"。`pp cron dryrun <id>` 只读不写：
+
+```
+636b62  all sessions  would send to 6 of 9 · 3 moved recently (chatty 1s, busy-2 4m)
+    chatty     moved recently — skipped (quiet 1s)
+    busy-2     moved recently — skipped (quiet 4m)
+```
+
+每个被跳过的会话都会说原因：`moved recently`（`--idle-after` 放过）、`busy — skipped`
+（正在跑一轮）、`not running`、`drained machine`。命令类任务显示 `would run $ …`。`--json` 出原样结构。
+
 ## 静音而不删除：`pause` / `resume`
 
 ```

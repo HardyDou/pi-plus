@@ -7271,6 +7271,114 @@ async function cmdCronRetarget(config, options, ui) {
   ui.info(ui.paint("dim", `its schedule and history are kept — pp cron ls`));
 }
 
+/**
+ * What a job would do right now, without doing any of it — the question you ask
+ * before enabling a broadcast. Same gates as the tick: missing session, drained
+ * machine, a session that moved recently (--idle-after), a busy agent.
+ */
+export function deliveryPlan(tmux, job, { config = null } = {}) {
+  let live;
+  try {
+    live = tmux.listSessions();
+  } catch {
+    return { targets: [], note: "tmux is not answering here" };
+  }
+  let names;
+  if (job.session === ALL_SESSIONS) {
+    names = [...live.keys()].sort();
+  } else if (job.role) {
+    names = config ? roleTargets(config, job.role).map((session) => session.tmuxName) : [];
+    if (!names.length) return { targets: [], note: `no session carries role "${job.role}"` };
+  } else {
+    names = [job.session];
+  }
+  const targets = names.map((name) => {
+    const activity = live.get(name)?.activity;
+    if (config && drainedTarget(config, name)) return { name, verdict: "drained" };
+    if (!live.has(name)) return { name, verdict: "down" };
+    if (tooFresh(activity, job.idleAfter)) {
+      const quiet = quietSeconds(activity);
+      return { name, verdict: "lately", quiet };
+    }
+    if (tmux.isAgentBusy(name)) return { name, verdict: "busy" };
+    return { name, verdict: "send" };
+  });
+  return { targets, note: null };
+}
+
+async function cmdCronDryRun(config, options, ui) {
+  if (!options.names.length) throw new CronError("which job? pp cron dryrun <id>");
+  const jobs = readJobs();
+  const rows = [];
+  for (const id of options.names) {
+    const job = jobs.find((entry) => entry.id === id);
+    if (!job) {
+      ui.error(`no job "${id}"`);
+      process.exitCode = 2;
+      continue;
+    }
+    if (job.action === "command") {
+      rows.push({ id, target: "$ (localhost)", verdict: "run", detail: job.command });
+      continue;
+    }
+    if (job.action === "heal") {
+      rows.push({ id, target: "drift", verdict: "run", detail: "pp up --drift" });
+      continue;
+    }
+    if (job.action === "sweep") {
+      rows.push({ id, target: `fleet → ${job.session ?? "-"}`, verdict: "run", detail: "fleet report" });
+      continue;
+    }
+    const config = jobConfig(job);
+    const tmux = makeTmux(config ?? { tmuxSocket: null, nodes: [] }, options);
+    if (job.role) {
+      // a role job hops machines, so look at each session with its own handle
+      const plan = { targets: [] };
+      for (const session of config ? roleTargets(config, job.role) : []) {
+        const own = makeTmux(config, options, session);
+        const one = deliveryPlan(own, { ...job, role: null, session: session.tmuxName }, { config });
+        plan.targets.push(...one.targets);
+        if (one.note) plan.note = one.note;
+      }
+      rows.push({ id, target: `role ${job.role}`, plan });
+      continue;
+    }
+    rows.push({ id, target: job.session === ALL_SESSIONS ? "all sessions" : job.session, plan: deliveryPlan(tmux, job, { config }) });
+  }
+
+  const label = { send: "would send", busy: "busy — skipped", lately: "moved recently — skipped", down: "not running", drained: "drained machine", run: "would run" };
+  if (ui.json) {
+    ui.out(JSON.stringify(rows, null, 2));
+    return;
+  }
+  for (const row of rows) {
+    if (row.verdict) {
+      ui.out(`${ui.paint("bold", row.id)}  ${row.target}  ${ui.paint("cyan", label[row.verdict])}${row.detail ? `  ${ui.paint("dim", row.detail)}` : ""}`);
+      continue;
+    }
+    if (row.plan.note) {
+      ui.out(`${ui.paint("bold", row.id)}  ${row.target}  ${ui.paint("yellow", row.plan.note)}`);
+      continue;
+    }
+    const count = (verdict) => row.plan.targets.filter((entry) => entry.verdict === verdict).length;
+    const when = row.plan.targets
+      .filter((entry) => entry.verdict === "lately")
+      .map((entry) => `${entry.name} ${entry.quiet === null ? "?" : shortAge(entry.quiet)}`)
+      .slice(0, 4);
+    ui.out(
+      `${ui.paint("bold", row.id)}  ${row.target}  ${ui.paint("cyan", `would send to ${count("send")} of ${row.plan.targets.length}`)}` +
+        (count("busy") ? ui.paint("dim", ` · ${count("busy")} busy`) : "") +
+        (count("lately") ? ui.paint("dim", ` · ${count("lately")} moved recently${when.length ? ` (${when.join(", ")})` : ""}`) : "") +
+        (count("down") ? ui.paint("dim", ` · ${count("down")} not running`) : "") +
+        (count("drained") ? ui.paint("dim", ` · ${count("drained")} drained`) : ""),
+    );
+    for (const entry of row.plan.targets) {
+      if (entry.verdict === "send") continue;
+      ui.out(`    ${entry.name.padEnd(18)} ${ui.paint("dim", label[entry.verdict])}${entry.quiet !== null && entry.quiet !== undefined ? ` (quiet ${shortAge(entry.quiet)})` : ""}`);
+    }
+  }
+}
+
 async function cmdCronRun(config, options, ui) {
   if (!options.names.length) throw new CronError("which job? pp cron run <id>");
   for (const id of options.names) {
@@ -7462,6 +7570,10 @@ async function cmdCron(config, options, ui) {
     case "retarget":
     case "reaim":
       return cmdCronRetarget(config, { ...restOptions, names: rest }, ui);
+    case "dryrun":
+    case "dry-run":
+    case "preview":
+      return cmdCronDryRun(config, { ...restOptions, names: rest }, ui);
     case "tick":
       return cmdCronTick(config, restOptions, ui);
     case "install":
