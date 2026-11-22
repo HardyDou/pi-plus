@@ -71,3 +71,27 @@ test("cron ls marks a job whose address is gone, and names the machine otherwise
   assert.match(table[4], /role pm /, "a role that is carried is not");
   assert.ok(rows.some((line) => /2 job\(s\) point at nothing — pp why aa0003/.test(line)), "one line says what to do next");
 });
+
+test("a long status stays readable: the verdict word in the table, the sentence elsewhere", () => {
+  const rows = [];
+  const ui = { out: (line) => rows.push(String(line)), info: () => {}, warn: () => {}, error: () => {}, paint: (_s, t) => t };
+  const sessions = [{ name: "web", tmuxName: "web", node: null, role: null }];
+  const jobs = [
+    {
+      id: "bb0001",
+      session: "web",
+      role: null,
+      action: "prompt",
+      schedule: { kind: "every", every: 600 },
+      createdAt: new Date(Date.now() - 3600_000).toISOString(),
+      runs: 3,
+      lastStatus: "deferred: every session moved within 10m — nothing to nudge yet",
+    },
+  ];
+  printCronJobs(jobs, ui, new Date(), sessions);
+  const table = rows.find((line) => line.startsWith("bb0001") && line.includes("every 10m"));
+  assert.match(table, /deferred …/, "the sentence is clipped, the verdict word survives");
+  assert.ok(!table.includes("nothing to nudge yet"), "the full sentence is not in the table");
+  assert.ok(rows.some((line) => /1 deferred — nothing was sent/.test(line)), "and one line explains it");
+  assert.ok(!rows.some((line) => /past due/.test(line)), "a deferred job is not counted as a stalled tick");
+});

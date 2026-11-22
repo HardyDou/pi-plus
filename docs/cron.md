@@ -111,6 +111,19 @@ its schedule and history are kept — pp cron ls
 - 角色目标要求该标签确实有人带（`pp role --list` 能看），否则 `no session has role "x"`
 - 内置作业（`--heal`、`--sweep`、`--command`）没有目标可搬，会被拒绝
 
+## 表格怎么读 `LAST`
+
+一行可能很长（`deferred: every session moved within 10m — nothing to nudge yet`），
+表格里只留判定词：`deferred …`、`failed …`、`delivered`、`skipped …`，整句在
+`pp why <id>` 与 `--json` 里。表下会补一句人话：
+
+```
+1 deferred — the target was busy, the next tick retries: pp why a59cfc
+```
+
+而且 `deferred` 不再被算进 `N job(s) past due`（那条是"tick 可能没在跑"的诊断，
+deferred 恰恰说明 tick 在跑、目标正忙）。
+
 ## 数据在哪
 
 | 文件 | 内容 |

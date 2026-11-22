@@ -705,9 +705,10 @@ bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml cron add --session dw --
 DRAIN_JOB=$(node -e 'const d=require(process.env.XDG_STATE_HOME+"/pi-plus/cron.json");process.stdout.write(d.jobs.find((j)=>j.prompt==="maintenance words").id)')
 check "cron run defers on a drained machine" 0 'is on a drained machine \(dead\) — pp node undrain dead' \
   bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml cron run $DRAIN_JOB 2>&1"
-# pp cron run records lastStatus in cron.json (the tick writes cron.log), so read the table
+# pp cron run records lastStatus in cron.json (the tick writes cron.log); the table
+# clips it to the verdict word now, so read the whole sentence from --json
 check "a drained job reads as deferred, not failed" 0 'deferred: dw is on a drained machine' \
-  bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml cron ls 2>&1 | grep -F '$DRAIN_JOB'"
+  bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml cron ls --json 2>&1 | grep -F 'deferred: dw is on a drained machine'"
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $LOST_ID" > /dev/null 2>&1
 node -e '
   const fs = require("fs");

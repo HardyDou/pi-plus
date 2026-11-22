@@ -6783,13 +6783,22 @@ export function printCronJobs(jobs, ui, now = new Date(), sessions = []) {
   };
   // A paused job is still a job: keep the row, but say in the NEXT column that
   // nothing is coming, so a silenced reminder cannot be mistaken for a broken tick.
+  // A status can be a sentence now ("deferred: every session moved within 10m …").
+  // The table stays readable by keeping the verdict word and clipping the rest;
+  // `pp why <id>` and --json still carry it whole.
+  const clip = (text, width = 34) => {
+    const value = String(text ?? "-");
+    if (value.length <= width) return value;
+    return `${value.slice(0, width - 1).replace(/[ ,—]+$/, "")}…`;
+  };
+  const verdictOf = (text) => String(text ?? "-").split(":")[0];
   const table = records.map((row) => [
     row.id,
     target(row.session, row.action, row.role),
     row.schedule,
     row.paused ? "paused" : row.next,
     String(row.runs),
-    row.last,
+    verdictOf(row.last) === row.last ? clip(row.last) : `${verdictOf(row.last)} ${ui.paint("dim", "…")}`,
   ]);
   const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
   const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
@@ -6810,6 +6819,17 @@ export function printCronJobs(jobs, ui, now = new Date(), sessions = []) {
   if (paused) {
     ui.out(ui.paint("dim", `${paused} paused — bring one back with: pp cron resume <id>`));
   }
+  // a deferred job is a job that waited, not one that broke — say which, because
+  // "late 29m" next to "deferred" is the pair nobody should have to guess about
+  const deferred = records.filter((row) => String(row.last).startsWith("deferred"));
+  if (deferred.length) {
+    ui.out(
+      ui.paint(
+        "dim",
+        `${deferred.length} deferred — nothing was sent (target busy, drained or quiet); the next tick retries: pp why ${deferred[0].id}`,
+      ),
+    );
+  }
   const lost = jobs.filter((job) => !armed(job));
   if (lost.length) {
     ui.out(ui.paint("yellow", `${lost.length} job(s) point at nothing — pp why ${lost[0].id} · pp cron retarget ${lost[0].id} …`));
@@ -6828,7 +6848,9 @@ export function printCronJobs(jobs, ui, now = new Date(), sessions = []) {
         ui.paint("dim", ` — pp cron pause ${worst.id} to silence it`),
     );
   }
-  const late = records.filter((row) => row.late && !row.paused).length;
+  // a deferred job is late on purpose: counting it here would send the reader to
+  // check the tick, which is running fine
+  const late = records.filter((row) => row.late && !row.paused && !String(row.last).startsWith("deferred")).length;
   if (late) {
     ui.out(
       ui.paint("yellow", `${late} job${late === 1 ? "" : "s"} past due — `) +
