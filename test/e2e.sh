@@ -854,6 +854,32 @@ check "tui renders the preview panel"  0 'preview'              bash -c "cd $E2E
 check "tui lists a real session"       0 'e-always'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
 check "tui without a tty explains itself" 2 'needs a terminal'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui < /dev/null"
 check "tui --diag reports a fit"       0 'verdict *fits'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --diag"
+# Registered machines with nothing on them must not be asked on every frame:
+# six of them cost ~2s of ssh while the panel redraws once a second. The shim
+# sleeps 0.4s per call, so "did it ask them?" is measurable.
+mkdir -p "$E2E/shim-slow"
+cat > "$E2E/shim-slow/ssh" <<'SH'
+#!/bin/sh
+for arg in "$@"; do case "$arg" in -*) ;; *) ;; esac; done
+sleep 0.4
+exec sh -c "$*"
+SH
+chmod +x "$E2E/shim-slow/ssh"
+cat > "$E2E/idlenodes.yml" <<'YAML'
+version: 1
+nodes:
+  - { name: m1, host: m1@127.0.0.1 }
+  - { name: m2, host: m2@127.0.0.1 }
+  - { name: m3, host: m3@127.0.0.1 }
+  - { name: m4, host: m4@127.0.0.1 }
+  - { name: m5, host: m5@127.0.0.1 }
+  - { name: m6, host: m6@127.0.0.1 }
+sessions:
+  - { name: idle-a, cwd: /tmp, agent: bash, restart: no }
+  - { name: idle-b, cwd: /tmp, agent: bash, restart: no }
+YAML
+check "tui does not wait on machines with nothing on them" 0 'under' \
+  bash -c 'start=$(date +%s%N); PATH="$E2E/shim-slow:$PATH" "$ROOT/bin/pp.js" -c "$E2E/idlenodes.yml" --socket "$SOCK" tui --once > /dev/null 2>&1; ms=$(( ($(date +%s%N) - start) / 1000000 )); if [ "$ms" -lt 1500 ]; then echo "under ${ms}ms"; else echo "slow: ${ms}ms"; fi' 
 check "tui --diag names the frame"     0 'rows x .* cols'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --diag"
 check "back without a panel says so"  1 'no panel remembered'   bash -c "rm -f $XDG_STATE_HOME/pi-plus/panel.json; cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK back"
 check "back with a dead panel says it is gone" 1 'is gone'    bash -c "mkdir -p $XDG_STATE_HOME/pi-plus && echo '{\"session\":\"nope\",\"window\":\"0\",\"pane\":\"%999999\"}' > $XDG_STATE_HOME/pi-plus/panel.json && cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK back"

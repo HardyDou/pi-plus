@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { EventEmitter } from "node:events";
 import {
+  nodesToProbe,
+} from "../src/commands.js";
+import {
   clampLeftWidth,
   TODO_MAX_HEIGHT,
   computeLayout,
@@ -582,4 +585,18 @@ test("the / box narrows the session list to a substring, and Esc forgets it", as
   assert.match(lastFrame(), /mango-release-01/, "Esc puts the whole list back");
   input.emit("data", "q");
   await done;
+});
+
+test("the panel only asks machines that carry a session", () => {
+  // six registered machines and no sessions on them is the normal case here:
+  // probing all of them every frame is ~2s of ssh, and the frame timer is 1s
+  assert.deepEqual(
+    nodesToProbe({
+      nodes: [{ name: "edge240" }, { name: "t114" }, { name: "p201" }],
+      sessions: [{ name: "api", node: null }, { name: "web", node: "t114" }],
+    }),
+    ["t114"],
+  );
+  assert.deepEqual(nodesToProbe({ nodes: [{ name: "a" }], sessions: [{ name: "x" }] }), [], "nothing remote: nothing to ask");
+  assert.deepEqual(nodesToProbe(null), [], "no config, no machines");
 });

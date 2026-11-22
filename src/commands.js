@@ -2379,7 +2379,17 @@ export function diffLines(before, after) {
   return b.slice(-40);
 }
 
-/** Forget how long an agent has been busy — used when it is not busy at all. */
+/**
+ * The machines worth asking for a session list: the ones that actually carry a
+ * configured session. A registered machine with nothing on it still appears in
+ * `pp node ls` and `pp doctor --nodes`; asking it on every frame costs ~350 ms
+ * of ssh, which is how the panel ended up redrawing slower than its own timer.
+ */
+export function nodesToProbe(config) {
+  const used = new Set((config?.sessions ?? []).map((session) => session.node).filter(Boolean));
+  return (config?.nodes ?? []).map((node) => node.name).filter((name) => used.has(name));
+}
+
 /** Bytes free on the filesystem holding `dir`, or null when node is too old. */
 export function freeSpace(dir) {
   try {
@@ -2543,15 +2553,33 @@ async function cmdTui(config, options, ui) {
   // Sessions can live on other machines: merge one listing per node, remember
   // who owns each name, and hand back a tmux handle for the right machine.
   let sessionOwner = new Map();
-  const readLive = () => {
+  /**
+   * The panel redraws every second; an ssh round trip is ~350 ms, so probing a
+   * fleet of machines on every frame is what made it feel stuck (six nodes =
+   * two seconds of ssh per tick). Only machines that actually carry a session
+   * are asked, and their answers are kept for a few seconds.
+   */
+  const REMOTE_TTL_MS = 5000;
+  const remoteCache = new Map();
+  const nodesInUse = () => nodesToProbe(config);
+  const readLive = ({ fresh = false } = {}) => {
     const live = new Map();
     const owner = new Map();
-    for (const nodeName of [null, ...(config?.nodes ?? []).map((node) => node.name)]) {
+    for (const nodeName of [null, ...nodesInUse()]) {
+      const cached = nodeName === null ? null : remoteCache.get(nodeName);
       let map;
-      try {
-        map = makeTmux(config, options, { node: nodeName }).listSessions();
-      } catch {
-        continue;
+      if (!fresh && cached && Date.now() - cached.at < REMOTE_TTL_MS) {
+        map = cached.map;
+      } else {
+        try {
+          map = makeTmux(config, options, { node: nodeName }).listSessions();
+          if (nodeName !== null) remoteCache.set(nodeName, { at: Date.now(), map });
+        } catch {
+          // keep the last answer we had: an unreachable machine should not
+          // erase its sessions from the panel
+          if (!cached) continue;
+          map = cached.map;
+        }
       }
       for (const [name, entry] of map) {
         if (live.has(name)) continue;
