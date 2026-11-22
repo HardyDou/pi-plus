@@ -5719,6 +5719,31 @@ function cmdDoctor(config, options, ui) {
         : "no log file is close to the disk (limit 50 MB each)",
       logs.length ? "pp clean" : null,
     );
+    // a `log:` session whose pipe died looks configured and has no new lines:
+    // "we have the logs" is exactly the wrong assumption to hold at 3am
+    const deadPipes = [];
+    let logging = 0;
+    for (const session of config.sessions.filter((entry) => entry.log && !entry.node)) {
+      try {
+        const state = tmux.paneState(session.tmuxName);
+        if (state.exists && !state.dead) logging += 1;
+        if (state.exists && !state.dead && !state.pipe) deadPipes.push(session.name);
+      } catch {
+        // an unreachable pane is not this check's business
+      }
+    }
+    add(
+      "pipes",
+      deadPipes.length === 0,
+      deadPipes.length
+        ? `${deadPipes.map((name) => `${name} has log: but nothing is writing`).join(", ")} — pp restart ${deadPipes[0]}`
+        : config.sessions.some((entry) => entry.log)
+          ? logging
+            ? `every log: session is still piping (${logging} of them)`
+            : "no log: session is running right now (nothing to check)"
+          : "no session asks for log: (nothing to check)",
+      deadPipes.length ? `pp restart ${deadPipes[0]}` : null,
+    );
     add(
       "stalls",
       stuck.length === 0,
@@ -5769,6 +5794,7 @@ function cmdDoctor(config, options, ui) {
     "own files",
     "drift",
     "logs",
+    "pipes",
     "stalls",
     "tmux server",
     "wsl",

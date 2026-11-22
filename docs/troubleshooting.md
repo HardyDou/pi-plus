@@ -513,3 +513,21 @@ e2e 会真的安装并卸载一个 systemd 用户单元来验证自启，因此�
 在 `KillMode` 不是 `none` 时会连带杀掉单元 cgroup 里的所有进程——tmux server 若属于该单元，一次
 `stop` 就会让全部会话消失（而且 `pp audit` 里没有任何记录，因为它不是 `pp down` 干的）。
 0.63.0 起 e2e 用自己的单元名，这类事故从构造上不可能再发生。
+
+## 日志：`log:` 的管道死了
+
+`log:` 由 tmux 的 `pipe-pane` 挂一个 `cat >> file` 建立。tmux server 重启、`respawn` 失败、
+或者会话刚创建时那次 `pipe-pane` 落在"面板还在创建"的时间窗口里，都会留下
+"配置里有 log、文件却不再增长"的状态。而"我们有日志"正是凌晨三点最容易被当成理所当然的假设。
+
+`pp doctor` 因此多了一项 `pipes`：
+
+```
+✗ pipes          ops-5 has log: but nothing is writing — pp restart ops-5
+✓ pipes          every log: session is still piping (2 of them)
+✓ pipes          no log: session is running right now (nothing to check)
+```
+
+`pp restart <name>` 会重新挂上管道并**验证**（`#{pane_pipe}` 为 1 才算成功），
+不再假设"命令返回 0 就是挂上了"。`pp up` 里也加了同样的验证与重试：
+第一个 `pipe-pane -o` 失败时会用不带 `-o` 的形式强制重挂。

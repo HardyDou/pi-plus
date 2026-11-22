@@ -224,7 +224,7 @@ export class Tmux {
    * Run tmux; throws on non-zero unless `allowFailure`. Read-only queries pass
    * `readOnly: true` so `--dry-run` can still report real session state.
    */
-  run(args, { allowFailure = false, capture = true, readOnly = false } = {}) {
+  run(args, { allowFailure = false, capture = true, readOnly = false, stdinInherit = false } = {}) {
     const full = this.args(args);
     const shown = full.join(" ");
     if (this.dryRun && !readOnly) {
@@ -236,7 +236,9 @@ export class Tmux {
     const res = spawnSync(spawnSpec.command, spawnSpec.argv, {
       encoding: "utf8",
       env: spawnSpec.env,
-      stdio: ["ignore", "pipe", "pipe"],
+      // tmux hands a `pipe-pane` command the client's stdin; torn away it can be
+      // opened and closed in the same breath ("the log simply never grows").
+      stdio: [stdinInherit ? "inherit" : "ignore", "pipe", "pipe"],
     });
     if (res.error && res.error.code === "ENOENT") {
       throw new TmuxError(
@@ -362,7 +364,17 @@ export class Tmux {
       });
     }
     if (session.log) {
+      // `pipe-pane` right after `new-session` can lose the race with the pane
+      // becoming addressable; the failure is silent (the session is up, the log
+      // simply never grows), so ask, and ask again.
       this.pipeLog(session.tmuxName, session.log);
+      for (let attempt = 0; attempt < 3 && !this.pipeActive(session.tmuxName); attempt += 1) {
+        // a pipe can be registered against a pane the server is still creating:
+        // tmux then believes one is open while nothing is written, so `-o` keeps
+        // quiet — force it open instead, and verify.
+        sleep(80 + attempt * 80);
+        this.pipeLog(session.tmuxName, session.log, { force: true });
+      }
     }
   }
 
@@ -442,9 +454,40 @@ export class Tmux {
     return screenSignature(this.capture(name, 12));
   }
 
-  pipeLog(name, path) {
-    this.run(["pipe-pane", "-o", "-t", paneTarget(name), `cat >> '${String(path).replace(/'/g, `'\\''`)}'`], {
+  /**
+   * Is the `log:` pipe still attached? `pipe-pane -o` starts it once; a tmux
+   * server restart, a failed respawn or a dead `cat` leaves the setting behind
+   * but silent — and "we have logs" is the assumption people act on at 3am.
+   */
+  pipeActive(name) {
+    try {
+      const out = this.run(["display-message", "-p", "-t", paneTarget(name), "#{pane_pipe}"]);
+      return String(out.stdout ?? "").trim() === "1";
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * One round trip for the two facts that decide whether "we still have logs"
+   * is true: is a pipe attached, and is the pane already dead (a dead pane has
+   * no pipe, and that is the drift check's business, not this one's).
+   */
+  paneState(name) {
+    try {
+      const out = this.run(["list-panes", "-t", `=${name}:`, "-F", "#{pane_dead} #{pane_pipe}"]);
+      const [dead, pipe] = String(out.stdout ?? "").trim().split(/\s+/);
+      return { exists: true, dead: dead === "1", pipe: pipe === "1" };
+    } catch {
+      return { exists: false, dead: false, pipe: false };
+    }
+  }
+
+  pipeLog(name, path, { force = false } = {}) {
+    const flags = force ? [] : ["-o"];
+    this.run(["pipe-pane", ...flags, "-t", paneTarget(name), `cat >> '${String(path).replace(/'/g, `'\\''`)}'`], {
       allowFailure: true,
+      stdinInherit: true,
     });
   }
 

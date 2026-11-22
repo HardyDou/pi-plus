@@ -163,6 +163,9 @@ export const COMMANDS = [
       "Equivalent to `down <names>` followed by `up <names>`, including the",
       "`--force` behaviour. Sessions with `restart: no` are skipped when no name",
       "is given, and are restarted when named explicitly.",
+      "",
+      "Restarting is also how you put a dead `log:` pipe back: `pp restart`",
+      "re-opens it and checks #{pane_pipe} instead of assuming the command worked.",
     ].join("\n"),
     options: [
       "--dry-run        print the tmux commands instead of running them",

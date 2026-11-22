@@ -219,6 +219,28 @@ printf "version: 1\ntmux:\n  socket: $SOCK\nsessions:\n  - name: pipe-a\n    cwd
 check "piping into head is quiet"   0 '^0$'    bash -c "cd $E2E && $ROOT/bin/pp.js -c $PIPECFG --socket $SOCK status 2>&1 | head -2 >/dev/null; echo 0"
 check "no EPIPE stack trace"        1 '^0$'    bash -c "cd $E2E && $ROOT/bin/pp.js -c $PIPECFG --socket $SOCK status 2>&1 | head -2 | grep -c EPIPE"
 
+section "log pipes"
+# a `log:` session whose pipe died: tmux keeps the setting, nothing writes
+LOGPIPECFG=$E2E/logpipes.yml
+cat > "$LOGPIPECFG" <<'YAML'
+version: 1
+sessions:
+  - name: piped
+    cwd: /tmp
+    agent: sleep 600
+    log: /tmp/e2e-piped.log
+    restart: always
+YAML
+rm -f /tmp/e2e-piped.log
+"$ROOT/bin/pp.js" -c "$LOGPIPECFG" --socket "$SOCK" up >/dev/null 2>&1
+check "doctor sees the log pipe alive" 0 '^1$' bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGPIPECFG --socket $SOCK doctor 2>&1 | grep -c 'still piping'"
+check "the log file starts growing"   0 '' bash -c "tmux -L $SOCK send-keys -t '=piped:' 'echo piped-proof' Enter; sleep 0.5; grep -q piped-proof /tmp/e2e-piped.log"
+tmux -L "$SOCK" pipe-pane -t "=piped:" >/dev/null 2>&1 || true
+check "a killed pipe is reported" 1 'nothing is writing' bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGPIPECFG --socket $SOCK doctor 2>&1"
+check "restart puts the pipe back" 0 '^1$' bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGPIPECFG --socket $SOCK restart piped >/dev/null 2>&1; $ROOT/bin/pp.js -c $LOGPIPECFG --socket $SOCK doctor 2>&1 | grep -c 'still piping'"
+"$ROOT/bin/pp.js" -c "$LOGPIPECFG" --socket "$SOCK" down --force >/dev/null 2>&1 || true
+rm -f /tmp/e2e-piped.log
+
 section "busy"
 # `pp busy` answers "who is working, and on what" — one capture per running
 # session. The fixture's bash sessions never print a spinner, so they read idle.
