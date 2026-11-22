@@ -717,6 +717,7 @@ check "cron set can replace the prompt" 0 'prompt: cap probe -> cap probe 2' bas
 check "cron set can move the schedule" 0 'schedule: every 10m -> every 15m' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron set $CAP_ID --every 15m"
 check "cron rm drops the capped job" 0 '' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron rm $CAP_ID"
 check "a deferred job is not called late" 0 'deferred …' bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml cron ls 2>&1 | grep -F '$DRAIN_JOB'"
+check "a deferral says since when" 0 'waiting since [0-9][0-9]:[0-9][0-9]' bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml cron ls 2>&1 | grep -F '$DRAIN_JOB'"
 check "pp why <session> says the job is waiting on it" 0 'waiting on it' bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml why dw 2>&1 | grep '^cron'"
 ncheck "a deferred job is not listed as past due" 'past due' bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml cron ls 2>&1"
 # pp cron run records lastStatus in cron.json (the tick writes cron.log); the table

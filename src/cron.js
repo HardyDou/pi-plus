@@ -372,6 +372,7 @@ export function tick({ now = new Date(), env = process.env, deliver, dryRun = fa
 
       job.lastAttempt = now.toISOString();
       job.lastStatus = result.status;
+      if (!result.status.startsWith("deferred:")) delete job.deferredSince;
       if (result.status === "delivered") {
         job.lastRun = now.toISOString();
         job.runs = (job.runs ?? 0) + 1;
@@ -384,6 +385,9 @@ export function tick({ now = new Date(), env = process.env, deliver, dryRun = fa
       } else if (result.status.startsWith("deferred:")) {
         // Not a failure and not a run: leave lastRun alone so the same schedule
         // comes due again on the next tick, once the pane is free.
+        // remember when the streak started: "waiting" with no duration is the
+        // difference between "it just tried" and "it has been trying all morning"
+        if (!job.deferredSince) job.deferredSince = now.toISOString();
         logLine(`deferred ${job.id} → ${job.session}: ${result.status}`, env);
         skipped.push({ id: job.id, reason: result.status });
         changed = true;
@@ -428,6 +432,11 @@ function bumpDaily(job, at) {
 export function recordRun(job, status, env = process.env) {
   job.lastAttempt = new Date().toISOString();
   job.lastStatus = status;
+  if (status.startsWith("deferred:")) {
+    if (!job.deferredSince) job.deferredSince = job.lastAttempt;
+  } else {
+    delete job.deferredSince;
+  }
   if (status === "delivered") {
     job.lastRun = job.lastAttempt;
     job.runs = (job.runs ?? 0) + 1;

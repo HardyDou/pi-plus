@@ -80,6 +80,17 @@ pp cron set 636b62 --cron "0 9 * * 1,2,3"      # 换成 crontab 表达式
 `--every` 改间隔时**从上一次运行算起**（`lastRun + 新间隔`），所以 `runs`/`lastRun` 仍然
 有意义；换成一次性任务（`--at`/`--in`）会清掉 `lastRun`，否则它永远不会触发。
 
+### 任务卡在"等目标"多久了
+
+`deferred` 不是失败：目标在忙，下一拍再试。但如果它一直是 deferred，`cron ls` 的 NEXT
+列会写 `waiting since 02:40 (3h)`——**从这一轮开始等的时间**，不是上一次尝试的时间。
+超过 2 小时后 `pp plan` 会把它变成一步：
+
+```
+ 6  a59cfc has been waiting on mango-release-01 for 3h
+    the target never frees up, so either it needs attention or the job belongs elsewhere
+```
+
 `none` / `off` / `0` 表示"去掉这一项"。改完会落一条审计（`cron.set`，含 `24 -> 96` 这样的
 前后值），`pp audit --action cron.set` 可以查"谁在什么时候把上限从 24 调到 96"。
 

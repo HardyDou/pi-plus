@@ -118,6 +118,7 @@ import {
   describeWindow,
   inQuietHours,
   readJobs,
+  recordRun,
   removeJob,
   resetJob,
   setJobPaused,
@@ -3337,7 +3338,8 @@ async function cmdWhyNode(config, options, ui) {
  * it, a drained machine makes every `up` a no-op, and so on. Read-only.
  */
 export function planSteps(facts) {
-  const { reach = [], drift = [], unmanaged = [], stuck = [], cron = [], dangling = [], waiting = [], logs = [], autostart = null, extension = null, disk = null, tick = null } = facts;
+  // `waiting` is the stale-todo list; `deferred` is cron jobs stuck behind a busy target
+  const { reach = [], drift = [], unmanaged = [], stuck = [], cron = [], dangling = [], waiting = [], deferred = [], logs = [], autostart = null, extension = null, disk = null, tick = null } = facts;
   const steps = [];
   const add = (priority, title, command, why) => steps.push({ priority, title, command, why });
 
@@ -3382,6 +3384,10 @@ export function planSteps(facts) {
   }
   for (const job of cron) {
     add(4, `${job.id} is ${job.late} late`, `pp cron run ${job.id}`, "the tick may not be firing, or this one is stuck behind a busy target");
+  }
+  for (const job of deferred) {
+    // "deferred" is the polite word for "this has not landed since 02:40"
+    add(6, `${job.id} has been waiting on ${job.session} for ${job.how}`, `pp why ${job.id}`, "the target never frees up, so either it needs attention or the job belongs elsewhere");
   }
   const off = drift.filter((entry) => entry.down > 0 && !entry.drained);
   if (off.length) {
@@ -3433,7 +3439,7 @@ export function planSteps(facts) {
 /** The facts `pp plan` needs, gathered from the same helpers the other commands use. */
 export async function planFacts(config, options) {
   const env = options?.env ?? process.env;
-  const facts = { reach: [], drift: [], unmanaged: [], stuck: [], cron: [], dangling: [], waiting: [], logs: [], autostart: null, extension: null, disk: null, tick: null };
+  const facts = { reach: [], drift: [], unmanaged: [], stuck: [], cron: [], dangling: [], waiting: [], deferred: [], logs: [], autostart: null, extension: null, disk: null, tick: null };
   // Free space is the one fact that makes every other fix moot, so it is read
   // first and cheaply (one statfs, no subprocess).
   {
@@ -3559,6 +3565,12 @@ export async function planFacts(config, options) {
   // a dangling job is reported once: the label is the problem, not the tick
   const danglingIds = new Set(facts.dangling.map((job) => job.id));
   facts.cron = overdueJobs(jobsNow, new Date()).filter((job) => !danglingIds.has(job.id));
+  // a job that has been waiting on one busy session for hours is a decision, not a noise:
+  // either the session needs attention or the job belongs somewhere else
+  const nowMs = Date.now();
+  facts.deferred = jobsNow
+    .filter((job) => deferredFor(job, new Date(nowMs)) >= 2 * 3600 * 1000)
+    .map((job) => ({ id: job.id, session: job.session, since: job.deferredSince, how: shortAge(Math.round(deferredFor(job, new Date(nowMs)) / 1000)) }));
   // only the ones worth acting on: a 3 MB log is fine, a 60 MB one is tomorrow's outage
   facts.logs = logTargets(config, env)
     .map((entry) => {
@@ -4011,7 +4023,7 @@ async function cmdPlan(config, options, ui) {
   const facts = await planFacts(config, options);
   const steps = planSteps(facts);
   if (ui.json) {
-    process.stdout.write(`${JSON.stringify({ steps, facts: { reach: facts.reach, drift: facts.drift, unmanaged: facts.unmanaged, stuck: facts.stuck, cron: facts.cron, dangling: facts.dangling, logs: facts.logs, autostart: facts.autostart, extension: facts.extension } }, null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify({ steps, facts: { reach: facts.reach, drift: facts.drift, unmanaged: facts.unmanaged, stuck: facts.stuck, cron: facts.cron, dangling: facts.dangling, waiting: facts.waiting, deferred: facts.deferred, logs: facts.logs, autostart: facts.autostart, extension: facts.extension } }, null, 2)}\n`);
     return;
   }
   if (!steps.length) {
@@ -4225,7 +4237,9 @@ async function cmdWhy(config, options, ui) {
           // a job sitting in `deferred` is waiting *for this session* — saying only
           // "in 7m" hides the fact that it already tried and backed off
           const waiting = String(job.lastStatus ?? "").startsWith("deferred:");
-          const when = waiting ? `waiting on it ${agoText(job.lastAttempt ?? job.lastRun, new Date(now))}` : next.text;
+          const when = waiting
+            ? `waiting on it for ${shortAge(Math.round(deferredFor(job, new Date(now)) / 1000))}`
+            : next.text;
           return `${job.id} ${job.action ?? job.schedule.kind}${when !== "-" ? ` (${when})` : ""}`;
         })
         .join(" · "),
@@ -6742,13 +6756,30 @@ export function deliveryTargets(job, sessions = []) {
   return job.session ? 1 : 0;
 }
 
+/** How long has this job been waiting for its target to free up? */
+export function deferredFor(job, now = new Date()) {
+  if (!job.deferredSince) return 0;
+  const since = Date.parse(job.deferredSince);
+  return Number.isNaN(since) ? 0 : Math.max(0, now.getTime() - since);
+}
+
 export function cronRow(job, now = new Date()) {
   const due = nextRun(job, now);
   const next = describeNext(due, now);
   // A deferred job keeps its due time on purpose (the next tick retries it), so
   // "late" would be the wrong word every minute until the target frees up.
   const deferred = String(job.lastStatus ?? "").startsWith("deferred:");
-  const waiting = deferred && next.late ? next.text.replace(/^late [^(]*\(/, "waiting (") : next.text;
+  const streak = deferredFor(job, now);
+  const since = deferred && job.deferredSince
+    ? `${String(new Date(job.deferredSince).getHours()).padStart(2, "0")}:${String(new Date(job.deferredSince).getMinutes()).padStart(2, "0")}`
+    : null;
+  const waiting = deferred
+    ? since
+      ? `waiting since ${since} (${shortAge(Math.round(streak / 1000))})`
+      : next.late
+        ? next.text.replace(/^late [^(]*\(/, "waiting (")
+        : next.text
+    : next.text;
   return {
     id: job.id,
     session: job.action === "command"
@@ -6772,6 +6803,8 @@ export function cronRow(job, now = new Date()) {
     idleAfter: job.idleAfter ?? null,
     maxPerDay: job.maxPerDay ?? null,
     dayRuns: dailyRuns(job, now),
+    deferredSince: job.deferredSince ?? null,
+    waitingFor: streak,
   };
 }
 
@@ -7683,10 +7716,9 @@ async function cmdCronRun(config, options, ui) {
       continue;
     }
     const result = deliverJob(job, options);
-    job.lastAttempt = new Date().toISOString();
-    job.lastStatus = result.status;
-    if (result.status === "delivered") job.runs = (job.runs ?? 0) + 1;
-    writeJobs(readJobs().map((entry) => (entry.id === id ? job : entry)));
+    // one writer for job state: it also feeds the daily cap and the deferral
+    // streak, which a hand-rolled three-line update kept forgetting
+    recordRun(job, result.status);
     const paint = result.status === "delivered" ? "green" : "yellow";
     // "delivered" on its own hides the interesting part: how many, and what
     // was refused. The tick writes the same text to cron.log.
