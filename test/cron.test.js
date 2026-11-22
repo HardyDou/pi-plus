@@ -230,7 +230,8 @@ test("tick refuses to run twice at the same time", () => {
   mkdirSync(join(dir, "pi-plus"), { recursive: true });
   writeFileSync(join(dir, "pi-plus", "cron.json.lock"), "someone else\n");
   const result = tick({ env, deliver: () => ({ status: "delivered" }) });
-  assert.deepEqual(result, { skipped: true });
+  // the shape is the same as a real run, with `locked` saying why nothing happened
+  assert.deepEqual(result, { ran: [], skipped: [], total: 0, locked: true });
 });
 
 test("removeJob and resetJob", () => {

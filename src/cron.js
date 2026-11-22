@@ -276,7 +276,9 @@ function withLock(fn, env = process.env) {
   if (existsSync(path)) {
     try {
       const age = Date.now() - statSync(path).mtimeMs;
-      if (age < LOCK_STALE_MS) return { skipped: true };
+      // answer in the same shape as a run: `ran`/`skipped` always exist, so a
+      // caller cannot confuse "somebody else is ticking" with "nothing to do"
+      if (age < LOCK_STALE_MS) return { ran: [], skipped: [], total: 0, locked: true };
       unlinkSync(path);
     } catch {
       /* raced with another tick; fall through and try to take the lock */
@@ -286,7 +288,7 @@ function withLock(fn, env = process.env) {
   try {
     fd = openSync(path, "wx");
   } catch {
-    return { skipped: true };
+    return { ran: [], skipped: [], total: 0, locked: true };
   }
   try {
     writeFileSync(fd, `${process.pid} ${new Date().toISOString()}\n`);
@@ -392,7 +394,7 @@ export function tick({ now = new Date(), env = process.env, deliver, dryRun = fa
     if (changed || pruned.length !== jobs.length) writeJobs(pruned, env);
 
     return { ran, skipped, total: pruned.length };
-  });
+  }, env);
 }
 
 /** Mark a job as run right now (used by `pp cron run <id>`). */

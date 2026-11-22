@@ -7567,7 +7567,7 @@ async function cmdCronTick(config, options, ui) {
     dryRun: Boolean(options.dryRun),
     deliver: (job) => deliverJob(job, options),
   });
-  if (result.skipped && result.total === undefined) {
+  if (result.locked) {
     if (!options.quiet) ui.info(ui.paint("dim", "another tick is running; skipped"));
     return;
   }
