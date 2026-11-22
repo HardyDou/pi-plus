@@ -694,6 +694,29 @@ check "cron run fires now"        0 'delivered'                    bash -c "cd $
 check "cron logs recorded"        0 'delivered'                bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron logs -n 20"
 check "cron status json"          0 '"installed"'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron status --json"
 check "cron install --print"      0 '@reboot.*cron tick'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron install --print | tr '\n' ' ' | grep -o '@reboot.*cron tick'"
+
+section "tick health"
+# an nvm upgrade leaves the crontab calling a node that is gone: every job looks
+# on time, nothing fires. Only the paths can tell you that.
+TICKSHIM=$E2E/shim-tick
+mkdir -p "$TICKSHIM"
+cat > "$TICKSHIM/crontab" <<SH
+#!/bin/sh
+if [ "\$1" = "-l" ]; then
+  cat <<CRON
+# >>> pi-plus cron (managed by pp — do not edit by hand) >>>
+* * * * * "/nonexistent/node" "$ROOT/bin/pp.js" cron tick --quiet >> "/tmp/pp-tick.log" 2>&1
+@reboot "/nonexistent/node" "$ROOT/bin/pp.js" cron tick --quiet >> "/tmp/pp-tick.log" 2>&1
+# <<< pi-plus cron <<<
+CRON
+  exit 0
+fi
+exit 0
+SH
+chmod +x "$TICKSHIM/crontab"
+check "doctor sees a tick that cannot run" 1 'tick cannot run' bash -c "cd $E2E && PATH=$TICKSHIM:\$PATH XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js doctor 2>&1"
+check "a job exists to be starved"        0 '' bash -c "cd $E2E && XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js cron add --command true --every 1h >/dev/null 2>&1"
+check "the same paths, nothing flagged"   0 '' bash -c "cd $E2E && XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js doctor 2>&1 | grep -q 'tick cannot run' && exit 1; exit 0"
 check "cron rm removes job"       0 'removed [0-9a-f]'                  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $CMD_ID"
 # pause is not delete: the schedule and the history survive being silenced
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-always --every 9m 'paused one'" > /dev/null 2>&1

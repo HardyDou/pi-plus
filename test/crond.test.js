@@ -113,3 +113,25 @@ test("stripBlock tolerates a half-written block", () => {
   assert.ok(!stripBlock(text).includes(BLOCK_BEGIN));
   assert.ok(stripBlock(text).includes("backup.sh"));
 });
+
+test("the tick is only healthy if the files it names still exist", async () => {
+  const { renderBlock, tickHealth } = await import("../src/crond.js");
+  const block = renderBlock({ scriptPath: "/srv/pp.js", nodePath: "/usr/bin/node" });
+  const present = new Set(["/usr/bin/node", "/srv/pp.js"]);
+  const exists = (path) => present.has(path);
+  const good = tickHealth(block, { exists });
+  assert.equal(good.ok, true);
+  assert.equal(good.nodePath, "/usr/bin/node");
+  assert.equal(good.scriptPath, "/srv/pp.js");
+
+  // an nvm upgrade: the crontab still calls the old node, which is gone
+  const moved = tickHealth(block.replace("/usr/bin/node", "/old/node"), { exists });
+  assert.equal(moved.ok, false);
+  assert.deepEqual(moved.problems, ["node /old/node is gone"]);
+
+  const noScript = tickHealth(block, { exists: (path) => path === "/usr/bin/node" });
+  assert.equal(noScript.ok, false);
+  assert.deepEqual(noScript.problems, ["pp.js /srv/pp.js is gone"]);
+
+  assert.equal(tickHealth("# nothing\n").installed, false);
+});

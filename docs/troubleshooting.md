@@ -345,6 +345,7 @@ socket 上，`tmux -L other list-sessions` 才看得到。
 | `crontab is not installed on this machine` | 装 cron（Debian/Ubuntu `sudo apt install cron`）；macOS 自带 |
 | `pp cron install` 后 `crontab -l` 没有块 | 某些环境 `crontab` 要交互/权限；用 `crontab -l` 确认，或换成 `pp cron tick` 塞进你自己的调度器 |
 | `cron` 那行说 `targets role "pm" — nothing carries it` | 任务的标签在建立之后被改名/清空了，于是它每拍都"投递成功"却谁都收不到 | `pp role web pm` 重新打上标签，或 `pp cron rm <id>` 删掉这个任务（`pp plan` 会把它排在第一位） |
+| `pp doctor` 说 `the tick cannot run — node /… is gone` | nvm 升级/仓库搬家后，crontab 里那条 tick 仍指向旧的 `node` 或 `pp.js` 绝对路径；块在、路径亡，任务看起来准时而一个都不跑 | `pp install` 重写这一块（`pp cron install` 只改 crontab，不改 systemd） |
 | `cannot tell which session` / `which session?` | `cron add` 不在 tmux 里也没给 `--session`；补 `--session <name|#>` |
 | `skipped: missed by 9h (catch-up 2h)` | 关机太久超了补跑窗口；重建作业时加 `--catch-up 24h` |
 | `option --every needs a value` | 参数漏了值；`--every 5m`、`--in 90m`、`--cron "0 9 * * *"` |

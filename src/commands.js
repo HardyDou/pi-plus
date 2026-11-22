@@ -129,6 +129,7 @@ import {
 } from "./cron.js";
 import {
   blockStatus as crondBlockStatus,
+  tickHealth as crondTickHealth,
   CrondError,
   hasBlock as crondHasBlock,
   installBlock as installCrondBlock,
@@ -3412,7 +3413,16 @@ export function planSteps(facts) {
   // ahead of every late job: if nothing calls the tick, "late" is a symptom with
   // one cause, and running individual jobs one at a time does not fix it
   if (tick) {
-    add(1, `${tick.jobs} scheduled job(s) exist but nothing calls the tick`, "pp cron install", "without the crontab line every job sits there looking on time and never runs");
+    add(
+      1,
+      tick.broken
+        ? `${tick.jobs} scheduled job(s), but the tick cannot run — ${tick.broken}`
+        : `${tick.jobs} scheduled job(s) exist but nothing calls the tick`,
+      "pp cron install",
+      tick.broken
+        ? "the crontab line still names the old node or pp.js path, so every job looks on time and nothing runs"
+        : "without the crontab line every job sits there looking on time and never runs",
+    );
   }
   for (const job of dangling) {
     add(
@@ -3634,6 +3644,12 @@ export async function planFacts(config, options) {
       }
     })();
     if (scheduled && ticked === false) facts.tick = { jobs: scheduled };
+    if (scheduled && ticked === true) {
+      try {
+        const health = crondTickHealth(readCrontab());
+        if (health.installed && !health.ok) facts.tick = { jobs: scheduled, broken: health.problems[0] };
+      } catch {}
+    }
   }
   const autostartIntro = autostartState();
   facts.autostart = autostartIntro.kind ? { enabled: Boolean(autostartIntro.installed && autostartIntro.enabled), text: describeAutostart(autostartIntro) } : null;
@@ -5642,8 +5658,14 @@ function cmdDoctor(config, options, ui) {
   {
     const jobs = readJobs();
     let ticked = false;
+    let tickBroken = null;
     try {
-      ticked = crondHasBlock(readCrontab());
+      const health = crondTickHealth(readCrontab());
+      ticked = health.installed;
+      // "the block is there" is not the same as "the block works": the tick line
+      // holds absolute paths, and an nvm upgrade leaves it calling a file that
+      // is gone — from the outside that looks exactly like a healthy schedule.
+      if (health.installed && !health.ok) tickBroken = health;
     } catch {
       ticked = false;
     }
@@ -5656,7 +5678,9 @@ function cmdDoctor(config, options, ui) {
           ...danglingSessionJobs(jobs, config).map((job) => ({ job, missing: `session "${job.session}"`, hint: `pp cron retarget ${job.id} --session <name>` })),
         ]
       : [];
-    const detail = !jobs.length
+    const detail = tickBroken
+      ? `the tick cannot run — ${tickBroken.problems[0]} — pp install rewrites it`
+      : !jobs.length
       ? "no jobs — pp cron add --every 10m \"…\""
       : dangling.length
         ? `${dangling[0].job.id} targets ${dangling[0].missing} — nothing carries it (${dangling[0].hint})` +
@@ -5667,8 +5691,9 @@ function cmdDoctor(config, options, ui) {
           : `${jobs.length} job${jobs.length === 1 ? "" : "s"}, tick ${ticked ? "installed" : "not installed"}` +
             (ageMinutes === null ? "" : `, last fired ${ageMinutes}m ago`);
     const healthy =
-      !jobs.length ||
-      (ticked && (ageMinutes === null || ageMinutes < 60) && overdue.length === 0 && dangling.length === 0);
+      !tickBroken &&
+      (!jobs.length ||
+        (ticked && (ageMinutes === null || ageMinutes < 60) && overdue.length === 0 && dangling.length === 0));
     // a job aimed at a label nobody carries is the quietest possible failure:
     // it ticks, it succeeds, it reaches nobody
     add(

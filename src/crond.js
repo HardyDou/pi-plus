@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { statSync } from "node:fs";
 
 /**
  * Linux crond integration.
@@ -121,6 +122,26 @@ export function uninstallBlock({ dryRun = false, run = spawnSync } = {}) {
 }
 
 /** Is the minute tick present in this crontab text? */
+/**
+ * Does the crontab's tick still point at things that exist? The block embeds
+ * absolute paths to node and to pp.js — an nvm upgrade or a moved checkout
+ * leaves cron calling a file that is gone, and the only symptom is a job that
+ * quietly stops coming due.
+ */
+export function tickHealth(text, { exists = (path) => { try { return statSync(path).isFile(); } catch { return false; } } } = {}) {
+  const status = blockStatus(text);
+  const tickLine = status.lines.find((line) => line.includes("cron tick"));
+  if (!status.installed || !tickLine) return { installed: false, ok: false, problems: ["the crontab has no pp tick"] };
+  const quoted = [...tickLine.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  const [nodePath, scriptPath] = quoted;
+  const problems = [];
+  if (!nodePath) problems.push("the tick does not name a node binary");
+  else if (!exists(nodePath)) problems.push(`node ${nodePath} is gone`);
+  if (!scriptPath) problems.push("the tick does not name pp.js");
+  else if (!exists(scriptPath)) problems.push(`pp.js ${scriptPath} is gone`);
+  return { installed: true, ok: problems.length === 0, nodePath: nodePath ?? null, scriptPath: scriptPath ?? null, problems };
+}
+
 export function blockStatus(text) {
   const lines = blockLines(text);
   return {
