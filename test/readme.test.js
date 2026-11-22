@@ -23,3 +23,13 @@ test("the license section is not where tables go to die", () => {
   const stray = tail.split("\n").filter((line) => line.startsWith("| `pp"));
   assert.deepEqual(stray, [], "table rows landed after the license heading");
 });
+
+// The extension's slash commands are the only way to drive pp from inside pi;
+// a README that lists five of them sends people looking for the rest.
+const extSource = readFileSync(join(root, "extensions/pp-tmux.js"), "utf8");
+const extCommands = [...new Set([...extSource.matchAll(/command\("([^"]+)"/g)].map((m) => m[1]))];
+
+test("every extension command appears in the README", () => {
+  const missing = extCommands.filter((name) => !readme.includes(`/${name}`));
+  assert.deepEqual(missing, [], `README never mentions: ${missing.map((n) => `/${n}`).join(", ")}`);
+});

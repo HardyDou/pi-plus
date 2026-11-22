@@ -704,7 +704,7 @@ tmux session, a pi session (resumed by id or freshly created), a pi display
 name, and a remote-pi mesh name — all defaulting to the same `name`.
 
 ```bash
-npm i -g github:HardyDou/pi-plus
+npm i -g pi-farm
 pp init && $EDITOR ~/.pi/plus.yml
 pp check && pp up && pp status
 pp attach backend
@@ -715,25 +715,57 @@ Minimal config:
 
 ```yaml
 version: 1
+sort: name                  # same family sticks together: risk-01, risk-02, risk-pm
+nodes:                      # sessions can run on other machines over ssh
+  - name: t114
+    host: 192.168.5.114
+    user: ops
+    identity: ~/.ssh/id_ed25519
+    base_path: /srv         # a session's relative cwd lands here
+    tags: [test, baohan]
+    defaults: { agent: pi, restart: always }
 sessions:
   - name: backend
     cwd: ~/code/backend
-    pi_session: 1a2b3c4d         # optional: resume (or create) this pi session
+    pi_session: 1a2b3c4d    # optional: resume (or create) this pi session
+    role: dev               # a label: filter, fan out, audit, schedule by it
+  - name: api
+    node: t114              # runs on that machine, in /srv/api
+    cwd: api
 ```
 
 Name overrides: `tmux_name`, `pi_session_name`, `remote_pi_name`.
 remote-pi mode: `config` (default, writes `<cwd>/.pi/remote-pi/config.json`),
 `env` (`REMOTE_PI_DIRECT_CONFIG`), `off`.
 
-Inside pi, the bundled extension adds `/pp-ls`, `/pp-sw <session>`, `/pp-quit`,
-`/pp-status` and `/pp-peek [session] [-n N]` (install with `pi install npm:pi-farm`).
+### What it can do
 
-Commands: `up`, `down`, `restart`, `status`, `attach`, `logs`, `send`, `check`,
-`doctor`, `init`, `install`, `uninstall`. Options: `--config`, `--socket`,
-`--json`, `--dry-run`, `--force`, `--watch`, `--lines`, `--quiet`, `--verbose`.
+| I want | Command |
+| --- | --- |
+| see everything and jump in | `pp tui` (Enter attaches, `pp back` returns) |
+| a table, or a live one | `pp status`, `pp status --watch` |
+| what should I do next | `pp plan` — ordered steps with reasons |
+| hand the shift over | `pp handover [--send <session>]` |
+| why is this one like this | `pp why <session>`, `pp why --node <machine>` |
+| work an incident | `pp runbook` — the runbook, one scenario at a time |
+| one line into an agent | `pp send <session> "…"` (`--all`, `--role`, `--tag`, `--node`) |
+| something on a schedule | `pp cron add --all --every 10m "…"` (`--heal`, `--sweep`) |
+| sessions on other machines | `pp node add/test/exec/ssh/drain` |
+| who changed what, and when | `pp audit [--action up] [--role dev]` |
+| shrink what pp wrote | `pp clean` (in-place, keeps the last 2 MB) |
+
+Tag any session with a `role` (`pp role api dev`) and every verb that takes
+`--role` will fan out over it: `pp up --role dev`, `pp logs --role dev -f`,
+`pp send --role pm "standup"`, `pp cron add --role qa --every 1h "…"`.
+
+Inside pi, the bundled extension adds `/pp-ls`, `/pp-sw <session>`, `/pp-quit`,
+`/pp-status`, `/pp-peek [session] [-n N]`, `/pp-todo` and `/pp-back`
+(install with `pi install npm:pi-farm`; upgrade with
+`npm install --prefix ~/.pi/agent/npm pi-farm@latest`).
 
 Zero runtime dependencies. Requires Node.js ≥ 18, tmux, and pi (any command
-works via `agent:`).
+works via `agent:`). Every remote action is plain `ssh … tmux …` — the other
+machine does not need pp installed.
 
 ## License
 
