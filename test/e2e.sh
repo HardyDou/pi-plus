@@ -468,6 +468,9 @@ section "doctor"
 # box: assert the report itself, not the exit code
 check "doctor runs"              0 'tmux|node'                  bash -c "pp --socket $SOCK -c $CFG doctor || true"
 check "doctor --json"            1 '"checks"|"ok"'              PFc doctor --json
+# a full disk is the failure where every other check starts lying
+check "doctor watches free space"  0 'free on'                      bash -c 'pp doctor 2>&1 | grep -F disk'
+check "an impossible floor fails the check" 1 'wants [0-9.]+ [GMT]B' bash -c 'PP_DISK_MIN_MB=999999 pp doctor --json 2>&1' 
 
 section "mesh"
 MESH_ENV=("env" "REMOTE_PI_HOME=$E2E/nomesh")

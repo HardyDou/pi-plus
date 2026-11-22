@@ -1,4 +1,4 @@
-import { closeSync, copyFileSync, existsSync, ftruncateSync, mkdirSync, openSync, readFileSync, readSync, statSync, writeFileSync, writeSync } from "node:fs";
+import { closeSync, copyFileSync, existsSync, ftruncateSync, mkdirSync, openSync, readFileSync, readSync, statSync, statfsSync, writeFileSync, writeSync } from "node:fs";
 import { configChanges } from "./configdiff.js";
 import { basename, dirname, join } from "node:path";
 import { homedir, hostname } from "node:os";
@@ -2380,6 +2380,23 @@ export function diffLines(before, after) {
 }
 
 /** Forget how long an agent has been busy — used when it is not busy at all. */
+/** Bytes free on the filesystem holding `dir`, or null when node is too old. */
+export function freeSpace(dir) {
+  try {
+    const stats = statfsSync(dir);
+    return { bytes: Number(stats.bavail) * Number(stats.bsize), mount: dir };
+  } catch {
+    return null;
+  }
+}
+
+/** Below this, a machine has minutes rather than days (PP_DISK_MIN_MB, 1 GB). */
+export function diskFloorBytes(env = process.env) {
+  const raw = Number(env.PP_DISK_MIN_MB);
+  const megabytes = Number.isFinite(raw) && raw > 0 ? raw : 1024;
+  return megabytes * 1024 * 1024;
+}
+
 export function stallMinutes(env = process.env) {
   const raw = Number(env.PP_STALL_MINUTES);
   return Number.isFinite(raw) && raw > 0 ? raw : 45;
@@ -5201,7 +5218,7 @@ function cmdDoctor(config, options, ui) {
       "cron",
       healthy,
       detail,
-      dangling.length ? `pp cron rm ${dangling[0].job.id}` : overdue.length ? `pp cron run ${overdue[0].id}` : "pp install",
+      dangling.length ? (dangling[0].hint ?? `pp cron ls`) : overdue.length ? `pp cron run ${overdue[0].id}` : "pp install",
     );
     // orientation, not a verdict: where the last copy is and how old
     const backups = listBackups(backupDir(process.env));
@@ -5213,6 +5230,20 @@ function cmdDoctor(config, options, ui) {
       newest ? `last ${newestAt ? agoText(newestAt, new Date()) : newest.name} — ${newest.name}` : "none yet — pp backup before you edit the config",
       "pp backup",
     );
+  }
+  // A full disk is the failure where everything else starts lying: writes fail
+  // silently, pi stops answering, and every other check looks fine.
+  {
+    const free = freeSpace(stateDir(process.env));
+    if (free) {
+      const enough = free.bytes >= diskFloorBytes(process.env);
+      add(
+        "disk",
+        enough,
+        `${humanBytes(free.bytes)} free on ${free.mount} — ${enough ? "enough" : `pp clean · pp snapshot --prune (wants ${humanBytes(diskFloorBytes(process.env))})`}`,
+        "pp clean",
+      );
+    }
   }
   add("config", Boolean(config), config?.path ?? "not found", "pp init");
   if (config?.nodes?.length) {
@@ -5320,6 +5351,7 @@ function cmdDoctor(config, options, ui) {
   // it needs a human to look, not a command.
   const PRIORITY = [
     "config",
+    "disk",
     "node",
     "tmux",
     "pi",
