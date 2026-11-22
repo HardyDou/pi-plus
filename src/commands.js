@@ -2998,6 +2998,38 @@ export function grepLines(text, pattern, { context = 0, ignoreCase = false } = {
  * answer reads top to bottom: the machine, then each session's reason.
  */
 /**
+ * Where a scheduled job is aimed, and whether that address still exists. A job
+ * keeps the name it was written with; sessions get renamed, machines get drained
+ * and roles get dropped, so "it says delivered to `w`, but `w` is gone" is the
+ * single most common way a schedule silently stops being useful.
+ */
+export function describeJobTarget(config, job, { running = () => null } = {}) {
+  if (job.action === "heal") return { text: "the drift — what the config expects and the machine does not have (pp up --drift does it once)", ok: true };
+  if (job.action === "sweep") {
+    const report = (config?.sessions ?? []).find((entry) => entry.name === job.session || entry.tmuxName === job.session);
+    if (!report) return { text: `fleet report → "${job.session}", which is not in the config (pp cron retarget ${job.id} --session <name>)`, ok: false };
+    return { text: `fleet report → ${report.name}${report.node ? ` on ${report.node}` : ""}`, ok: true };
+  }
+  if (job.role) {
+    const carriers = roleTargets(config, job.role);
+    if (!carriers.length) return { text: `role "${job.role}", which no session carries (pp cron retarget ${job.id} --role <label>)`, ok: false };
+    const names = carriers.map((entry) => entry.name).slice(0, 4).join(", ");
+    const more = carriers.length > 4 ? ` (+${carriers.length - 4})` : "";
+    return { text: `role "${job.role}" — ${carriers.length} session(s): ${names}${more}`, ok: true };
+  }
+  if (!job.session || job.session === ALL_SESSIONS) {
+    const total = (config?.sessions ?? []).length;
+    return { text: `every session — ${total} in the config`, ok: true };
+  }
+  const session = (config?.sessions ?? []).find((entry) => entry.name === job.session || entry.tmuxName === job.session);
+  if (!session) return { text: `session "${job.session}", which is gone from the config (pp cron retarget ${job.id} --session <name>)`, ok: false };
+  const where = session.node ? ` on ${session.node}` : "";
+  const state = running(session.tmuxName, session.node ?? null);
+  const tail = state === true ? "running" : state === false ? `not running — pp up ${session.name}` : "state unknown";
+  return { text: `${session.name}${where} — ${tail}`, ok: true };
+}
+
+/**
  * `pp why <job-id>`: the same question as `pp why <session>`, asked about a
  * scheduled job — "it did not deliver, why".
  */
@@ -3053,6 +3085,7 @@ async function cmdWhyJob(config, options, ui, job) {
           runs: job.runs ?? 0,
           skipped: job.skipped ?? 0,
           busyTarget,
+          targetDetail: describeJobTarget(config, job, { running: () => null }).text,
         },
         null,
         2,
@@ -3071,6 +3104,26 @@ async function cmdWhyJob(config, options, ui, job) {
         : "once";
   ui.out(`${ui.paint("bold", job.id)}  ${ui.paint("dim", `${when} · ${job.action === "heal" ? "heal drift" : job.session === ALL_SESSIONS ? "all sessions" : job.action === "sweep" ? `fleet → ${job.session}` : job.role ? `role ${job.role}` : `to ${job.session ?? "-"}`}`)}`);
   line("state", status.startsWith("failed:") ? ui.paint("red", verdict) : verdict);
+  const liveCache = new Map();
+  const liveFor = (nodeName) => {
+    const key = nodeName ?? "";
+    if (liveCache.has(key)) return liveCache.get(key);
+    let map = null;
+    try {
+      map = makeTmux(config, options, { node: nodeName }).listSessions();
+    } catch {
+      map = null;
+    }
+    liveCache.set(key, map);
+    return map;
+  };
+  const aim = describeJobTarget(config, job, {
+    running: (name, node) => {
+      const map = liveFor(node);
+      return map ? map.has(name) : null;
+    },
+  });
+  line("target", aim.ok ? aim.text : ui.paint("yellow", aim.text));
   line("schedule", `${when}${job.catchUp ? ui.paint("dim", ` · catch-up ${formatDuration(job.catchUp)}`) : ""}`);
   line("next", next.text === "-" ? "-" : `${next.text}${next.late ? ui.paint("yellow", "  (late)") : ""}`);
   line("last run", job.lastRun ? `${agoText(job.lastRun, now)}${job.lastStatus ? ui.paint("dim", ` — ${job.lastStatus}`) : ""}` : "never");

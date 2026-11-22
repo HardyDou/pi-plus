@@ -1192,6 +1192,9 @@ section "why a job (pp why <id>)"
 check "it says when the job runs next"   0 'next '        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron add --every 10m --session e-always 'why-job probe' | awk '{print \$2}' | tr -d ':' > $E2E/whyjob.id; $ROOT/bin/pp.js -c $CFG --socket $SOCK why \$(cat $E2E/whyjob.id) 2>&1"
 check "the verdict is a sentence"        0 'healthy|never|failed|waiting|overdue' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK why \$(cat $E2E/whyjob.id) 2>&1 | sed -n 2p"
 check "the job view is JSON too"         0 '\"schedule\"' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK why \$(cat $E2E/whyjob.id) --json"
+# a job keeps the name it was written with, so "aimed at something that still exists" needs saying
+check "the job view says where it is aimed" 0 'target' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK why \$(cat $E2E/whyjob.id) 2>&1 | grep '^target'"
+check "and that the session is real"        0 'e-always' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK why \$(cat $E2E/whyjob.id) 2>&1 | grep '^target'"
 check "an unknown id is refused"         2 'unknown session or job' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK why zzzzzz 2>&1"
 check "the job is removed again"         0 ''            bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron rm \$(cat $E2E/whyjob.id) >/dev/null 2>&1; rm -f $E2E/whyjob.id"
 

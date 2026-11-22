@@ -897,12 +897,18 @@ pp why a59cfc       # 一个定时任务：它为什么没发出来
 ```
 a59cfc  */10 * * * * · to mango-release-01
 state    waiting: mango-release-01 is working — the next tick will deliver
+target   mango-release-01 — running
 schedule */10 * * * * · catch-up 2h
 next     in 4m (10:40)
 last run 6m ago — deferred
 counts   ran 12× · skipped 0×
 look     pp cron show a59cfc · pp logs mango-release-01
 ```
+
+`target` 那行回答"它现在到底在发给谁"：任务保留写入时的名字，会话一改名，
+调度就会一直报 `delivered` 却无人接收 —— 这时那行会写
+`session "w-old"，which is gone from the config (pp cron retarget a59cfc --session <name>)`。
+`--json` 里对应 `targetDetail`。
 
 它把任务失声的四种方式分开说：**tick 不在 crontab**（`pp install`）、**上次失败**（`pp logs <会话>`）、
 **错过超过 catch-up 窗口**（下一次照常跑）、**目标正在忙**（tick 会排队或跳过）。任务号可以只写前 3 位以上。
