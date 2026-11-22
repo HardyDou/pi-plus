@@ -7485,7 +7485,17 @@ async function cmdCronDryRun(config, options, ui) {
 
   const label = { send: "would send", busy: "busy — skipped", lately: "moved recently — skipped", down: "not running", drained: "drained machine", run: "would run", quiet: "quiet hours — skipped" };
   if (ui.json) {
-    ui.out(JSON.stringify(rows, null, 2));
+    // the plan is a promise about a tick: keep the per-target verdicts and their
+    // reasons, and say what the summary sentence would be
+    ui.out(
+      JSON.stringify(
+        rows.map((row) => row.plan
+          ? { id: row.id, target: row.target, plan: row.plan }
+          : { id: row.id, target: row.target, verdict: row.verdict ?? null, detail: row.detail ?? null }),
+        null,
+        2,
+      ),
+    );
     return;
   }
   for (const row of rows) {

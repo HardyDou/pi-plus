@@ -71,7 +71,8 @@ now      would reach 2 of 9 — the rest moved recently
 pp cron add --all --every 10m --idle-after 10m --window 23:00-08:00 "忽略我的心跳检测，请继续你的任务"
 ```
 
-- 本地时间，可跨午夜（`23:00-08:00` 覆盖零点）；`--window` 与 `--heal/--sweep` 互斥
+- 本地时间，可跨午夜（`23:00-08:00` 覆盖零点）；结束时刻不含在内，所以 `00:00-24:00` 表示全天
+- `--window` 与 `--heal/--sweep` 互斥
 - 窗口内 tick 跳过并记 `quiet hours`，**任务保持到期**：窗口一结束那拍就发（会带 `late by …`）
 - `pp cron run <id>` 忽略窗口 —— 手动跑就是"我现在就要"
 - `pp cron ls` 显示 `· quiet 23:00-08:00`，`pp why <id>` 的 `schedule` 与 `now` 两行都会说明

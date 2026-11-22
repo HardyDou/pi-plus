@@ -282,3 +282,61 @@ test("doctor prints its table even where tmux is missing — that is what it is 
     box.stop();
   }
 });
+
+test("cron dryrun --json: one entry per job, with the plan or the reason", () => {
+  const box = sandbox();
+  try {
+    const added = box.pp(["cron", "add", "--session", "ja", "--every", "10m", "ping"]);
+    const id = (added.text.match(/scheduled ([0-9a-f]+)/) ?? [])[1];
+    assert.ok(id, `no job id in: ${added.text}${added.stderr}`);
+    const payload = box.json(["cron", "dryrun", id]);
+    shape(payload, "array", "cron.dryrun");
+    const entry = payload[0];
+    assert.ok("plan" in entry || "verdict" in entry, `neither plan nor verdict in ${JSON.stringify(entry)}`);
+    if (entry.plan) shapePart(entry.plan, { targets: "array", note: "any" }, "cron.dryrun[0].plan");
+  } finally {
+    box.stop();
+  }
+});
+
+test("why <job> --json: the schedule, the counts, and the reach", () => {
+  const box = sandbox();
+  try {
+    const added = box.pp(["cron", "add", "--session", "ja", "--every", "10m", "ping"]);
+    const id = (added.text.match(/scheduled ([0-9a-f]+)/) ?? [])[1];
+    const payload = box.json(["why", id]);
+    shape(payload, {
+      id: "string",
+      action: "string|null",
+      target: "string|null",
+      schedule: "object",
+      catchUp: "number|null",
+      idleAfter: "number|null",
+      verdict: "string",
+      tick: "boolean",
+      nextRun: "string|null",
+      lastRun: "string|null",
+      lastAttempt: "string|null",
+      lastStatus: "string|null",
+      runs: "number",
+      skipped: "number",
+      busyTarget: "boolean",
+      targetDetail: "string",
+      wouldReach: "object|null",
+    }, "why.job");
+    if (payload.wouldReach) shape(payload.wouldReach, { send: "number", total: "number", note: "string|null" }, "why.job.wouldReach");
+  } finally {
+    box.stop();
+  }
+});
+
+test("why --role --json: who carries the label, and which jobs aim at it", () => {
+  const box = sandbox();
+  try {
+    const payload = box.json(["why", "--role", "pm"]);
+    shape(payload, { role: "string", up: "number", total: "number", sessions: "array", cron: "array" }, "why.role");
+    shape(payload.sessions[0], { name: "string", state: "string", node: "string|null", verdict: "string" }, "why.role.sessions[0]");
+  } finally {
+    box.stop();
+  }
+});

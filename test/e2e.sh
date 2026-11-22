@@ -1343,7 +1343,7 @@ done
 section "packaging"
 # the suite exports PP_UNIT_NAME for its own sandbox unit; the unit tests assert
 # the default name, so they run without our sandbox override
-check "npm test green"           0 'fail 0'                   bash -c "cd $ROOT && env -u PP_UNIT_NAME npm test 2>&1 | tail -20"
+check "npm test green"           0 'fail 0'                   bash -c "cd $ROOT && env -u PP_UNIT_NAME npm test 2>&1 | tail -40"
 check "npm pack contents"        0 'bin/pp.js'             bash -c "cd $ROOT && npm pack --dry-run 2>&1 | grep bin/pp.js"
 check "install.sh syntax"        0 ''                           bash -n "$ROOT/install.sh"
 check "extension ships in the package" 0 'extensions/pp-tmux.js' bash -c "cd $ROOT && npm pack --dry-run 2>&1 | grep extensions/pp-tmux.js"

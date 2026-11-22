@@ -50,7 +50,7 @@ test("quiet hours are reported as a reason, not as a failure", async () => {
         session: "*",
         socket: null,
         schedule: { kind: "every", every: 600 },
-        window: { from: 0, to: 1439 },
+        window: { from: 0, to: 1440 }, // 00:00-24:00: the whole day, however late the test runs
         createdAt: new Date(Date.now() - 3600_000).toISOString(),
         runs: 0,
       },
@@ -60,4 +60,12 @@ test("quiet hours are reported as a reason, not as a failure", async () => {
   const result = tick({ now: new Date(), deliver: () => ({ status: "delivered" }), env: state });
   assert.equal(result.ran.length, 0, "nothing is delivered inside the window");
   assert.equal(result.skipped[0].reason, "quiet hours");
+});
+
+test("24:00 is an end, not a time of day", () => {
+  const allDay = parseWindow("00:00-24:00");
+  assert.deepEqual(allDay, { from: 0, to: 24 * 60 }, "the end is exclusive, so the whole day is expressible");
+  assert.equal(inQuietHours({ window: allDay }, at(23, 59)), true);
+  assert.equal(describeWindow(allDay), "00:00-24:00");
+  assert.throws(() => parseWindow("24:00-08:00"), /does not exist/, "but not as a start");
 });

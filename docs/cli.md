@@ -411,6 +411,14 @@ last start 4m ago by heal (ops@dev#4121) — pp audit --action up
 所以排序后表格会在 footer 里写明 `rows are sorted by name; # stays the config order`，
 脚本里要稳的引用就用名字（`pp attach risk-pm`），名字永远不歧义。
 
+### `--json` 的形状是契约
+
+`pp status`、`pp cron ls/dryrun/show`、`pp why <会话|任务|--role>`、`pp node ls`、`pp audit`、
+`pp handover`、`pp role --list`、`pp todo ls`、`pp snapshot` 的 `--json` 键名与类型由
+`test/json.test.js` 钉住：多一个键要改契约测试（并写进 release notes），少一个键直接红。
+`pp cron dryrun --json` 是数组，每项 `{ id, target, plan | verdict }` —— 有 `plan` 的是一次
+调度的完整判定（`targets[]` + `note`），没有 `plan` 的是"这一刻不做/不能做"的原因。
+
 ### `pp status --json`
 
 ```json

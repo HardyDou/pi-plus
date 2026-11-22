@@ -432,6 +432,10 @@ export function setJobTarget(id, target = {}, env = process.env) {
  * quiet. `window` is { from, to } in minutes after midnight, local time, and it
  * wraps — 23:00-08:00 covers midnight.
  */
+/**
+ * `to` may be 24*60 for "until midnight" — the end is exclusive, so a window that
+ * covers the whole day has to be able to say 24:00.
+ */
 export function inQuietHours(job, at = new Date()) {
   const window = job?.window;
   if (!window) return false;
@@ -447,21 +451,25 @@ export function parseWindow(text, { what = "--window" } = {}) {
   const raw = String(text).trim();
   const match = /^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/.exec(raw);
   if (!match) throw new CronError(`${what} "${text}" is not a time range (try 23:00-08:00)`);
-  const toMinutes = (hours, minutes) => {
+  const toMinutes = (hours, minutes, { end = false } = {}) => {
     const h = Number(hours);
     const m = Number(minutes);
+    // 24:00 is only meaningful as an end ("until midnight"); the end is exclusive
+    if (h === 24 && m === 0 && end) return 24 * 60;
     if (h > 23 || m > 59) throw new CronError(`${what} "${text}" has a time that does not exist`);
     return h * 60 + m;
   };
   const from = toMinutes(match[1], match[2]);
-  const to = toMinutes(match[3], match[4]);
+  const to = toMinutes(match[3], match[4], { end: true });
   if (from === to) throw new CronError(`${what} "${text}" starts and ends at the same minute`);
   return { from, to };
 }
 
 export function describeWindow(window) {
   const pad = (minutes) =>
-    `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+    minutes === 24 * 60
+      ? "24:00"
+      : `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
   return `${pad(window.from)}-${pad(window.to)}`;
 }
 
