@@ -3180,9 +3180,9 @@ export function planSteps(facts) {
   for (const job of dangling) {
     add(
       4,
-      `${job.id} is aimed at role "${job.role}", which nothing carries`,
+      `${job.id} is aimed at ${job.missing ?? "something"}, which nothing carries`,
       `pp cron rm ${job.id}`,
-      `no session is labelled "${job.role}" any more, so this job ticks and reaches nobody — pp role --list`,
+      `the target is gone, so this job ticks and reaches nobody — pp cron ls`,
     );
   }
   for (const job of cron) {
@@ -3341,7 +3341,10 @@ export async function planFacts(config, options) {
   }
 
   const jobsNow = readJobs();
-  facts.dangling = danglingRoleJobs(jobsNow, config);
+  facts.dangling = [
+    ...danglingRoleJobs(jobsNow, config).map((job) => ({ ...job, missing: `role "${job.role}"` })),
+    ...danglingSessionJobs(jobsNow, config).map((job) => ({ ...job, missing: `session "${job.session}"` })),
+  ];
   // a dangling job is reported once: the label is the problem, not the tick
   const danglingIds = new Set(facts.dangling.map((job) => job.id));
   facts.cron = overdueJobs(jobsNow, new Date()).filter((job) => !danglingIds.has(job.id));
@@ -5172,11 +5175,16 @@ function cmdDoctor(config, options, ui) {
     const lastTick = jobs.reduce((newest, job) => Math.max(newest, Date.parse(job.lastRun ?? "") || 0), 0);
     const ageMinutes = lastTick ? Math.round((Date.now() - lastTick) / 60000) : null;
     const overdue = overdueJobs(jobs);
-    const dangling = config ? danglingRoleJobs(jobs, config) : [];
+    const dangling = config
+      ? [
+          ...danglingRoleJobs(jobs, config).map((job) => ({ job, missing: `role "${job.role}"`, hint: "pp role --list" })),
+          ...danglingSessionJobs(jobs, config).map((job) => ({ job, missing: `session "${job.session}"`, hint: "pp cron ls" })),
+        ]
+      : [];
     const detail = !jobs.length
       ? "no jobs — pp cron add --every 10m \"…\""
       : dangling.length
-        ? `${dangling[0].id} targets role "${dangling[0].role}" — nothing carries it (pp role --list)` +
+        ? `${dangling[0].job.id} targets ${dangling[0].missing} — nothing carries it (${dangling[0].hint})` +
           (dangling.length > 1 ? ` (+${dangling.length - 1} more)` : "")
         : overdue.length
           ? `${overdue[0].id} is ${overdue[0].late} late — pp cron run ${overdue[0].id}` +
@@ -5192,7 +5200,7 @@ function cmdDoctor(config, options, ui) {
       "cron",
       healthy,
       detail,
-      dangling.length ? `pp cron rm ${dangling[0].id}` : overdue.length ? `pp cron run ${overdue[0].id}` : "pp install",
+      dangling.length ? `pp cron rm ${dangling[0].job.id}` : overdue.length ? `pp cron run ${overdue[0].id}` : "pp install",
     );
     // orientation, not a verdict: where the last copy is and how old
     const backups = listBackups(backupDir(process.env));
@@ -5810,6 +5818,30 @@ export function roleTargets(config, role) {
  */
 export function danglingRoleJobs(jobs, config) {
   return (jobs ?? []).filter((job) => job.role && roleTargets(config, job.role).length === 0);
+}
+
+/**
+ * Jobs aimed at a single session that the config no longer has: renaming or
+ * deleting a session leaves them ticking at nothing, which looks like "the cron
+ * is broken" from the outside. Role jobs and actions with no session are not
+ * this problem and are not reported here.
+ */
+export function danglingSessionJobs(jobs, config) {
+  if (!config) return [];
+  const known = new Set();
+  for (const session of config.sessions ?? []) {
+    known.add(session.name);
+    known.add(session.tmuxName);
+  }
+  return (jobs ?? []).filter(
+    (job) =>
+      job.session &&
+      job.session !== ALL_SESSIONS &&
+      !job.role &&
+      job.action !== "command" &&
+      job.action !== "heal" &&
+      !known.has(job.session),
+  );
 }
 
 function deliverToRole(job, options) {

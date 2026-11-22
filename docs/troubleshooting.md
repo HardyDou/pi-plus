@@ -489,6 +489,7 @@ pp up <name> -v --dry-run
 | `pp doctor` 说 `0eed5f is 15m late — pp cron run 0eed5f` | tick 在跑但这条任务卡住（目标会话不存在、投递一直失败） | `pp cron log` 看它每次的结果；`pp cron run <id>` 手动跑一次；不再需要就 `pp cron rm <id>` |
 | 所有任务一起 late | tick 本身没跑：crontab 被清、机器刚醒 | `pp install`（或 `pp cron install`）重装 tick |
 | `last` 一直是 `deferred: … is working` | 目标会话的 agent 长期在 Working，pp 故意不打断 | `pp logs <会话>` 看那轮卡在哪；必要时在会话里 `Ctrl+C` |
+| `pp doctor` 说 `aaaaaa targets session "旧名" — nothing carries it` | 会话改了名或从配置里删了，任务还在往旧名字投 | `pp cron ls` 看详情；`pp cron rm <id>` 再按新名字 `add`（标签任务同理，改 `pp role`） |
 
 ### 跑完 `./test/e2e.sh` 之后会话全没了 / 自启失效？
 

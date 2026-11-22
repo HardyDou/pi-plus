@@ -618,7 +618,8 @@ node -e '
   job.lastStatus = "delivered";
   fs.writeFileSync(path, JSON.stringify(data, null, 2));
 '
-check "doctor reports a stuck job" 1 'is .* late — pp cron run' bash -c "pp doctor 2>&1"
+# -c matters: without it doctor discovers a config from the cwd, and every job here looks dangling
+check "doctor reports a stuck job" 1 'is .* late — pp cron run' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG doctor 2>&1"
 check "cron ls says when next"    0 'in [0-9]+[smh] \('        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
 check "cron ls --json has nextRun" 0 'nextRun'                 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls --json"
 check "cron rejects --every 0"    1 'must be positive'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-always --every 0 --command true"
@@ -642,6 +643,23 @@ check "cron pause needs an id"      2 'usage: pp cron pause'          bash -c "c
 # a fan-out job that runs often must say what it costs
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --all --every 5m 'cheap words'" > /dev/null 2>&1
 check "cron ls names the loudest job" 0 'costs [0-9]+ agent turn'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
+# rename a session out from under a job: the job is fine, its aim is not
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-onfail --every 7m 'lost cause'" > /dev/null 2>&1
+LOST_ID=$(node -e 'const d=require(process.env.XDG_STATE_HOME+"/pi-plus/cron.json");process.stdout.write(d.jobs.find((j)=>j.prompt==="lost cause").id)')
+node -e '
+  const fs = require("fs");
+  const file = process.argv[1];
+  const text = fs.readFileSync(file, "utf8").replace("- name: e-onfail", "- name: e-onfail-renamed");
+  fs.writeFileSync(file, text);
+' "$CFG"
+check "doctor names a job whose session moved" 1 'targets session "e-onfail" — nothing carries it' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG doctor 2>&1"
+check "plan points at the job, not the tick"  0 "pp cron rm $LOST_ID"  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK plan 2>&1"
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $LOST_ID" > /dev/null 2>&1
+node -e '
+  const fs = require("fs");
+  const file = process.argv[1];
+  fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("- name: e-onfail-renamed", "- name: e-onfail"));
+' "$CFG"
 LOUD_ID=$(node -e 'const d=require(process.env.XDG_STATE_HOME+"/pi-plus/cron.json");process.stdout.write(d.jobs.find((j)=>j.prompt==="cheap words").id)')
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron pause $LOUD_ID" > /dev/null 2>&1
 # other jobs in this section are also loud, so assert the paused one is gone by id
