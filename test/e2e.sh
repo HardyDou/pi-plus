@@ -760,6 +760,8 @@ TD() { "$ROOT/bin/pp.js" -c "$CFG" --socket "$SOCK" todo "$@"; }
 check "todo starts empty"          0 'nothing needs you'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo"
 check "todo add"                   0 'added #[0-9a-f]'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo add 'review the plan' --session e-always"
 check "todo add twice is not duplicated" 0 'still open'         bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo add 'review the plan' --session e-always"
+check "a waiting todo shows up in the snapshot" 0 'todos \([0-9]+ waiting\)' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG snapshot | grep -A2 'todos ('"
+check "the snapshot names the todo itself" 0 'review the plan' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG snapshot"
 check "todo add without a session is refused" 2 'which session' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo add 'orphan item'"
 check "todo ls shows it"           0 'review the plan'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo"
 check "todo ls --json"             0 '"state": "new"'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo ls --json"

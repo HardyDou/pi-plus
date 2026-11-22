@@ -3535,6 +3535,23 @@ function cmdSnapshot(config, options, ui) {
     }
   }
 
+  // The snapshot is the thing people paste into a chat, so it carries the one
+  // list a reader will otherwise forget to ask for: what is waiting for a human.
+  let waiting = [];
+  try {
+    waiting = readTodos().filter((todo) => todo.state !== "done");
+  } catch {
+    waiting = [];
+  }
+  if (waiting.length) {
+    say("");
+    say(`todos (${waiting.length} waiting) — pp todo answer <#> "…"`);
+    for (const todo of waiting.slice(0, 5)) {
+      say(`  ${String(todo.session ?? "-").padEnd(16)} #${todo.id}  ${todo.title}`);
+    }
+    if (waiting.length > 5) say(`  … and ${waiting.length - 5} more (pp todo ls)`);
+  }
+
   let tail = [];
   try {
     tail = readAudit({ limit: options.lines ?? 5 });
@@ -3559,6 +3576,7 @@ function cmdSnapshot(config, options, ui) {
           text: body,
           cron: jobs,
           nodes,
+          todos: waiting.map((todo) => ({ id: todo.id, session: todo.session ?? null, title: todo.title })),
           audit: tail,
         },
         null,

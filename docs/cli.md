@@ -65,9 +65,14 @@ pp <command> [names...] [options]
 ### `pp snapshot`
 
 ```bash
-pp snapshot                # 会话表 + 定时任务 + 机器 + 审计尾部，一整块
+pp snapshot                # 会话表 + 定时任务 + 机器 + 待办 + 审计尾部，一整块
 pp snapshot --limit 20     # 底部多带些历史
 pp snapshot --json | jq -r .text
+
+# 有人在等你回答的时候，块里会多一段：
+# todos (1 waiting) — pp todo answer <#> "…"
+#   issue-1940       #38b15b  #1940 收官：8 项待决…
+
 ```
 
 只读、不 ssh、半坏也能用：坏掉的 `cron.json` 变成块里的一行（提示 `pp doctor --quarantine`）、
