@@ -905,6 +905,9 @@ counts   ran 12× · skipped 0×
 look     pp cron show a59cfc · pp logs mango-release-01
 ```
 
+`pp cron ls` 的 TARGET 列同步：远端会话读作 `api @t114`，指向已不存在的目标会带 `!`，
+表下多一行 `N job(s) point at nothing — pp why <id> · pp cron retarget <id> …`。
+
 `target` 那行回答"它现在到底在发给谁"：任务保留写入时的名字，会话一改名，
 调度就会一直报 `delivered` 却无人接收 —— 这时那行会写
 `session "w-old"，which is gone from the config (pp cron retarget a59cfc --session <name>)`。

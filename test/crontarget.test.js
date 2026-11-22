@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { describeJobTarget } from "../src/commands.js";
+import { describeJobTarget, printCronJobs } from "../src/commands.js";
 
 const config = {
   nodes: [{ name: "t114" }],
@@ -40,4 +40,34 @@ test("role, broadcast, heal and sweep each describe their own address", () => {
   const sweep = describeJobTarget(config, { id: "bb15", action: "sweep", session: "docs" });
   assert.equal(sweep.text, "fleet report → docs");
   assert.equal(describeJobTarget(config, { id: "bb16", action: "sweep", session: "gone" }).ok, false);
+});
+
+test("cron ls marks a job whose address is gone, and names the machine otherwise", () => {
+  const rows = [];
+  const ui = {
+    out: (line) => rows.push(String(line)),
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+    paint: (_style, text) => text,
+  };
+  const sessions = [
+    { name: "web", tmuxName: "web", node: null, role: null },
+    { name: "api", tmuxName: "api", node: "far", role: "pm" },
+  ];
+  const jobs = [
+    { id: "aa0001", session: "web", role: null, action: "prompt", schedule: { kind: "every", every: 600 }, createdAt: "2026-11-22T09:55:00.000Z", runs: 0 },
+    { id: "aa0002", session: "api", role: null, action: "prompt", schedule: { kind: "every", every: 600 }, createdAt: "2026-11-22T09:55:00.000Z", runs: 0 },
+    { id: "aa0003", session: "gone", role: null, action: "prompt", schedule: { kind: "every", every: 600 }, createdAt: "2026-11-22T09:55:00.000Z", runs: 0 },
+    { id: "aa0004", session: null, role: "qa", action: "prompt", schedule: { kind: "every", every: 600 }, createdAt: "2026-11-22T09:55:00.000Z", runs: 0 },
+    { id: "aa0005", session: null, role: "pm", action: "prompt", schedule: { kind: "every", every: 600 }, createdAt: "2026-11-22T09:55:00.000Z", runs: 0 },
+  ];
+  printCronJobs(jobs, ui, new Date("2026-11-22T10:00:00Z"), sessions);
+  const table = rows.filter((line) => line.startsWith("aa"));
+  assert.match(table[0], /web {2,}every/, "a local session is named as written");
+  assert.match(table[1], /api @far/, "a remote session shows its machine");
+  assert.match(table[2], /gone !/, "a vanished session is flagged");
+  assert.match(table[3], /role qa !/, "a role nobody carries is flagged");
+  assert.match(table[4], /role pm /, "a role that is carried is not");
+  assert.ok(rows.some((line) => /2 job\(s\) point at nothing — pp why aa0003/.test(line)), "one line says what to do next");
 });

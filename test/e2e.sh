@@ -1197,6 +1197,9 @@ check "the job view says where it is aimed" 0 'target' bash -c "cd $E2E && $ROOT
 check "and that the session is real"        0 'e-always' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK why \$(cat $E2E/whyjob.id) 2>&1 | grep '^target'"
 check "an unknown id is refused"         2 'unknown session or job' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK why zzzzzz 2>&1"
 check "the job is removed again"         0 ''            bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron rm \$(cat $E2E/whyjob.id) >/dev/null 2>&1; rm -f $E2E/whyjob.id"
+# a job outlives the name it was written with: cron ls must say so
+check "cron ls names the machine a job aims at" 0 'far-x @far' bash -c "cd $E2E && PATH=\"$SHIM:$PATH\" \"$ROOT/bin/pp.js\" -c \"$NODECFG\" --socket \"$SOCK\" cron add --every 10m --session far-x 'node probe' >/dev/null 2>&1; PATH=\"$SHIM:$PATH\" \"$ROOT/bin/pp.js\" -c \"$NODECFG\" --socket \"$SOCK\" cron ls 2>&1 | grep 'far-x'"
+check "cron ls marks a job pointing at nothing" 0 'point at nothing' bash -c "cd \"$E2E\" && grep -v 'name: e-onfail' \"$CFG\" > \"$E2E/gone.yml\"; \"$ROOT/bin/pp.js\" -c \"$CFG\" --socket \"$SOCK\" cron add --every 10m --session e-onfail 'gone probe' >/dev/null 2>&1; \"$ROOT/bin/pp.js\" -c \"$E2E/gone.yml\" --socket \"$SOCK\" cron ls 2>&1 | grep -E 'e-onfail !|point at nothing'"
 
 section "plan --node (one machine)"
 check "unknown machine points at the list" 0 'pp node ls'   bash -c "cd $E2E && PATH=\"$SHIM:$PATH\" $ROOT/bin/pp.js -c $NODECFG plan --node nope 2>&1"

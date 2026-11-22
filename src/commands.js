@@ -6621,26 +6621,37 @@ function cronRow(job, now = new Date()) {
   };
 }
 
-function printCronJobs(jobs, ui, now = new Date(), sessions = []) {
+export function printCronJobs(jobs, ui, now = new Date(), sessions = []) {
   if (!jobs.length) {
     ui.info("no scheduled jobs — add one with: pp cron add --at \"2026-11-21T09:00\" \"check the build\"");
     return;
   }
   const records = jobs.map((job) => cronRow(job, now));
   const headers = ["ID", "TARGET", "SCHEDULE", "NEXT", "RUNS", "LAST"];
+  // Where a job points, and whether that address still exists: a renamed session
+  // leaves a schedule that keeps reporting `delivered` to nobody.
+  const byName = new Map();
+  for (const session of sessions) {
+    byName.set(session.name, session);
+    if (session.tmuxName) byName.set(session.tmuxName, session);
+  }
+  const roleCount = (label) => sessions.filter((session) => String(session.role ?? "").toLowerCase() === String(label).toLowerCase()).length;
+  const armed = (job) => {
+    if (job.action === "heal" || job.action === "command") return true;
+    if (job.role) return roleCount(job.role) > 0;
+    if (!job.session || job.session === ALL_SESSIONS) return true;
+    return byName.has(job.session);
+  };
   // a command job has no session at all, so this has to survive null
-  const target = (session, action, role) =>
-    action === "sweep"
-      ? `fleet → ${session ?? "-"}`
-      : action === "heal"
-      ? "drift (up --drift)"
-      : action === "command"
-        ? "$ (localhost)"
-        : role
-          ? `role ${role}`
-          : session === ALL_SESSIONS
-            ? "all sessions"
-            : session ?? "-";
+  const target = (session, action, role) => {
+    if (action === "sweep") return `fleet → ${session ?? "-"}`;
+    if (action === "heal") return "drift (up --drift)";
+    if (action === "command") return "$ (localhost)";
+    if (role) return `role ${role}`;
+    if (session === ALL_SESSIONS) return "all sessions";
+    const owner = byName.get(session);
+    return owner?.node ? `${session} @${owner.node}` : session ?? "-";
+  };
   // A paused job is still a job: keep the row, but say in the NEXT column that
   // nothing is coming, so a silenced reminder cannot be mistaken for a broken tick.
   const table = records.map((row) => [
@@ -6654,10 +6665,11 @@ function printCronJobs(jobs, ui, now = new Date(), sessions = []) {
   const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
   const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
   ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
-  table.forEach((row) => {
+  table.forEach((row, at) => {
     const colored = [...row];
     colored[0] = ui.paint("dim", colored[0]);
-    const record = records[table.indexOf(row)];
+    const record = records[at];
+    if (!armed(jobs[at])) colored[1] = ui.paint("yellow", `${colored[1]} !`);
     colored[3] = record.paused
       ? ui.paint("dim", colored[3])
       : record.late
@@ -6668,6 +6680,10 @@ function printCronJobs(jobs, ui, now = new Date(), sessions = []) {
   const paused = records.filter((row) => row.paused).length;
   if (paused) {
     ui.out(ui.paint("dim", `${paused} paused — bring one back with: pp cron resume <id>`));
+  }
+  const lost = jobs.filter((job) => !armed(job));
+  if (lost.length) {
+    ui.out(ui.paint("yellow", `${lost.length} job(s) point at nothing — pp why ${lost[0].id} · pp cron retarget ${lost[0].id} …`));
   }
   // Say the loud thing out loud: a fan-out job that runs often is not free, and
   // the person who added it (probably at 2am) is the one who should see the bill.
