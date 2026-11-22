@@ -37,3 +37,19 @@ test("without --timeout the default deadline is still finite", () => {
   assert.ok(Number.isFinite(COMMAND_TIMEOUT_SECONDS) && COMMAND_TIMEOUT_SECONDS > 0);
   assert.equal(COMMAND_TIMEOUT_SECONDS, 300);
 });
+
+test("a failing command keeps the tail of what it said", async () => {
+  const { deliverJob, firstLine } = await import("../src/commands.js");
+  const result = deliverJob({ id: "abc123", action: "command", command: "printf 'a\\nb\\nboom\\n' >&2; exit 3", timeout: 10 }, {});
+  assert.equal(result.status, "failed: exit 3 — a");
+  assert.match(result.output, /boom/);
+  const saved = [];
+  const { recordRun } = await import("../src/cron.js");
+  const job = { id: "abc123", action: "command", command: "x", schedule: { kind: "every", every: 60 }, runs: 0 };
+  recordRun(job, result.status, { output: result.output, env: { ...process.env, XDG_STATE_HOME: process.env.PP_TEST_STATE } });
+  assert.match(job.lastOutput, /boom/, "the last lines are kept for pp why");
+  recordRun(job, "delivered", { env: { ...process.env, XDG_STATE_HOME: process.env.PP_TEST_STATE } });
+  assert.equal(job.lastOutput, undefined, "a good run clears it");
+  assert.equal(firstLine("\n\n  a long line  \n", 6), "a lon…", "trimmed, clipped to the limit");
+  assert.equal(firstLine("\n\n  a long line  \n", 40), "a long line");
+});

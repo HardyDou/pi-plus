@@ -3040,6 +3040,7 @@ export function grepLines(text, pattern, { context = 0, ignoreCase = false } = {
  */
 export function describeJobTarget(config, job, { running = () => null } = {}) {
   if (job.action === "heal") return { text: "the drift — what the config expects and the machine does not have (pp up --drift does it once)", ok: true };
+  if (job.action === "command") return { text: `$ ${job.command} (on this machine, killed after ${job.timeout ?? COMMAND_TIMEOUT_SECONDS}s)`, ok: true };
   if (job.action === "sweep") {
     const report = (config?.sessions ?? []).find((entry) => entry.name === job.session || entry.tmuxName === job.session);
     if (!report) return { text: `fleet report → "${job.session}", which is not in the config (pp cron retarget ${job.id} --session <name>)`, ok: false };
@@ -3095,7 +3096,13 @@ export async function cmdWhyJob(config, options, ui, job) {
   if (job.done) verdict = `finished — it ran once, ${job.lastRun ? agoText(job.lastRun, now) : "and will not run again"}`;
   else if (!tick) verdict = "the tick is not in crontab, so nothing will ever fire — pp install";
   else if (status.startsWith("deferred:")) verdict = `waiting: ${status.replace(/^deferred:\s*/, "")}`;
-  else if (status.startsWith("failed:")) verdict = `the last run failed: ${status.replace(/^failed:\s*/, "")} — pp logs ${job.session ?? "<session>"}`;
+  else if (status.startsWith("failed:")) {
+    const said = status.replace(/^failed:\s*/, "");
+    verdict =
+      job.action === "command"
+        ? `the last run failed: ${said} — pp cron run ${job.id} to try it again`
+        : `the last run failed: ${said} — pp logs ${job.session ?? "<session>"}`;
+  }
   else if (status.startsWith("skipped: missed"))
     verdict = `it was missed for longer than its catch-up window (${formatDuration(job.catchUp ?? DEFAULT_CATCH_UP_SECONDS)}) — it resumes at the next scheduled time`;
   else if (busyTarget) verdict = `its target is mid-turn right now, so the next tick will queue or skip — nothing to do`;
@@ -3175,7 +3182,7 @@ export async function cmdWhyJob(config, options, ui, job) {
       : job.schedule.kind === "cron"
         ? job.schedule.cron
         : "once";
-  ui.out(`${ui.paint("bold", job.id)}  ${ui.paint("dim", `${when} · ${job.action === "heal" ? "heal drift" : job.session === ALL_SESSIONS ? "all sessions" : job.action === "sweep" ? `fleet → ${job.session}` : job.role ? `role ${job.role}` : `to ${job.session ?? "-"}`}`)}`);
+  ui.out(`${ui.paint("bold", job.id)}  ${ui.paint("dim", `${when} · ${job.action === "heal" ? "heal drift" : job.action === "command" ? "a command on this machine" : job.session === ALL_SESSIONS ? "all sessions" : job.action === "sweep" ? `fleet → ${job.session}` : job.role ? `role ${job.role}` : `to ${job.session ?? "-"}`}`)}`);
   line("state", status.startsWith("failed:") ? ui.paint("red", verdict) : verdict);
   const liveCache = new Map();
   const liveFor = (nodeName) => {
@@ -3211,6 +3218,10 @@ export async function cmdWhyJob(config, options, ui, job) {
   const today = dailyRuns(job, new Date(now));
   const capText = job.maxPerDay ? ` · today ${today} of ${job.maxPerDay}` : today ? ` · today ${today}` : "";
   line("counts", `ran ${job.runs ?? 0}× · skipped ${job.skipped ?? 0}×${capText}`);
+  if (job.lastOutput) {
+    // what the command actually said: "exit 3" alone sends you looking for the script
+    line("output", String(job.lastOutput).split("\n").slice(-4).join("\n           "));
+  }
   if (inQuietHours(job, now)) {
     line("now", ui.paint("dim", `quiet hours — nothing is sent until ${describeWindow(job.window).split("-").pop()}`));
   } else if (plan) {
@@ -5132,6 +5143,16 @@ export async function cmdBusy(config, options, ui) {
 /** How long a `--command` job may run before the tick kills it. */
 export const COMMAND_TIMEOUT_SECONDS = 300;
 
+/** The first line of some output, clipped — for a status that has to stay one row. */
+export function firstLine(text, limit = 120) {
+  const line = String(text ?? "")
+    .split("\n")
+    .map((part) => part.trim())
+    .find((part) => part);
+  if (!line) return "";
+  return line.length > limit ? `${line.slice(0, limit - 1)}…` : line;
+}
+
 const CLEAN_KEEP_BYTES = 2 * 1024 * 1024;
 const LOG_WARN_BYTES = 50 * 1024 * 1024;
 
@@ -6687,16 +6708,20 @@ export function deliverJob(job, options) {
       timeout,
       killSignal: "SIGKILL",
     });
+    const output = String(result.stderr ?? "").trim() || String(result.stdout ?? "").trim();
     if (result.error) {
       const why = result.error.code === "ETIMEDOUT" ? `timed out after ${Math.round(timeout / 1000)}s` : result.error.message;
-      return { status: `failed: ${why}` };
+      return { status: `failed: ${why}`, output };
     }
     if (result.status !== 0) {
       const took = Math.round((Date.now() - started) / 1000);
       const why = result.signal === "SIGKILL" && timeout && took * 1000 >= timeout * 0.9 ? `timed out after ${Math.round(timeout / 1000)}s` : `exit ${result.status}`;
-      return { status: `failed: ${why}` };
+      // "exit 3" alone sends you looking for the script; the first line of what
+      // it said usually ends the search
+      const gist = firstLine(output, 120);
+      return { status: `failed: ${why}${gist ? ` — ${gist}` : ""}`, output };
     }
-    return { status: "delivered" };
+    return { status: "delivered", output };
   }
 
   if (job.role) return deliverToRole(job, options);
@@ -7981,7 +8006,7 @@ async function cmdCronRun(config, options, ui) {
     const result = deliverJob(job, options);
     // one writer for job state: it also feeds the daily cap and the deferral
     // streak, which a hand-rolled three-line update kept forgetting
-    recordRun(job, result.status);
+    recordRun(job, result.status, { output: result.output ?? null });
     const paint = result.status === "delivered" ? "green" : "yellow";
     // "delivered" on its own hides the interesting part: how many, and what
     // was refused. The tick writes the same text to cron.log.

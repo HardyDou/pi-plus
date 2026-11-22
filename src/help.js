@@ -947,6 +947,7 @@ export const COMMANDS = [
       "--to <session>   --sweep: where the report is typed",
       "--command <cmd>  run a shell command instead of typing a prompt",
       "--timeout <sec>  --command only: kill it after N seconds (default 300)",
+      "When a command job fails, the last lines of its output are kept — pp why <id>.",
       "--catch-up <dur> how late a missed run may be (default 2h, 0 = never)",
       "--start          start the session first if it is not running",
       "--via crond      only backend today",

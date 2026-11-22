@@ -372,6 +372,8 @@ export function tick({ now = new Date(), env = process.env, deliver, dryRun = fa
 
       job.lastAttempt = now.toISOString();
       job.lastStatus = result.status;
+      if (result.output) job.lastOutput = String(result.output).trim().split("\n").slice(-8).join("\n");
+      else if (result.status === "delivered") delete job.lastOutput;
       if (!result.status.startsWith("deferred:")) delete job.deferredSince;
       if (result.status === "delivered") {
         job.lastRun = now.toISOString();
@@ -429,9 +431,20 @@ function bumpDaily(job, at) {
   job.dayRuns = Number(job.dayRuns ?? 0) + 1;
 }
 
-export function recordRun(job, status, env = process.env) {
+export function recordRun(job, status, options = {}) {
+  // both call shapes exist: newer code passes { output, env }, older callers
+  // passed the environment straight through
+  const { output = null, env = process.env } =
+    options && ("env" in options || "output" in options) ? options : { env: options ?? process.env };
   job.lastAttempt = new Date().toISOString();
   job.lastStatus = status;
+  // keep the tail of what a command job said: "exit 3" on its own sends you
+  // hunting through the script, and the last lines usually end the hunt
+  if (output) {
+    job.lastOutput = String(output).trim().split("\n").slice(-8).join("\n");
+  } else if (status === "delivered") {
+    delete job.lastOutput;
+  }
   if (status.startsWith("deferred:")) {
     if (!job.deferredSince) job.deferredSince = job.lastAttempt;
   } else {

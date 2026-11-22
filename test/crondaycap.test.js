@@ -45,7 +45,7 @@ test("a job stops delivering past its daily cap, and says why", () => {
 test("cron run counts against the same cap", () => {
   const env = sandbox();
   writeJobs([job({ maxPerDay: 1 })], env);
-  recordRun(readJobs(env)[0], "delivered", env);
+  recordRun(readJobs(env)[0], "delivered", { env });
   const after = readJobs(env)[0];
   assert.equal(dailyRuns(after), 1);
   assert.equal(after.runs, 1);

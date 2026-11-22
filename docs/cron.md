@@ -441,3 +441,18 @@ ID      TARGET         SCHEDULE        NEXT              RUNS  LAST
 tick 的锁，**所有别的任务都会悄悄停摆**。所以命令型任务永远有时限：默认 300 秒，用
 `--timeout 600` 调；超时的状态是 `failed: timed out after 300s`，`cron ls` 里直接读得出来。
 
+
+## 失败的命令会留下它说的话
+
+`--command` 任务失败时，`exit 3` 本身不告诉你任何事。最近一次运行的**最后 8 行**（stderr 优先，其次 stdout）会存进任务的 `lastOutput`：
+
+```bash
+pp why cad1fe
+```
+```
+state    the last run failed: exit 3 — boom-boom — pp cron run cad1fe to try it again
+target   $ echo boom-boom >&2; exit 3 (on this machine, killed after 5s)
+output   boom-boom
+```
+
+`pp cron ls` 的 `LAST` 列只显示判定词（`failed …`），整句在哪看是 `pp why <id>` 的事 —— 表格要能一眼读完，细节进详情页。成功投递会清掉旧输出，免得一次旧失败永远挂在那里。
