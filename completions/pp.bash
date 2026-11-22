@@ -24,7 +24,7 @@ _pp() {
     backup)  opts="--list --keep --out --json --dry-run -c --socket" ;;
     restore) opts="--dry-run --force --out --json -c --socket" ;;
     audit)
-      COMPREPLY=($(compgen -W "--limit --action --since --prune --file --json" -- "$cur"))
+      COMPREPLY=($(compgen -W "--limit --action --since --prune --file --json --window" -- "$cur"))
       return 0
       ;;
     cron)

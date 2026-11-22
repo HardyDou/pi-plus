@@ -113,6 +113,9 @@ import {
   nextRun,
   parseCron,
   parseDuration,
+  parseWindow,
+  describeWindow,
+  inQuietHours,
   readJobs,
   removeJob,
   resetJob,
@@ -3160,11 +3163,13 @@ async function cmdWhyJob(config, options, ui, job) {
     },
   });
   line("target", aim.ok ? aim.text : ui.paint("yellow", aim.text));
-  line("schedule", `${when}${job.idleAfter ? ui.paint("dim", ` · only after ${formatDuration(job.idleAfter)} of quiet`) : ""}${job.catchUp ? ui.paint("dim", ` · catch-up ${formatDuration(job.catchUp)}`) : ""}`);
+  line("schedule", `${when}${job.window ? ui.paint("dim", ` · silent ${describeWindow(job.window)}`) : ""}${job.idleAfter ? ui.paint("dim", ` · only after ${formatDuration(job.idleAfter)} of quiet`) : ""}${job.catchUp ? ui.paint("dim", ` · catch-up ${formatDuration(job.catchUp)}`) : ""}`);
   line("next", next.text === "-" ? "-" : `${next.text}${next.late ? ui.paint("yellow", "  (late)") : ""}`);
   line("last run", job.lastRun ? `${agoText(job.lastRun, now)}${job.lastStatus ? ui.paint("dim", ` — ${job.lastStatus}`) : ""}` : "never");
   line("counts", `ran ${job.runs ?? 0}× · skipped ${job.skipped ?? 0}×`);
-  if (plan) {
+  if (inQuietHours(job, now)) {
+    line("now", ui.paint("dim", `quiet hours — nothing is sent until ${describeWindow(job.window).split("-").pop()}`));
+  } else if (plan) {
     if (plan.note) {
       line("now", ui.paint("yellow", plan.note));
     } else {
@@ -6734,7 +6739,7 @@ function cronRow(job, now = new Date()) {
     action: job.action,
     session: job.session ?? null,
     role: job.role ?? null,
-    schedule: `${describeSchedule(job.schedule)}${job.idleAfter ? ` · idle ${formatDuration(job.idleAfter)}` : ""}`,
+    schedule: `${describeSchedule(job.schedule)}${job.idleAfter ? ` · idle ${formatDuration(job.idleAfter)}` : ""}${job.window ? ` · quiet ${describeWindow(job.window)}` : ""}`,
     next: next.text,
     late: next.late,
     nextRun: due ? due.toISOString() : null,
@@ -6858,6 +6863,11 @@ async function cmdCronAdd(config, options, ui) {
   if (idleAfter && (healing || sweeping || command)) {
     throw new CronError("--idle-after only applies to prompts sent to sessions");
   }
+  // --window: do not nudge while people are asleep
+  const window = options.window ? parseWindow(options.window, { what: "--window" }) : null;
+  if (window && (healing || sweeping)) {
+    throw new CronError("--window only applies to prompts sent to sessions");
+  }
 
   const schedule = buildSchedule({ at: options.in ? new Date(Date.now() + parseDuration(options.in, { what: "--in" }) * 1000).toISOString() : options.at, every: options.every, cron: options.cronExpr });
 
@@ -6952,6 +6962,7 @@ async function cmdCronAdd(config, options, ui) {
     catchUp: options.catchUp ? parseDuration(options.catchUp, { what: "--catch-up" }) : DEFAULT_CATCH_UP_SECONDS,
     startSession: Boolean(options.start),
     ...(idleAfter ? { idleAfter } : {}),
+    ...(window ? { window } : {}),
     configPath,
     createdAt: new Date().toISOString(),
     runs: 0,
@@ -6963,6 +6974,7 @@ async function cmdCronAdd(config, options, ui) {
     ui.out(`[dry-run] would schedule ${job.id}: ${describeSchedule(schedule)} → ${job.action === "heal" ? "heal (up --drift)" : job.action === "command" ? `$ ${command}` : who}`);
     ui.out(`[dry-run] first run ${due ? due.toISOString() : "never"}`);
     if (idleAfter) ui.out(`[dry-run] only sessions quiet for ${formatDuration(idleAfter)} or more are nudged`);
+    if (window) ui.out(`[dry-run] nothing is sent between ${describeWindow(window)}`);
     return;
   }
 
@@ -7397,6 +7409,10 @@ async function cmdCronDryRun(config, options, ui) {
       continue;
     }
     const config = jobConfig(job);
+    if (inQuietHours(job)) {
+      rows.push({ id, target: job.session === ALL_SESSIONS ? "all sessions" : job.session, verdict: "quiet", detail: `nothing is sent between ${describeWindow(job.window)}` });
+      continue;
+    }
     const tmux = makeTmux(config ?? { tmuxSocket: null, nodes: [] }, options);
     if (job.role) {
       // a role job hops machines, so look at each session with its own handle
@@ -7413,7 +7429,7 @@ async function cmdCronDryRun(config, options, ui) {
     rows.push({ id, target: job.session === ALL_SESSIONS ? "all sessions" : job.session, plan: deliveryPlan(tmux, job, { config }) });
   }
 
-  const label = { send: "would send", busy: "busy — skipped", lately: "moved recently — skipped", down: "not running", drained: "drained machine", run: "would run" };
+  const label = { send: "would send", busy: "busy — skipped", lately: "moved recently — skipped", down: "not running", drained: "drained machine", run: "would run", quiet: "quiet hours — skipped" };
   if (ui.json) {
     ui.out(JSON.stringify(rows, null, 2));
     return;
@@ -7492,7 +7508,15 @@ async function cmdCronTick(config, options, ui) {
     return;
   }
   if (!options.quiet) {
-    ui.info(`${result.ran.length} delivered, ${result.skipped.length} skipped, ${result.total} job(s) left`);
+    // "2 skipped" is a number without a reason, and the reason is the whole
+    // point: quiet hours is not the same news as a delivery that failed
+    const reasons = new Map();
+    for (const entry of result.skipped) {
+      const reason = String(entry.reason ?? "other").replace(/^skipped: /, "").split(" — ")[0];
+      reasons.set(reason, (reasons.get(reason) ?? 0) + 1);
+    }
+    const why = reasons.size ? ` (${[...reasons].map(([reason, count]) => `${count} ${reason}`).join(", ")})` : "";
+    ui.info(`${result.ran.length} delivered, ${result.skipped.length} skipped${why}, ${result.total} job(s) left`);
   }
 }
 

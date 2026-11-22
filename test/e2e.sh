@@ -659,6 +659,13 @@ mkdir -p "$E2E/shim-nocron"
 printf '#!/bin/sh\necho "no crontab for user" >&2\nexit 1\n' > "$E2E/shim-nocron/crontab"
 chmod +x "$E2E/shim-nocron/crontab"
 check "plan notices nobody winds the tick" 0 'nothing calls the tick' bash -c "cd $E2E && PATH=\"$E2E/shim-nocron:$PATH\" $ROOT/bin/pp.js -c $CFG --socket $SOCK plan 2>&1"
+# quiet hours: a job may be due and still be told to wait
+check "cron add takes --window"     0 'scheduled [0-9a-f]' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron add --all --every 10m --window 00:00-23:59 'quiet probe'"
+QUIET_ID=$(node -e 'const d=require(process.env.XDG_STATE_HOME+"/pi-plus/cron.json");process.stdout.write(d.jobs.find((j)=>j.prompt==="quiet probe").id)')
+check "cron ls shows quiet hours"   0 'quiet 00:00-23:59'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron ls"
+check "the tick respects them"      0 'quiet hours'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron tick --now \$(date -u -d '+20 min' +%Y-%m-%dT%H:%M:%S.000Z) 2>&1 | tail -3"
+check "dryrun says why it waits"    0 'quiet hours — skipped' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron dryrun $QUIET_ID"
+check "the window can be dropped"   0 'removed'            bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron rm $QUIET_ID"
 check "cron dryrun never types"      0 '^0$'          bash -c "tmux -L $SOCK capture-pane -p -t '=e-always:' | grep -c 'dryrun probe' || true"
 check "cron rm takes the idle job" 0 'removed'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $IDLE_ID"
 # a fan-out job that runs often must say what it costs

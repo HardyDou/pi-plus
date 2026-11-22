@@ -329,6 +329,12 @@ export function tick({ now = new Date(), env = process.env, deliver, dryRun = fa
         skipped.push({ id: job.id, reason: "paused" });
         continue;
       }
+      // quiet hours are not a failure: the job stays due and fires when the
+      // window closes, so nothing is lost by sleeping through the night
+      if (inQuietHours(job, now)) {
+        skipped.push({ id: job.id, reason: "quiet hours" });
+        continue;
+      }
       const due = nextRun(job, now);
       if (!due || due.getTime() > now.getTime()) {
         if (job.schedule.kind === "once" && job.lastRun) {
@@ -419,6 +425,44 @@ export function setJobTarget(id, target = {}, env = process.env) {
   }
   writeJobs(jobs, env);
   return { before, after: { session: job.session ?? null, role: job.role ?? null } };
+}
+
+/**
+ * Quiet hours: a heartbeat should not fire at 3am just because a session went
+ * quiet. `window` is { from, to } in minutes after midnight, local time, and it
+ * wraps — 23:00-08:00 covers midnight.
+ */
+export function inQuietHours(job, at = new Date()) {
+  const window = job?.window;
+  if (!window) return false;
+  const minutes = at.getHours() * 60 + at.getMinutes();
+  if (window.from === window.to) return false;
+  return window.from < window.to
+    ? minutes >= window.from && minutes < window.to
+    : minutes >= window.from || minutes < window.to;
+}
+
+/** "23:00-08:00" -> { from, to } in minutes after midnight. */
+export function parseWindow(text, { what = "--window" } = {}) {
+  const raw = String(text).trim();
+  const match = /^(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})$/.exec(raw);
+  if (!match) throw new CronError(`${what} "${text}" is not a time range (try 23:00-08:00)`);
+  const toMinutes = (hours, minutes) => {
+    const h = Number(hours);
+    const m = Number(minutes);
+    if (h > 23 || m > 59) throw new CronError(`${what} "${text}" has a time that does not exist`);
+    return h * 60 + m;
+  };
+  const from = toMinutes(match[1], match[2]);
+  const to = toMinutes(match[3], match[4]);
+  if (from === to) throw new CronError(`${what} "${text}" starts and ends at the same minute`);
+  return { from, to };
+}
+
+export function describeWindow(window) {
+  const pad = (minutes) =>
+    `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  return `${pad(window.from)}-${pad(window.to)}`;
 }
 
 /** Pause or resume a job without touching its schedule or its history. */

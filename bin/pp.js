@@ -133,6 +133,9 @@ function parseArgs(argv) {
         case "--session": options.session = takeValue(flag, inline); break;
         case "--command": options.command = takeValue(flag, inline); break;
         case "--catch-up": options.catchUp = takeValue(flag, inline); break;
+        case "--window":
+          options.window = takeValue("--window", inline);
+          break;
         case "--idle-after":
           options.idleAfter = takeValue("--idle-after", inline);
           break;
