@@ -4,6 +4,8 @@ import { EventEmitter } from "node:events";
 import {
   nodesToProbe,
 } from "../src/commands.js";
+const ESC = "\u001b[";
+const WRAP_OFF = `${ESC}?7l`;
 import {
   clampLeftWidth,
   TODO_MAX_HEIGHT,
@@ -199,6 +201,57 @@ test("moveSelection clamps to the list", () => {
   assert.equal(moveSelection(0, 0, 1), 0);
 });
 
+/**
+ * With delta painting the visible screen has to be reassembled from the moves
+ * the panel emits — the last write is a patch, not a frame.
+ */
+function screenOf() {
+  let rows = [];
+  const apply = (chunk) => {
+    let row = 0;
+    let index = 0;
+    let pending = "";
+    const commit = () => {
+      if (!pending) return;
+      rows[row] = (rows[row] ?? "") + pending;
+      pending = "";
+    };
+    while (index < chunk.length) {
+      const at = chunk.indexOf("\u001b[", index);
+      if (at < 0) {
+        pending += chunk.slice(index);
+        break;
+      }
+      pending += chunk.slice(index, at);
+      const match = /^\u001b\[([0-9;?]*)([A-Za-z])/.exec(chunk.slice(at));
+      if (!match) {
+        index = at + 2;
+        continue;
+      }
+      const [full, numbers, letter] = match;
+      index = at + full.length;
+      if (letter === "H") {
+        commit();
+        row = Math.max(0, Number(numbers.split(";")[0] || 1) - 1);
+      } else if (letter === "K") {
+        commit();
+        rows[row] = "";
+      } else if (letter === "J") {
+        commit();
+        rows = [];
+        row = 0;
+      }
+    }
+    commit();
+  };
+  const frame = () => {
+    const copy = [...rows];
+    while (copy.length && copy[copy.length - 1] === "") copy.pop();
+    return stripAnsi(copy.join("\n"));
+  };
+  return { apply, frame };
+}
+
 function fakeIo({ sessions, todos, preview }) {
   const input = new EventEmitter();
   input.setRawMode = () => {};
@@ -206,18 +259,20 @@ function fakeIo({ sessions, todos, preview }) {
   input.pause = () => {};
   input.setEncoding = () => {};
   let buffer = "";
+  const screen = screenOf();
   const output = {
     write(chunk) {
       buffer += chunk;
+      screen.apply(chunk);
       return true;
     },
   };
+  const lastFrame = () => screen.frame();
   return {
     input,
     output,
     text: () => stripAnsi(buffer),
-    // frames are painted row by row from 1;1, so the tail after the last such write is the newest frame
-    lastFrame: () => stripAnsi(buffer.slice(buffer.lastIndexOf("\u001b[1;1H"))),
+    lastFrame,
     raw: () => buffer,
     io: {
       input,
@@ -509,6 +564,7 @@ test("s cycles the session order and keeps the cursor on the same session", asyn
     output: {
       write(chunk) {
         buffer += chunk;
+        screen.apply(chunk);
         return true;
       },
     },
@@ -519,7 +575,8 @@ test("s cycles the session order and keeps the cursor on the same session", asyn
     closeTodo: async () => {},
     attach: async () => {},
   };
-  const frame = () => stripAnsi(buffer.slice(buffer.lastIndexOf("\u001b[1;1H")));
+  const screen = screenOf();
+  const frame = () => screen.frame();
   const order = () =>
     ["1 a", "2 b", "3 c"]
       .map((name) => ({ name, at: frame().indexOf(name) }))
@@ -599,4 +656,15 @@ test("the panel only asks machines that carry a session", () => {
   );
   assert.deepEqual(nodesToProbe({ nodes: [{ name: "a" }], sessions: [{ name: "x" }] }), [], "nothing remote: nothing to ask");
   assert.deepEqual(nodesToProbe(null), [], "no config, no machines");
+});
+
+test("an unchanged row is not sent again, and a wiped screen is", async () => {
+  const frame = ["aaa", "bbb"];
+  assert.equal(paintFrame(frame), `${WRAP_OFF}${ESC}1;1H${ESC}Kaaa${ESC}2;1H${ESC}Kbbb`, "first frame paints everything");
+  assert.equal(paintFrame(frame, { previous: frame }), "", "same rows: nothing to send");
+  const painted = paintFrame(["aaa", "ccc"], { previous: frame });
+  assert.ok(painted.includes("ccc"), "changed row is sent");
+  assert.ok(!painted.includes("aaa"), "unchanged row is not");
+  const shorter = paintFrame(["aaa"], { previous: frame });
+  assert.ok(shorter.includes(`${ESC}2;1H${ESC}K`), "a shorter frame clears the row it no longer uses");
 });

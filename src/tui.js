@@ -317,15 +317,26 @@ export function renderFrame(state, layout) {
  * mis-measured glyph can only dirty its own row, never scroll the pane, and no
  * screen clear is issued per frame (nothing lands in a terminal scrollback).
  */
-export function paintFrame(lines) {
-  let out = WRAP_OFF;
+export function paintFrame(lines, { previous = null } = {}) {
+  // A panel that redraws every second mostly redraws the same rows. Absolute
+  // addressing means unchanged rows can simply be skipped: over ssh the
+  // difference between 51 rows and 3 is the difference between a busy link and
+  // an idle one.
+  let out = "";
+  let painted = 0;
   for (let i = 0; i < lines.length; i += 1) {
+    if (previous && previous[i] === lines[i]) continue;
     // erase the row *before* writing: EL after a full-width line would eat its last cell.
     // The line goes out verbatim: stripping ANSI here would silently drop the
     // selection highlight, the bold borders and the dim footer.
     out += `${ESC}${i + 1};1H${ESC}K${lines[i]}`;
+    painted += 1;
   }
-  return out;
+  // a shorter frame than last time leaves the old tail on screen
+  for (let i = lines.length; previous && i < previous.length; i += 1) {
+    out += `${ESC}${i + 1};1H${ESC}K`;
+  }
+  return painted === 0 && out === "" ? "" : WRAP_OFF + out;
 }
 
 /** Keep a selection inside a list and the list scrolled to it. */
@@ -364,6 +375,8 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     typing: false,
     /** what has been typed into that box so far */
     input: "",
+    /** the rows currently on screen, so an unchanged row is not sent again */
+    painted: null,
   };
   let running = false;
   /**
@@ -514,7 +527,9 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     model.footer = footerText(state.note ?? "");
     // never paint more rows than the terminal actually has
     const lines = renderFrame(model, layout).slice(0, Math.max(1, rows || layout.height));
-    io.output.write(paintFrame(lines));
+    const text = paintFrame(lines, { previous: state.painted });
+    state.painted = lines;
+    if (text) io.output.write(text);
   }
 
   async function refresh(extra = "", { sticky = false } = {}) {
@@ -550,6 +565,8 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     // a terminal that keeps an alternate-screen scrollback (iTerm2 can) saves one
     // frame per ED, which is what makes the panel look like it is appending.
     io.output.write(`${ALT_SCREEN}${HIDE_CURSOR}${CLEAR}${WRAP_OFF}`);
+    // the screen was just wiped: nothing on it counts as painted any more
+    state.painted = null;
   }
 
   /** attach() ran into a problem: say it in the footer instead of on the screen. */
@@ -716,7 +733,11 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     async start() {
       running = true;
       enterScreen();
-      io.onResize(() => draw());
+      io.onResize(() => {
+        // a resized terminal has different rows: repaint the whole thing
+        state.painted = null;
+        draw();
+      });
       io.input.setRawMode?.(true);
       io.input.resume();
       io.input.setEncoding("utf8");
