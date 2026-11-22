@@ -78,6 +78,31 @@ export function isRule(line) {
 }
 
 /**
+ * The last line of the transcript that says something. Rules, the status line
+ * (tokens, cost, context %) and the input box below the last rule are all noise
+ * when the question is "what is it doing right now".
+ */
+export function lastActionLine(text, limit = 72) {
+  const lines = String(text).split("\n");
+  let lastRule = -1;
+  lines.forEach((line, i) => {
+    if (isRule(line)) lastRule = i;
+  });
+  for (let i = (lastRule >= 0 ? lastRule : lines.length) - 1; i >= 0; i -= 1) {
+    const line = lines[i].replace(ANSI, "").trim();
+    if (!line || isRule(line)) continue;
+    if (/[\u2800-\u28ff]/.test(line)) continue;
+    if (/[\u2191\u2193]|\$\s*\d|\bCH\d|\d+%/.test(line)) continue;
+    if (/^(Working|Thinking|Elapsed)\b/.test(line)) continue;
+    if (/^[›❯]/.test(line)) continue;
+    if (/^(?:\d+(?:\.\d+)?\s*[hms]\s*)+$/.test(line)) continue;
+    const short = line.replace(/\s+/g, " ");
+    return short.length > limit ? `${short.slice(0, limit - 1)}…` : short;
+  }
+  return "";
+}
+
+/**
  * Whatever is sitting in the input box: the lines between the last two rules of
  * a pi screen. Empty means the box is empty, i.e. nothing is waiting to be sent.
  */

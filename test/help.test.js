@@ -5,7 +5,7 @@ import { COMMANDS, commandNames, findCommand, renderCommandHelp, renderOverview,
 const CANONICAL = ["new", "node", "audit", "up", "down", "rm", "restart",
   "adopt", "role", "plan", "runbook", "handover",
   "snapshot", "backup", "restore",
-  "why", "mv", "status", "attach", "logs", "send", "mesh", "cron", "todo", "tui", "back", "check", "clean", "doctor", "init", "install", "uninstall", "alias", "update", "version", "help"];
+  "why", "mv", "status", "busy", "attach", "logs", "send", "mesh", "cron", "todo", "tui", "back", "check", "clean", "doctor", "init", "install", "uninstall", "alias", "update", "version", "help"];
 
 test("every command has a complete help page", () => {
   for (const name of CANONICAL) {

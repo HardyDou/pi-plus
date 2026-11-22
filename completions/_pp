@@ -23,6 +23,7 @@ _pp() {
     'why:say why a session is in the state it is in (alias explain)'
     'role:label a session with what it is for (dev, pm, qa …)'
     'status:show tmux/pi/remote-pi state'
+    'busy:who is working right now, and on what'
     'ls:alias for status'
     'attach:attach to a session (starts it if needed)'
     'logs:print pane output'

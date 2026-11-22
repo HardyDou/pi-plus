@@ -34,7 +34,7 @@ import {
   listAliases,
   removeAlias,
 } from "./aliases.js";
-import { contentSignature, hasEditor, isRule, looksBusy, resolveExecutable, screenSignature, Tmux } from "./tmux.js";
+import { contentSignature, hasEditor, isRule, lastActionLine, looksBusy, resolveExecutable, screenSignature, Tmux } from "./tmux.js";
 import { findScenario, renderMarkdown, renderScenario, RUNBOOK } from "./runbook.js";
 import {
   authSummary,
@@ -150,7 +150,7 @@ import {
   todoRow,
   TodoError,
 } from "./todo.js";
-import { computeLayout, createTui, parseLeftOption, renderFrame, stripAnsi } from "./tui.js";
+import { computeLayout, createTui, displayWidth, parseLeftOption, renderFrame, stripAnsi } from "./tui.js";
 
 const COLORS = {
   reset: "\u001b[0m",
@@ -4903,7 +4903,7 @@ export function stallWatch(config, tmux, session, { env = process.env, now = Dat
   if (!looksBusy(text)) {
     clearBusy(config.path, session.name, env);
     clearActivity(config.path, session.name, env);
-    return { name: session.name, busy: false, quiet: 0 };
+    return { name: session.name, busy: false, quiet: 0, doing: lastActionLine(text) };
   }
   const sinceBusy = busySinceOf(config.path, session.name, env) ?? markBusy(config.path, session.name, env, new Date(now).toISOString());
   // the spinner animates forever; only a change in content counts as progress
@@ -4911,14 +4911,143 @@ export function stallWatch(config, tmux, session, { env = process.env, now = Dat
   const previous = activityOf(config.path, session.name, env);
   if (!previous || previous.sig !== signature) {
     noteActivity(config.path, session.name, { at: new Date(now).toISOString(), sig: signature }, env);
-    return { name: session.name, busy: true, quiet: 0, busyMinutes: Math.round((now - Date.parse(sinceBusy)) / 60000) };
+    return {
+      name: session.name,
+      busy: true,
+      quiet: 0,
+      busyMinutes: Math.round((now - Date.parse(sinceBusy)) / 60000),
+      doing: lastActionLine(text),
+    };
   }
   return {
     name: session.name,
     busy: true,
     quiet: Math.max(0, Math.round((now - Date.parse(previous.at)) / 60000)),
     busyMinutes: Math.round((now - Date.parse(sinceBusy)) / 60000),
+    doing: lastActionLine(text),
   };
+}
+
+/**
+ * "Which of these are actually working right now, and on what?" — the question
+ * that `pp status` answers with nine rows of state, and `pp logs` answers one
+ * session at a time. Costs one capture per running session.
+ */
+export async function cmdBusy(config, options, ui) {
+  const rows = [];
+  // one reachability probe per machine, not per session on it
+  const reach = new Map();
+  const reachable = (handle, node) => {
+    if (!node) return true;
+    if (!reach.has(node)) {
+      let ok = true;
+      try {
+        ok = handle.reachable();
+      } catch {
+        ok = false;
+      }
+      reach.set(node, ok);
+    }
+    return reach.get(node);
+  };
+  for (const session of config.sessions) {
+    const handle = makeTmux(config, options, session);
+    if (!reachable(handle, session.node)) {
+      rows.push({
+        name: session.name,
+        node: session.node,
+        state: "unreachable",
+        reason: `ssh to ${session.node} did not answer — pp node test ${session.node}`,
+        busy: false,
+        quiet: 0,
+      });
+      continue;
+    }
+    let running = false;
+    try {
+      running = handle.sessionExists(session.tmuxName);
+    } catch (err) {
+      rows.push({
+        name: session.name,
+        node: session.node,
+        state: "unreachable",
+        reason: String(err.message ?? err).split("\n")[0],
+        busy: false,
+        quiet: 0,
+      });
+      continue;
+    }
+    if (!running) {
+      rows.push({ name: session.name, node: session.node, state: "off", busy: false, quiet: 0 });
+      continue;
+    }
+    const reading = stallWatch(config, handle, session);
+    rows.push({
+      name: session.name,
+      node: session.node,
+      state: reading?.busy ? "working" : "idle",
+      busy: Boolean(reading?.busy),
+      quiet: reading?.quiet ?? 0,
+      busyMinutes: reading?.busyMinutes ?? 0,
+      doing: reading?.doing ?? "",
+    });
+  }
+  rows.sort((a, b) => {
+    if (a.busy !== b.busy) return a.busy ? -1 : 1;
+    if (a.busy && b.busy) return (b.busyMinutes ?? 0) - (a.busyMinutes ?? 0) || compareNames(a.name, b.name);
+    return compareNames(a.name, b.name);
+  });
+  if (ui.json) {
+    process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
+    return;
+  }
+  const working = rows.filter((row) => row.busy);
+  if (!rows.length) {
+    ui.out("no sessions configured — pp new or pp init");
+    return;
+  }
+  const cells = (row) => ({
+    session: row.name,
+    node: row.node ?? "-",
+    busy: row.busy ? shortAge((row.busyMinutes ?? 0) * 60) : "-",
+    quiet: row.busy ? shortAge(row.quiet * 60) : "-",
+  });
+  const widths = [4, 4, 4, 5];
+  for (const label of ["SESSION", "NODE", "BUSY", "QUIET"]) widths[["SESSION", "NODE", "BUSY", "QUIET"].indexOf(label)] = displayWidth(label);
+  for (const row of rows) {
+    const cell = cells(row);
+    widths[0] = Math.max(widths[0], displayWidth(cell.session));
+    widths[1] = Math.max(widths[1], displayWidth(cell.node));
+    widths[2] = Math.max(widths[2], displayWidth(cell.busy));
+    widths[3] = Math.max(widths[3], displayWidth(cell.quiet));
+  }
+  const pad = (text, width) => `${text}${" ".repeat(Math.max(0, width - displayWidth(text)))} `;
+  ui.out(
+    [pad("SESSION", widths[0]), pad("NODE", widths[1]), pad("BUSY", widths[2]), pad("QUIET", widths[3]), "DOING"].join(""),
+  );
+  for (const row of rows) {
+    const cell = cells(row);
+    const tail =
+      row.state === "unreachable"
+        ? ui.paint("red", `unreachable — ${row.reason}`)
+        : row.busy
+          ? row.doing || ui.paint("dim", "(nothing printed yet)")
+          : ui.paint("dim", "idle — nothing is running");
+    const busy = row.busy ? ui.paint("yellow", cell.busy) : cell.busy;
+    ui.out([pad(cell.session, widths[0]), pad(cell.node, widths[1]), pad(busy, widths[2]), pad(cell.quiet, widths[3]), tail].join(""));
+  }
+  const limit = stallMinutes();
+  const stuck = working.filter((row) => row.quiet * 60 >= limit);
+  ui.out("");
+  if (!working.length) {
+    ui.info(`nothing is working — ${rows.length} session(s) idle or off`);
+  } else if (stuck.length) {
+    ui.warn(
+      `${stuck.length} of ${working.length} working session(s) have printed nothing for ${Math.round(limit / 60)}m or more — look: pp logs ${stuck[0].name}`,
+    );
+  } else {
+    ui.info(`${working.length} working, ${rows.length - working.length} idle or off — pp logs <name> for the full pane`);
+  }
 }
 
 const CLEAN_KEEP_BYTES = 2 * 1024 * 1024;
@@ -8089,6 +8218,12 @@ export async function runCommand(command, options) {
     case "list": {
       const config = requireConfig(options, ui);
       return cmdStatus(config, options, ui);
+    }
+    case "busy":
+    case "working":
+    case "doing": {
+      const config = requireConfig(options, ui);
+      return cmdBusy(config, options, ui);
     }
     case "attach":
     case "a": {

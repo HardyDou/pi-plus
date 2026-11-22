@@ -78,6 +78,17 @@ pp snapshot --json | jq -r .text
 只读、不 ssh、半坏也能用：坏掉的 `cron.json` 变成块里的一行（提示 `pp doctor --quarantine`）、
 没有配置就直说。适合往 ticket / 群里贴一整段上下文。
 
+### `pp busy [--json]`
+
+哪些会话此刻真的在干活、在干什么。
+
+```bash
+pp busy
+pp busy --json | jq -r '.[] | select(.busy) | .name + "  " + .doing'
+```
+
+QUIET = "内容多久没变了"。spinner、`Elapsed 1m 2s`、token/费用那一行每帧都在动，都被排除在比较之外（和 `pp doctor` 的 `stalls` 同一套判据）。超过 `PP_STALL_MINUTES`（默认 45 分钟）会在页脚点名。
+
 ### `pp handover [--since <窗口>] [--send <会话>] [--json]`
 
 换班贴到群里的那一页。三段，按接手人需要的顺序：

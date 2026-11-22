@@ -753,6 +753,7 @@ remote-pi mode: `config` (default, writes `<cwd>/.pi/remote-pi/config.json`),
 | --- | --- |
 | see everything and jump in | `pp tui` (Enter attaches, `pp back` returns) |
 | a table, or a live one | `pp status`, `pp status --watch` |
+| `pp busy` | 谁在干活、在干什么（`--json`）；安静超过 `PP_STALL_MINUTES` 会被点名 |
 | what should I do next | `pp plan` — ordered steps with reasons |
 | hand the shift over | `pp handover [--send <session>]` |
 | why is this one like this | `pp why <session>`, `pp why --node <machine>` |

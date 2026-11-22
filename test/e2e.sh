@@ -219,6 +219,13 @@ printf "version: 1\ntmux:\n  socket: $SOCK\nsessions:\n  - name: pipe-a\n    cwd
 check "piping into head is quiet"   0 '^0$'    bash -c "cd $E2E && $ROOT/bin/pp.js -c $PIPECFG --socket $SOCK status 2>&1 | head -2 >/dev/null; echo 0"
 check "no EPIPE stack trace"        1 '^0$'    bash -c "cd $E2E && $ROOT/bin/pp.js -c $PIPECFG --socket $SOCK status 2>&1 | head -2 | grep -c EPIPE"
 
+section "busy"
+# `pp busy` answers "who is working, and on what" — one capture per running
+# session. The fixture's bash sessions never print a spinner, so they read idle.
+check "busy lists the configured sessions" 0 "SESSION" pp busy
+check "busy says nothing is working when no agent is" 0 "idle — nothing is running" pp busy
+check "busy --json is a list of rows" 0 '"state"' pp busy --json
+
 section "role"
 ROLECFG=$E2E/role.yml
 printf "version: 1\nsort: name\ntmux:\n  socket: $SOCK\nsessions:\n  - name: risk-10\n    cwd: $E2E\n    agent: bash\n    role: pm\n  - name: risk-2\n    cwd: $E2E\n    agent: bash\n  - name: alpha\n    cwd: $E2E\n    agent: bash\n" > "$ROLECFG"
@@ -1004,6 +1011,7 @@ tmux -L "$SOCK" new-session -d -s far-x "sleep 7200" 2>/dev/null || true
 
 check "node is listed"                0 'far'                     bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node ls"
 check "node shows its auth"           0 'agent'                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node ls"
+check "busy says which machine is unreachable" 0 'unreachable'    bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK busy 2>&1"
 check "node show lists its sessions"  0 'far-x'                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node show far"
 check "node show hides passwords"     0 'password +-'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node show far"
 check "remote session is seen running" 0 'running'                bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls far-x"

@@ -27,7 +27,7 @@ const withState = (fn) => {
 test("an idle agent is not watched at all", () => {
   withState((env) => {
     const reading = stallWatch(config, tmuxOf(idle), { name: "web" }, { env });
-    assert.deepEqual(reading, { name: "web", busy: false, quiet: 0 });
+    assert.deepEqual(reading, { name: "web", busy: false, quiet: 0, doing: "finished" });
   });
 });
 
