@@ -3036,7 +3036,7 @@ export function describeJobTarget(config, job, { running = () => null } = {}) {
  * `pp why <job-id>`: the same question as `pp why <session>`, asked about a
  * scheduled job — "it did not deliver, why".
  */
-async function cmdWhyJob(config, options, ui, job) {
+export async function cmdWhyJob(config, options, ui, job) {
   const now = new Date();
   const due = nextRun(job, now);
   const next = describeNext(due, now);
@@ -3164,7 +3164,15 @@ async function cmdWhyJob(config, options, ui, job) {
   });
   line("target", aim.ok ? aim.text : ui.paint("yellow", aim.text));
   line("schedule", `${when}${job.window ? ui.paint("dim", ` · silent ${describeWindow(job.window)}`) : ""}${job.idleAfter ? ui.paint("dim", ` · only after ${formatDuration(job.idleAfter)} of quiet`) : ""}${job.catchUp ? ui.paint("dim", ` · catch-up ${formatDuration(job.catchUp)}`) : ""}`);
-  line("next", next.text === "-" ? "-" : `${next.text}${next.late ? ui.paint("yellow", "  (late)") : ""}`);
+  // same courtesy as the table: a deferred job is waiting for its target, not late
+  const deferredJob = String(job.lastStatus ?? "").startsWith("deferred:");
+  const nextText = deferredJob && next.late ? next.text.replace(/^late [^(]*\(/, "waiting (") : next.text;
+  line(
+    "next",
+    nextText === "-"
+      ? "-"
+      : `${nextText}${next.late && !deferredJob ? ui.paint("yellow", "  (late)") : deferredJob ? ui.paint("dim", "  (retries every tick)") : ""}`,
+  );
   line("last run", job.lastRun ? `${agoText(job.lastRun, now)}${job.lastStatus ? ui.paint("dim", ` — ${job.lastStatus}`) : ""}` : "never");
   line("counts", `ran ${job.runs ?? 0}× · skipped ${job.skipped ?? 0}×`);
   if (inQuietHours(job, now)) {

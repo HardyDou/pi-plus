@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { cronRow, describeJobTarget, printCronJobs } from "../src/commands.js";
+import { cmdWhyJob, cronRow, describeJobTarget, printCronJobs } from "../src/commands.js";
 
 const config = {
   nodes: [{ name: "t114" }],
@@ -119,4 +119,24 @@ test("a deferred job waits, it is not late", () => {
     lastStatus: "delivered",
   });
   assert.equal(ordinary.deferred, false);
+});
+
+test("a deferred job's next line says waiting, and why it will not move", async () => {
+  const lines = [];
+  const ui = { out: (line) => lines.push(String(line)), info: () => {}, warn: () => {}, error: () => {}, paint: (_s, t) => t };
+  const job = {
+    id: "dd0004",
+    session: "web",
+    action: "prompt",
+    schedule: { kind: "every", every: 600 },
+    createdAt: new Date(Date.now() - 3600_000).toISOString(),
+    runs: 2,
+    lastRun: new Date(Date.now() - 1800_000).toISOString(),
+    lastStatus: "deferred: web is working — the next tick will deliver",
+  };
+  await cmdWhyJob({ nodes: [], sessions: [{ name: "web", tmuxName: "web", node: null, role: null, restart: "always" }] }, { socket: "no-such-socket" }, ui, job);
+  const next = lines.find((line) => line.startsWith("next"));
+  assert.match(next, /waiting \(/, next);
+  assert.match(next, /retries every tick/, next);
+  assert.ok(!next.includes("(late)"), next);
 });
