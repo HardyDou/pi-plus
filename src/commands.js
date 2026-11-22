@@ -3562,18 +3562,20 @@ async function cmdHandover(config, options, ui) {
     return;
   }
 
+  const lines = [];
+  const say = (text) => lines.push(text ?? "");
   const span = windowSeconds >= 3600 ? `${Math.round(windowSeconds / 3600)}h` : `${Math.round(windowSeconds / 60)}m`;
-  ui.out(`${ui.paint("bold", "handover")}  ${ui.paint("dim", `last ${span}, up to ${now.toISOString().slice(0, 16).replace("T", " ")}Z  ·  pp ${ownVersion()}  ·  ${config.path}`)}`);
-  ui.out("");
+  say(`${ui.paint("bold", "handover")}  ${ui.paint("dim", `last ${span}, up to ${now.toISOString().slice(0, 16).replace("T", " ")}Z  ·  pp ${ownVersion()}  ·  ${config.path}`)}`);
+  say("");
 
-  const line = (label, text) => ui.out(`${ui.paint("dim", label.padEnd(8))}${text}`);
+  const line = (label, text) => say(`${ui.paint("dim", label.padEnd(8))}${text}`);
   const summary = [...counts].sort((a, b) => b[1] - a[1]).map(([action, n]) => `${action} \u00d7${n}`);
   line("changed", changes.length ? `${changes.length} recorded \u2014 ${summary.join(", ")}` : "nothing recorded");
   for (const entry of changes.slice(-6)) {
     line("", `  ${ui.paint("dim", agoText(entry.ts, now).padStart(8))}  ${String(entry.action).padEnd(14)} ${entry.target ?? "-"}${entry.node ? ui.paint("dim", ` on ${entry.node}`) : ""}${entry.detail ? ui.paint("dim", ` \u2014 ${entry.detail}`) : ""}${entry.actor ? ui.paint("dim", `  (${entry.actor})`) : ""}`);
   }
 
-  ui.out("");
+  say("");
   const off = problems.filter((item) => item.kind === "off");
   const unmanaged = problems.filter((item) => item.kind === "unmanaged");
   const tmuxDown = problems.find((item) => item.kind === "tmux");
@@ -3604,7 +3606,7 @@ async function cmdHandover(config, options, ui) {
   for (const item of off) needs.push(item.text);
   for (const item of unmanaged) needs.push(item.text);
   for (const job of late) needs.push(`${job.id} is ${job.late} late \u2014 pp cron run ${job.id}`);
-  ui.out("");
+  say("");
   if (!needs.length) {
     line("human", ui.paint("green", "nothing \u2014 nothing is off, stuck or late"));
   } else {
@@ -3612,8 +3614,38 @@ async function cmdHandover(config, options, ui) {
     for (const text of needs.slice(0, 8)) line("", `  ${text}`);
     if (needs.length > 8) line("", ui.paint("dim", `  and ${needs.length - 8} more \u2014 pp plan`));
   }
-  ui.out("");
-  ui.out(ui.paint("dim", "  pp audit --since <window> for the whole trail \u00b7 pp why <name> for one session \u00b7 pp plan for the ordered list"));
+  say("");
+  say(ui.paint("dim", "  pp audit --since <window> for the whole trail \u00b7 pp why <name> for one session \u00b7 pp plan for the ordered list"));
+
+  if (!options.send) {
+    ui.out(lines.join("\n"));
+    return;
+  }
+
+  // Hand the page to the next shift's agent: it is the one who has to act on it,
+  // and pasting it by hand is exactly the step that gets skipped at 3am.
+  const [target] = selectSessions(config, [options.send], ui);
+  if (!target) return;
+  const tmux = makeTmux(config, options, target);
+  if (!tmux.sessionExists(target.tmuxName)) {
+    ui.error(`${target.name} is not running — start it with: pp up ${target.name}`);
+    process.exitCode = 1;
+    return;
+  }
+  if (tmux.isAgentBusy(target.tmuxName)) {
+    ui.warn(`${target.name} is mid-turn — the page was not handed over; try again when it is idle`);
+    process.exitCode = 1;
+    return;
+  }
+  const text = ["here is the handover for this shift — read it and pick up what needs a human", "", ...lines].join("\n");
+  const result = tmux.sendText(target.tmuxName, text);
+  if (!result?.submitted) {
+    ui.error(`typed the page into ${target.name} but Enter never took it — read it with: pp logs ${target.name}`);
+    process.exitCode = 1;
+    return;
+  }
+  note("handover", target.name, { detail: `last ${span}` });
+  ui.info(`handed the page to ${target.name} — pp logs ${target.name} to watch it read`);
 }
 
 async function cmdRunbook(config, options, ui) {

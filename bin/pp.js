@@ -174,6 +174,9 @@ function parseArgs(argv) {
         case "--node": options.node = takeValue(flag, inline); break;
         case "--limit": options.lines = Number(takeValue(flag, inline)); break;
         case "--action": options.action = takeValue(flag, inline); break;
+        case "--send":
+          options.send = takeValue("--send", inline);
+          break;
         case "--since": options.since = takeValue(flag, inline); break;
         case "--prune": options.prune = takeValue(flag, inline); break;
         case "--file": options.file = takeValue(flag, inline); break;

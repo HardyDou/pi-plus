@@ -297,6 +297,10 @@ check "handover rejects a bad window"   2 'not a duration' bash -c "cd $E2E && $
 # a question left in a session is what the next shift has to pick up
 check "handover lists the questions waiting" 0 'waiting 1 question' bash -c "mkdir -p "$XDG_STATE_HOME/pi-plus" && printf '{\"version\":1,\"todos\":[{\"id\":\"aaa111\",\"session\":\"e-always\",\"kind\":\"manual\",\"title\":\"do we ship?\",\"state\":\"new\",\"createdAt\":\"2020-01-01T00:00:00.000Z\"}]}' > $XDG_STATE_HOME/pi-plus/todos.json && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --since 7d 2>&1"
 check "handover names the todo command" 0 'pp todo attach aaa111' bash -c "$ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --since 7d 2>&1"
+# handing the page to the next shift's agent is the step people skip at 3am
+check "handover refuses a session that is not running" 1 'is not running' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --send alpha 2>&1"
+check "handover --send needs a session that exists"   2 'unknown session' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --send nope 2>&1"
+check "handover hands the page over"                  0 'handed the page to' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK up risk-10 >/dev/null 2>&1; $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK handover --send risk-10 2>&1"
 
 # sort: role groups by label, and leaves the unlabelled at the bottom
 check "sort role puts one label together" 0 'risk-10'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK --sort role status | grep -E 'risk-10|alpha' | head -1"

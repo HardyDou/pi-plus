@@ -73,7 +73,7 @@ pp snapshot --json | jq -r .text
 只读、不 ssh、半坏也能用：坏掉的 `cron.json` 变成块里的一行（提示 `pp doctor --quarantine`）、
 没有配置就直说。适合往 ticket / 群里贴一整段上下文。
 
-### `pp handover [--since <窗口>] [--json]`
+### `pp handover [--since <窗口>] [--send <会话>] [--json]`
 
 换班贴到群里的那一页。三段，按接手人需要的顺序：
 
@@ -95,7 +95,9 @@ human   nothing — nothing is off, stuck or late
 - `waiting` = 会话里等回答的问题（`pp todo` 里未完成的），按时间从旧到新，最多列 3 条，附 `pp todo attach <id>`
 - `human` = 需要人做决定的：没起的、没登记的、卡住的、迟到的，每条都带修它的命令
 
-只读。`--since` 与其他命令同一套窗口写法（`24h`、`90m`、`7d`），默认 24 小时。
+只读，除了**交接**：`pp handover --send <会话>` 会把这一页**打进那个会话的 agent**（它正在思考时拒绝，避免在错误的位置插话），让下一班从事实开始，而不是面对一个空提示符 —— 凌晨三点最容易跳过的一步就是"把它粘过去"。
+
+`--since` 与其他命令同一套窗口写法（`24h`、`90m`、`7d`），默认 24 小时。
 
 ### `pp audit [target]`
 
