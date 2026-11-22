@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { deliveriesPerDay, deliveryTargets } from "../src/commands.js";
+import { deliveriesPerDay, deliveryTargets, printCronJobs } from "../src/commands.js";
 import { buildSchedule } from "../src/cron.js";
 
 const noon = new Date("2026-11-23T12:00:00");
@@ -24,4 +24,43 @@ test("deliveryTargets says how many sessions one delivery reaches", () => {
   assert.equal(deliveryTargets({ role: "qa" }, sessions), 0);
   assert.equal(deliveryTargets({ action: "heal", session: null }, sessions), 1);
   assert.equal(deliveryTargets({ action: "command", session: "api" }, sessions), 1);
+});
+
+test("the bill quotes the ceiling and, when they differ, what really happened", () => {
+  const rows = [];
+  const ui = { out: (line) => rows.push(String(line)), info: () => {}, warn: () => {}, error: () => {}, paint: (_s, t) => t };
+  const sessions = Array.from({ length: 9 }, (_, i) => ({ name: `s${i}`, tmuxName: `s${i}`, node: null, role: null }));
+  const jobs = [
+    {
+      id: "ee0005",
+      session: "*",
+      action: "prompt",
+      schedule: { kind: "every", every: 600 },
+      createdAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+      runs: 30,
+    },
+  ];
+  printCronJobs(jobs, ui, new Date(), sessions);
+  const cost = rows.find((line) => line.includes("could cost up to"));
+  assert.match(cost, /could cost up to 1296/, cost);
+  assert.match(cost, /actually delivered 10 a day \(30 runs so far\)/, cost);
+});
+
+test("a job that does land everything it promises quotes only the ceiling", () => {
+  const rows = [];
+  const ui = { out: (line) => rows.push(String(line)), info: () => {}, warn: () => {}, error: () => {}, paint: (_s, t) => t };
+  const sessions = Array.from({ length: 9 }, (_, i) => ({ name: `s${i}`, tmuxName: `s${i}`, node: null, role: null }));
+  const jobs = [
+    {
+      id: "ff0006",
+      session: "*",
+      action: "prompt",
+      schedule: { kind: "every", every: 600 },
+      createdAt: new Date(Date.now() - 86_400_000).toISOString(),
+      runs: 144 * 9,
+    },
+  ];
+  printCronJobs(jobs, ui, new Date(), sessions);
+  const cost = rows.find((line) => line.includes("could cost up to"));
+  assert.ok(!cost.includes("actually delivered"), cost);
 });

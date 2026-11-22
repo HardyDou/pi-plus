@@ -111,6 +111,15 @@ its schedule and history are kept — pp cron ls
 - 角色目标要求该标签确实有人带（`pp role --list` 能看），否则 `no session has role "x"`
 - 内置作业（`--heal`、`--sweep`、`--command`）没有目标可搬，会被拒绝
 
+## 成本的两种说法
+
+```
+636b62 could cost up to 1296 agent turn(s) a day — it has actually delivered 91 a day (11 runs so far) · pp cron pause 636b62 to silence it
+```
+
+- **上限**：按调度频率 × 目标数（假设每次都能投到）
+- **实测**：`runs ÷ 任务存在天数`。差到 2 倍以上才会同时给出 —— 有 `--idle-after`、目标常在忙时，上限能高出几十倍，只报上限会让一个安静的机制看起来在烧钱
+
 ## 表格怎么读 `LAST`
 
 一行可能很长（`deferred: every session moved within 10m — nothing to nudge yet`），

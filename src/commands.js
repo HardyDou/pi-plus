@@ -6849,16 +6849,35 @@ export function printCronJobs(jobs, ui, now = new Date(), sessions = []) {
   }
   // Say the loud thing out loud: a fan-out job that runs often is not free, and
   // the person who added it (probably at 2am) is the one who should see the bill.
+  // `turns` is the bill if every fire lands; `actual` is what has happened so far.
+  // With --idle-after or busy targets the first can be 30x the second, and quoting
+  // only the ceiling makes a quiet job look expensive.
+  const metered = (job) => {
+    const created = job.createdAt ? Date.parse(job.createdAt) : NaN;
+    const days = Number.isFinite(created) ? (now.getTime() - created) / 86_400_000 : 0;
+    const runs = Number(job.runs ?? 0);
+    return days >= 1 / 24 && runs > 0 ? runs / days : null;
+  };
   const loud = jobs
     .filter((job) => !job.paused)
-    .map((job) => ({ id: job.id, turns: Math.round(deliveriesPerDay(job.schedule, { now }) * deliveryTargets(job, sessions)) }))
+    .map((job) => ({
+      id: job.id,
+      turns: Math.round(deliveriesPerDay(job.schedule, { now }) * deliveryTargets(job, sessions)),
+      actual: metered(job),
+      runs: Number(job.runs ?? 0),
+    }))
     .filter((entry) => entry.turns >= 200)
     .sort((a, b) => b.turns - a.turns);
   if (loud.length) {
     const worst = loud[0];
+    const measured =
+      worst.actual !== null && worst.actual * 2 < worst.turns
+        ? ui.paint("dim", ` — it has actually delivered ${Math.round(worst.actual)} a day (${worst.runs} runs so far)`)
+        : ui.paint("dim", "");
     ui.out(
-      ui.paint("dim", `${worst.id} costs ${worst.turns} agent turn(s) a day`) +
-        ui.paint("dim", ` — pp cron pause ${worst.id} to silence it`),
+      ui.paint("dim", `${worst.id} could cost up to ${worst.turns} agent turn(s) a day`) +
+        measured +
+        ui.paint("dim", ` · pp cron pause ${worst.id} to silence it`),
     );
   }
   // a deferred job is late on purpose: counting it here would send the reader to

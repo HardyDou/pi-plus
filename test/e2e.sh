@@ -670,7 +670,7 @@ check "cron dryrun never types"      0 '^0$'          bash -c "tmux -L $SOCK cap
 check "cron rm takes the idle job" 0 'removed'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $IDLE_ID"
 # a fan-out job that runs often must say what it costs
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --all --every 5m 'cheap words'" > /dev/null 2>&1
-check "cron ls names the loudest job" 0 'costs [0-9]+ agent turn'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
+check "cron ls names the loudest job" 0 'could cost up to [0-9]+ agent turn'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
 # rename a session out from under a job: the job is fine, its aim is not
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-onfail --every 7m 'lost cause'" > /dev/null 2>&1
 LOST_ID=$(node -e 'const d=require(process.env.XDG_STATE_HOME+"/pi-plus/cron.json");process.stdout.write(d.jobs.find((j)=>j.prompt==="lost cause").id)')
