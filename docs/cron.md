@@ -69,6 +69,17 @@ pp cron set 636b62 --window none         # 去掉静默时段
 pp cron set 636b62 --dry-run             # 先看改动
 ```
 
+也能换调度和提示词（同样不丢 `id` 与历史）：
+
+```bash
+pp cron set 636b62 --every 30m                 # 从"每 10 分钟"改成"每 30 分钟"
+pp cron set 636b62 "新的心跳文案"               # 换提示词（尾部整段就是新提示词）
+pp cron set 636b62 --cron "0 9 * * 1,2,3"      # 换成 crontab 表达式
+```
+
+`--every` 改间隔时**从上一次运行算起**（`lastRun + 新间隔`），所以 `runs`/`lastRun` 仍然
+有意义；换成一次性任务（`--at`/`--in`）会清掉 `lastRun`，否则它永远不会触发。
+
 `none` / `off` / `0` 表示"去掉这一项"。改完会落一条审计（`cron.set`，含 `24 -> 96` 这样的
 前后值），`pp audit --action cron.set` 可以查"谁在什么时候把上限从 24 调到 96"。
 

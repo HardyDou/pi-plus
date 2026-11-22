@@ -713,6 +713,8 @@ check "cron set keeps the schedule and the counts" 0 'every 10m · max 24/day' b
 check "cron set can add a knob" 0 'idleAfter: .none. -> 30m' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron set $CAP_ID --idle-after 30m"
 check "cron set can remove a knob" 0 'idleAfter: 30m -> .none.' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron set $CAP_ID --idle-after none"
 check "cron set with nothing to change is a usage error" 2 'nothing to change' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron set $CAP_ID 2>&1"
+check "cron set can replace the prompt" 0 'prompt: cap probe -> cap probe 2' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron set $CAP_ID 'cap probe 2'"
+check "cron set can move the schedule" 0 'schedule: every 10m -> every 15m' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron set $CAP_ID --every 15m"
 check "cron rm drops the capped job" 0 '' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron rm $CAP_ID"
 check "a deferred job is not called late" 0 'deferred …' bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml cron ls 2>&1 | grep -F '$DRAIN_JOB'"
 check "pp why <session> says the job is waiting on it" 0 'waiting on it' bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml why dw 2>&1 | grep '^cron'"

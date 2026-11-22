@@ -7378,6 +7378,41 @@ async function cmdCronSet(config, options, ui) {
   }
   const off = (value) => ["none", "off", "0", ""].includes(String(value).toLowerCase());
   const patch = {};
+  const orUndef = (value) => (value === undefined || value === null || value === "" ? undefined : value);
+  const every = orUndef(options.every);
+  const cronExpr = orUndef(options.cronExpr);
+  const inText = orUndef(options.in);
+  const at = orUndef(options.at);
+  if ([every, cronExpr, inText, at].filter((value) => value !== undefined).length > 1) {
+    throw new CronError("pick one of --every, --cron, --in, --at");
+  }
+  if (every || cronExpr || inText || at) {
+    const schedule = buildSchedule({
+      at: at ?? (inText ? new Date(Date.now() + parseDuration(inText, { what: "--in" }) * 1000).toISOString() : undefined),
+      every,
+      cron: cronExpr,
+    });
+    patch.schedule = schedule;
+    if (schedule.kind === "once") {
+      // a one-shot fires on its own timestamp, so the old run has to be forgotten
+      patch.lastRun = null;
+      patch.done = null;
+    }
+  }
+  const promptText = orUndef(options.prompt) ?? (options.names.length > 1 ? options.names.slice(1).join(" ") : undefined);
+  if (promptText !== undefined && options.command !== undefined) {
+    throw new CronError("give a prompt or a command, not both");
+  }
+  if (promptText !== undefined) {
+    patch.action = "prompt";
+    patch.prompt = promptText;
+    patch.command = null;
+  }
+  if (options.command !== undefined) {
+    patch.action = "command";
+    patch.command = options.command;
+    patch.prompt = null;
+  }
   const parseCap = (value) => {
     if (off(value)) return null;
     const n = Number(value);
@@ -7399,17 +7434,25 @@ async function cmdCronSet(config, options, ui) {
     }
   }
   if (!Object.keys(patch).length) {
-    ui.error("nothing to change — try: pp cron set <id> --max-per-day 96 | --idle-after 30m | --window 23:00-08:00 | --catch-up 2h");
+    ui.error("nothing to change — try: pp cron set <id> --max-per-day 96 | --idle-after 30m | --window 23:00-08:00 | --every 30m | \"...\"");
     process.exit(2);
   }
   const show = (key, value) => {
     if (value === null || value === undefined) return "(none)";
     if (key === "window") return describeWindow(value);
+    if (key === "schedule") return describeSchedule(value);
     if (key === "idleAfter" || key === "catchUp") return formatDuration(Number(value));
     return String(value);
   };
+  const changed = Object.entries(patch).filter(([key, value]) => show(key, job[key] ?? null) !== show(key, value));
+  if (!changed.length && !("schedule" in patch)) {
+    ui.info(`nothing changes — ${id} already looks like that`);
+    return;
+  }
   if (options.dryRun) {
-    for (const [key, value] of Object.entries(patch)) ui.out(`[dry-run] ${id} ${key}: ${show(key, job[key] ?? null)} -> ${show(key, value)}`);
+    for (const [key, value] of (changed.length ? changed : Object.entries(patch))) {
+      ui.out(`[dry-run] ${id} ${key}: ${show(key, job[key] ?? null)} -> ${show(key, value)}`);
+    }
     return;
   }
   const result = updateJob(id, patch, process.env);
@@ -7417,10 +7460,15 @@ async function cmdCronSet(config, options, ui) {
     ui.error(`no job "${id}" — see: pp cron ls`);
     process.exit(2);
   }
-  for (const key of Object.keys(patch)) {
-    ui.out(`${id} ${key}: ${show(key, result.before[key])} -> ${show(key, result.after[key])}`);
-  }
-  note("cron.set", id, { detail: Object.keys(patch).map((key) => `${key} ${show(key, result.before[key])} -> ${show(key, result.after[key])}`).join(", ") });
+  const lines = Object.keys(patch)
+    .map((key) => `${key}: ${show(key, result.before[key])} -> ${show(key, result.after[key])}`)
+    .filter((line) => {
+      // groups: 1 = key, 2 = before, 3 = after — the key is not the before value
+      const [, , before, after] = /^([^:]+): (.*) -> (.*)$/.exec(line) ?? [];
+      return before !== after;
+    });
+  for (const line of lines) ui.out(`${id} ${line}`);
+  if (lines.length) note("cron.set", id, { detail: lines.join(", ") });
 }
 
 async function cmdCronRetarget(config, options, ui) {
