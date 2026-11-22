@@ -125,7 +125,7 @@ test("a job aimed at a label nobody carries is reported, not silently empty", ()
   assert.deepEqual(danglingRoleJobs(jobs, config).map((job) => job.id), ["bbbbbb"]);
 
   const steps = planSteps({ dangling: danglingRoleJobs(jobs, config) });
-  assert.equal(steps[0].command, "pp cron rm bbbbbb", "the fix names the job");
+  assert.match(steps[0].command, /^pp cron retarget bbbbbb --role/, "the fix names the job and keeps its history");
   assert.match(steps[0].why, /reaches nobody/);
 });
 

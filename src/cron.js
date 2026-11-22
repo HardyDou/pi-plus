@@ -401,6 +401,26 @@ export function recordRun(job, status, env = process.env) {
   writeJobs(readJobs(env).map((entry) => (entry.id === job.id ? job : entry)), env);
 }
 
+/**
+ * Point a job somewhere else without touching its schedule or its history —
+ * the counterpart of `pause` for the other temporary change ("the session moved").
+ */
+export function setJobTarget(id, target = {}, env = process.env) {
+  const jobs = readJobs(env);
+  const job = jobs.find((entry) => entry.id === id);
+  if (!job) return null;
+  const before = { session: job.session ?? null, role: job.role ?? null };
+  if (target.role !== undefined) {
+    job.role = target.role;
+    delete job.session;
+  } else {
+    job.session = target.session;
+    delete job.role;
+  }
+  writeJobs(jobs, env);
+  return { before, after: { session: job.session ?? null, role: job.role ?? null } };
+}
+
 /** Pause or resume a job without touching its schedule or its history. */
 export function setJobPaused(id, paused, env = process.env) {
   const jobs = readJobs(env);

@@ -117,6 +117,7 @@ import {
   removeJob,
   resetJob,
   setJobPaused,
+  setJobTarget,
   tick as cronTick,
   writeJobs,
 } from "./cron.js";
@@ -3181,8 +3182,8 @@ export function planSteps(facts) {
     add(
       4,
       `${job.id} is aimed at ${job.missing ?? "something"}, which nothing carries`,
-      `pp cron rm ${job.id}`,
-      `the target is gone, so this job ticks and reaches nobody — pp cron ls`,
+      `pp cron retarget ${job.id} ${(job.missing ?? (job.role ? 'role ""' : "session")).startsWith("role") ? "--role" : "--session"} <the name now>`,
+      "the target is gone, so this job ticks and reaches nobody — retargeting keeps its history",
     );
   }
   for (const job of cron) {
@@ -5177,8 +5178,8 @@ function cmdDoctor(config, options, ui) {
     const overdue = overdueJobs(jobs);
     const dangling = config
       ? [
-          ...danglingRoleJobs(jobs, config).map((job) => ({ job, missing: `role "${job.role}"`, hint: "pp role --list" })),
-          ...danglingSessionJobs(jobs, config).map((job) => ({ job, missing: `session "${job.session}"`, hint: "pp cron ls" })),
+          ...danglingRoleJobs(jobs, config).map((job) => ({ job, missing: `role "${job.role}"`, hint: `pp cron retarget ${job.id} --role <label>` })),
+          ...danglingSessionJobs(jobs, config).map((job) => ({ job, missing: `session "${job.session}"`, hint: `pp cron retarget ${job.id} --session <name>` })),
         ]
       : [];
     const detail = !jobs.length
@@ -6938,6 +6939,73 @@ async function cmdCronPause(config, options, ui, { paused = true } = {}) {
   if (touched && paused) ui.info(ui.paint("dim", `back on: pp cron resume ${ids[0]}`));
 }
 
+async function cmdCronRetarget(config, options, ui) {
+  const [id, ...rest] = options.names;
+  if (!id) {
+    ui.error("usage: pp cron retarget <id> --session <name|#> | --role <label> | --all");
+    process.exit(2);
+  }
+  if (rest.length) {
+    ui.error(`unexpected "${rest[0]}" — a job has one target`);
+    process.exit(2);
+  }
+  const wantsRole = typeof options.role === "string" && options.role.trim() !== "";
+  if (wantsRole && options.all) {
+    ui.error("give either --role <label> or --all, not both");
+    process.exit(2);
+  }
+  const withRole = wantsRole ? options.role.trim() : null;
+  let targetName;
+  if (options.all) {
+    targetName = ALL_SESSIONS;
+  } else if (!wantsRole) {
+    const wanted = options.session;
+    if (typeof wanted !== "string" || wanted === "") {
+      ui.error("which session? --session <name|#> (or --role <label>, or --all)");
+      process.exit(2);
+    }
+    const [session] = "0123456789".includes(wanted[0])
+      ? selectSessions(config, [wanted], ui)
+      : [(config.sessions ?? []).find((s) => s.name === wanted || s.tmuxName === wanted)];
+    if (!session) {
+      ui.error(`no session "${wanted}" in ${config.path}`);
+      process.exit(2);
+    }
+    targetName = session.name;
+  } else if (!roleTargets(config, withRole).length) {
+    const inUse = rolesInUse(config);
+    ui.error(`no session has role "${withRole}"${inUse.length ? ` (roles in use: ${inUse.join(", ")})` : ""}`);
+    process.exit(2);
+  }
+
+  const jobs = readJobs();
+  const job = jobs.find((entry) => entry.id === id);
+  if (!job) {
+    ui.error(`no job "${id}"`);
+    process.exit(2);
+  }
+  if (["command", "heal", "sweep"].includes(job.action)) {
+    ui.error(`"${id}" is a built-in job (${job.action}) — it has no target to move`);
+    process.exit(2);
+  }
+
+  const changed = setJobTarget(id, withRole ? { role: withRole } : { session: targetName });
+  if (!changed) {
+    ui.error(`no job "${id}"`);
+    process.exit(2);
+  }
+  const show = (side) => (side.role ? `role "${side.role}"` : side.session === ALL_SESSIONS ? "all sessions" : `session "${side.session}"`);
+  const from = show(changed.before);
+  const to = show(changed.after);
+  if (from === to && !options.dryRun) {
+    ui.out(`retarget ${id}: already on ${to}`);
+    return;
+  }
+  note("cron.retarget", id, { detail: `${from} -> ${to}`, dryRun: options.dryRun });
+  ui.info(`retargeted ${id}: ${from} -> ${to}`);
+  ui.info(ui.paint("dim", `its schedule and history are kept — pp cron ls`));
+}
+
 async function cmdCronRun(config, options, ui) {
   if (!options.names.length) throw new CronError("which job? pp cron run <id>");
   for (const id of options.names) {
@@ -7124,6 +7192,9 @@ async function cmdCron(config, options, ui) {
     case "resume":
     case "unpause":
       return cmdCronPause(config, { ...restOptions, names: rest }, ui, { paused: false });
+    case "retarget":
+    case "reaim":
+      return cmdCronRetarget(config, { ...restOptions, names: rest }, ui);
     case "tick":
       return cmdCronTick(config, restOptions, ui);
     case "install":

@@ -255,6 +255,8 @@ pp cron add --session risk-01 --cron "0 9 * * 1,2,3" "汇报昨天夜里跑的�
 pp cron ls                 # 表：ID / 目标 / 时间表 / 下次运行 / 跑过几次 / 上次结果
 pp cron run 3c764f         # 立刻跑一次（调试用，不动时间表）
 pp cron rm 3c764f          # 删掉
+pp cron pause 3c764f       # 静音，保留时间表与历史（resume 回来）
+pp cron retarget 3c764f --session backend   # 会话改名了：搬目标，不丢历史
 pp cron logs -n 40         # 最近的投递记录
 pp cron reset 3c764f       # 把 lastRun 清掉，让它按时间表重排
 pp cron status             # crond 装没装、有没有到期作业、日志在哪

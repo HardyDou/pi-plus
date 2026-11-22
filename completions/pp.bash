@@ -28,7 +28,7 @@ _pp() {
       return 0
       ;;
     cron)
-      COMPREPLY=( $(compgen -W "add ls list rm remove delete run fire pause hold resume unpause tick install uninstall status logs log reset" -- "$cur") )
+      COMPREPLY=( $(compgen -W "add ls list rm remove delete run fire pause hold resume unpause retarget reaim tick install uninstall status logs log reset" -- "$cur") )
       return 0
       ;;
     todo|todos)

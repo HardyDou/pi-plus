@@ -265,7 +265,7 @@ env XDG_STATE_HOME=$DGC/state node -e '
   fs.writeFileSync(path, JSON.stringify(data, null, 2));
 ' 
 check "doctor names a job aimed at a lost label" 1 'targets role "pm" — nothing carries it' bash -c "XDG_STATE_HOME=$DGC/state $ROOT/bin/pp.js -c $DGC/plus.yml doctor 2>&1"
-check "plan removes the job that reaches nobody" 0 'pp cron rm' bash -c "XDG_STATE_HOME=$DGC/state $ROOT/bin/pp.js -c $DGC/plus.yml plan 2>&1"
+check "plan retargets the job that reaches nobody" 0 'pp cron retarget .* --role' bash -c "XDG_STATE_HOME=$DGC/state $ROOT/bin/pp.js -c $DGC/plus.yml plan 2>&1"
 check "cron add --role rejects --session" 1 'not both' bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK cron add --role pm --session alpha --every 10m 'x' 2>&1"
 bash -c "cd $E2E && for id in \$( $ROOT/bin/pp.js -c $ROLECFG cron ls --json | tr -d ' ,\"' | awk -F: '/^id:/{print \$2}' ); do $ROOT/bin/pp.js -c $ROLECFG cron rm \$id >/dev/null 2>&1; done"
 check "--force creates it anyway"      0 'dve'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $ROLECFG --socket $SOCK role alpha dve --force 2>&1"
@@ -653,7 +653,12 @@ node -e '
   fs.writeFileSync(file, text);
 ' "$CFG"
 check "doctor names a job whose session moved" 1 'targets session "e-onfail" — nothing carries it' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG doctor 2>&1"
-check "plan points at the job, not the tick"  0 "pp cron rm $LOST_ID"  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK plan 2>&1"
+check "plan points at the job, not the tick"  0 "cron retarget $LOST_ID"  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK plan 2>&1"
+# retargeting beats rm+add: the job keeps its run history, only its aim moves
+check "cron retarget moves the aim"  0 'retargeted .* -> session "e-onfail-renamed"'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron retarget $LOST_ID --session e-onfail-renamed"
+check "cron ls shows the new target" 0 'e-onfail'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls | grep -F $LOST_ID"
+check "retargeted job is no longer dangling" 0 '' bash -c "cd $E2E && ! $ROOT/bin/pp.js -c $CFG doctor 2>&1 | grep -F '$LOST_ID targets'"
+check "cron retarget refuses an unknown role" 2 'no session has role "nobody"'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron retarget $LOST_ID --role nobody"
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $LOST_ID" > /dev/null 2>&1
 node -e '
   const fs = require("fs");

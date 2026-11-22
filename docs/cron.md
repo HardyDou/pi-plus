@@ -45,6 +45,24 @@ a59cfc  mango-release-01  cron */10 * * * *  paused   111  delivered
 
 删了再加会把这些都丢掉（尤其是 `runs` 和 `lastRun`），所以要"先歇一天"（而不是"不要了"）时用 `pause`。
 
+## 换个目标：`retarget`
+
+会话改了名、或者你想把任务从"某个会话"改成"某个角色"时，不要删了重建 —— 那会把 `runs` 和 `lastRun` 一起丢掉。
+
+```
+$ pp doctor
+✗ cron   7123be targets session "w-old" — nothing carries it (pp cron retarget 7123be --session <name>)
+
+$ pp cron retarget 7123be --session w2
+retargeted 7123be: session "w-old" -> session "w2"
+its schedule and history are kept — pp cron ls
+```
+
+- 一个作业只有一个目标：`--session` / `--role` / `--all` 三选一，另一个字段会被清掉
+- `--session` 接受名字或 `#序号`（与 `pp up` 一致）
+- 角色目标要求该标签确实有人带（`pp role --list` 能看），否则 `no session has role "x"`
+- 内置作业（`--heal`、`--sweep`、`--command`）没有目标可搬，会被拒绝
+
 ## 数据在哪
 
 | 文件 | 内容 |
