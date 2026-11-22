@@ -135,3 +135,16 @@ test("plenty of space adds nothing", () => {
   const steps = planSteps({ disk: null });
   assert.equal(steps.length, 0);
 });
+
+test("a schedule nobody winds comes before the individual late jobs", () => {
+  const steps = planSteps({ tick: { jobs: 3 }, cron: [{ id: "aaaaaa", late: "30m" }] });
+  assert.equal(steps[0].command, "pp cron install");
+  assert.match(steps[0].title, /3 scheduled job/);
+  assert.equal(steps.filter((step) => step.priority === 1).length, 1, "the tick is the only priority-1 step here");
+  assert.ok(steps[0].priority < steps.at(-1).priority, "and it sorts before the late job");
+  assert.equal(steps.at(-1).command, "pp cron run aaaaaa");
+});
+
+test("no tick problem when no job is scheduled", () => {
+  assert.deepEqual(planSteps({ tick: null }), []);
+});

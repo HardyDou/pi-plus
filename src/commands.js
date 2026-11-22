@@ -3318,7 +3318,7 @@ async function cmdWhyNode(config, options, ui) {
  * it, a drained machine makes every `up` a no-op, and so on. Read-only.
  */
 export function planSteps(facts) {
-  const { reach = [], drift = [], unmanaged = [], stuck = [], cron = [], dangling = [], waiting = [], logs = [], autostart = null, extension = null, disk = null } = facts;
+  const { reach = [], drift = [], unmanaged = [], stuck = [], cron = [], dangling = [], waiting = [], logs = [], autostart = null, extension = null, disk = null, tick = null } = facts;
   const steps = [];
   const add = (priority, title, command, why) => steps.push({ priority, title, command, why });
 
@@ -3347,6 +3347,11 @@ export function planSteps(facts) {
   }
   if (extension && extension.stale) {
     add(3, `upgrade the pi extension to ${extension.want}`, extension.command, "the /pp-* commands come from the extension, not the cli");
+  }
+  // ahead of every late job: if nothing calls the tick, "late" is a symptom with
+  // one cause, and running individual jobs one at a time does not fix it
+  if (tick) {
+    add(1, `${tick.jobs} scheduled job(s) exist but nothing calls the tick`, "pp cron install", "without the crontab line every job sits there looking on time and never runs");
   }
   for (const job of dangling) {
     add(
@@ -3409,7 +3414,7 @@ export function planSteps(facts) {
 /** The facts `pp plan` needs, gathered from the same helpers the other commands use. */
 export async function planFacts(config, options) {
   const env = options?.env ?? process.env;
-  const facts = { reach: [], drift: [], unmanaged: [], stuck: [], cron: [], dangling: [], waiting: [], logs: [], autostart: null, extension: null, disk: null };
+  const facts = { reach: [], drift: [], unmanaged: [], stuck: [], cron: [], dangling: [], waiting: [], logs: [], autostart: null, extension: null, disk: null, tick: null };
   // Free space is the one fact that makes every other fix moot, so it is read
   // first and cheaply (one statfs, no subprocess).
   {
@@ -3546,6 +3551,19 @@ export async function planFacts(config, options) {
       }
     })
     .filter(Boolean);
+  // Jobs without a tick are a schedule nobody winds: one `crontab -r`, one
+  // rebuilt container, and every job stays "on time" while nothing runs.
+  {
+    const scheduled = jobsNow.length;
+    const ticked = (() => {
+      try {
+        return crondHasBlock(readCrontab());
+      } catch {
+        return null;
+      }
+    })();
+    if (scheduled && ticked === false) facts.tick = { jobs: scheduled };
+  }
   const autostartIntro = autostartState();
   facts.autostart = autostartIntro.kind ? { enabled: Boolean(autostartIntro.installed && autostartIntro.enabled), text: describeAutostart(autostartIntro) } : null;
   const extensionNow = installedExtension(env);

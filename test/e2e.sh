@@ -654,6 +654,11 @@ bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron add --all --ever
 DRY_ID=$(node -e 'const d=require(process.env.XDG_STATE_HOME+"/pi-plus/cron.json");process.stdout.write(d.jobs.find((j)=>j.prompt==="dryrun probe").id)')
 check "cron dryrun counts the reach" 0 'would send to' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron dryrun $DRY_ID"
 check "pp why says who it would reach now" 0 'would reach' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK why $DRY_ID"
+# jobs with no tick are a schedule nobody winds: plan says so before "late"
+mkdir -p "$E2E/shim-nocron"
+printf '#!/bin/sh\necho "no crontab for user" >&2\nexit 1\n' > "$E2E/shim-nocron/crontab"
+chmod +x "$E2E/shim-nocron/crontab"
+check "plan notices nobody winds the tick" 0 'nothing calls the tick' bash -c "cd $E2E && PATH=\"$E2E/shim-nocron:$PATH\" $ROOT/bin/pp.js -c $CFG --socket $SOCK plan 2>&1"
 check "cron dryrun never types"      0 '^0$'          bash -c "tmux -L $SOCK capture-pane -p -t '=e-always:' | grep -c 'dryrun probe' || true"
 check "cron rm takes the idle job" 0 'removed'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $IDLE_ID"
 # a fan-out job that runs often must say what it costs
