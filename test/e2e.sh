@@ -639,6 +639,15 @@ check "cron pause keeps the job"    0 'schedule and history are kept' bash -c "c
 check "cron ls shows it as paused"  0 'paused'                        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
 check "cron resume brings it back"  0 'resumed'                       bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron resume $PAUSE_ID"
 check "cron pause needs an id"      2 'usage: pp cron pause'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron pause"
+# a fan-out job that runs often must say what it costs
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --all --every 5m 'cheap words'" > /dev/null 2>&1
+check "cron ls names the loudest job" 0 'costs [0-9]+ agent turn'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls"
+LOUD_ID=$(node -e 'const d=require(process.env.XDG_STATE_HOME+"/pi-plus/cron.json");process.stdout.write(d.jobs.find((j)=>j.prompt==="cheap words").id)')
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron pause $LOUD_ID" > /dev/null 2>&1
+# other jobs in this section are also loud, so assert the paused one is gone by id
+# only the cost line matters: the id still appears in the table row
+check "a paused job is not in the cost note" 1 '' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls | grep -F costs | grep -qF $LOUD_ID"
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $LOUD_ID" > /dev/null 2>&1
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $PAUSE_ID" > /dev/null 2>&1
 check "cron help page"            0 'crontab expression'       bash -c "cd $E2E && $ROOT/bin/pp.js help cron"
 # --heal: put back whatever died, and leave a hand-stopped session alone

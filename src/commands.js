@@ -104,12 +104,14 @@ import {
   buildSchedule,
   describeSchedule,
   DEFAULT_CATCH_UP_SECONDS,
+  cronMatches,
   CronError,
   cronLogPath,
   formatDuration,
   jobsPath,
   newJobId,
   nextRun,
+  parseCron,
   parseDuration,
   readJobs,
   removeJob,
@@ -6330,6 +6332,35 @@ export function describeNext(due, now = new Date()) {
   return { text: `in ${rough(delta)} (${clock})`, late: false };
 }
 
+/** How many times a job fires in a day — the honest denominator for cost. */
+export function deliveriesPerDay(schedule, { now = new Date() } = {}) {
+  if (!schedule) return 0;
+  if (schedule.kind === "once") return 1;
+  if (schedule.kind === "every") return Math.ceil(86400 / Math.max(1, schedule.every));
+  if (schedule.kind === "cron") {
+    // Ask the matcher over four weeks rather than doing the arithmetic by hand:
+    // a daily window would report 0 for "Mondays only" and for monthly jobs.
+    const parsed = parseCron(schedule.cron);
+    const start = new Date(now);
+    start.setHours(0, 0, 0, 0);
+    let hits = 0;
+    const days = 28;
+    for (let minute = 0; minute < days * 1440; minute += 1) {
+      if (cronMatches(parsed, new Date(start.getTime() + minute * 60000))) hits += 1;
+    }
+    return Math.round((hits / days) * 100) / 100;
+  }
+  return 0;
+}
+
+/** How many sessions one delivery reaches. */
+export function deliveryTargets(job, sessions = []) {
+  if (job.action === "command" || job.action === "heal" || job.action === "sweep") return 1;
+  if (job.role) return sessions.filter((session) => String(session.role ?? "").toLowerCase() === String(job.role).toLowerCase()).length;
+  if (job.session === ALL_SESSIONS) return sessions.length;
+  return job.session ? 1 : 0;
+}
+
 function cronRow(job, now = new Date()) {
   const due = nextRun(job, now);
   const next = describeNext(due, now);
@@ -6355,7 +6386,7 @@ function cronRow(job, now = new Date()) {
   };
 }
 
-function printCronJobs(jobs, ui, now = new Date()) {
+function printCronJobs(jobs, ui, now = new Date(), sessions = []) {
   if (!jobs.length) {
     ui.info("no scheduled jobs — add one with: pp cron add --at \"2026-11-21T09:00\" \"check the build\"");
     return;
@@ -6402,6 +6433,20 @@ function printCronJobs(jobs, ui, now = new Date()) {
   const paused = records.filter((row) => row.paused).length;
   if (paused) {
     ui.out(ui.paint("dim", `${paused} paused — bring one back with: pp cron resume <id>`));
+  }
+  // Say the loud thing out loud: a fan-out job that runs often is not free, and
+  // the person who added it (probably at 2am) is the one who should see the bill.
+  const loud = jobs
+    .filter((job) => !job.paused)
+    .map((job) => ({ id: job.id, turns: Math.round(deliveriesPerDay(job.schedule, { now }) * deliveryTargets(job, sessions)) }))
+    .filter((entry) => entry.turns >= 200)
+    .sort((a, b) => b.turns - a.turns);
+  if (loud.length) {
+    const worst = loud[0];
+    ui.out(
+      ui.paint("dim", `${worst.id} costs ${worst.turns} agent turn(s) a day`) +
+        ui.paint("dim", ` — pp cron pause ${worst.id} to silence it`),
+    );
   }
   const late = records.filter((row) => row.late && !row.paused).length;
   if (late) {
@@ -6796,7 +6841,7 @@ async function cmdCronList(config, options, ui) {
     ui.out(JSON.stringify(jobs.map((job) => cronRow(job)), null, 2));
     return;
   }
-  printCronJobs(jobs, ui);
+  printCronJobs(jobs, ui, new Date(), config?.sessions ?? []);
   refreshCronLog(options, ui);
 }
 

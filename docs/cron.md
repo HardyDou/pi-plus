@@ -10,6 +10,24 @@ pp cron tick 到点投递    pp cron status  托管块状态   pp cron logs    �
 pp cron install / uninstall / status      crontab 托管块
 ```
 
+## 广播不是免费的
+
+`pp cron ls` 会在表下点出**一天烧掉最多 agent 轮次**的那个作业（超过 200 才说）：
+
+```
+$ pp cron ls
+2bbb6e costs 1296 agent turn(s) a day — pp cron pause 2bbb6e to silence it
+```
+
+算法很直白：`deliveriesPerDay(调度) × deliveryTargets(作业)`。
+
+- `--every 10m` → 144 次/天；`--cron "*/10 * * * *"` → 同为 144
+- `--cron "0 9 * * 1,2,3"` → 0.43 次/天（一周 3 次），`--cron "0 0 1 * *"` → 0.04（一月一次）
+- 目标数：`--all` = 会话总数、`--role` = 该标签的会话数、单会话 / `--command` / `--heal` / `--sweep` = 1
+
+所以"每 10 分钟给所有会话发一句"在 9 个会话上就是 **1296 轮/天** —— 加的时候没人算过，
+删的时候也没人知道值不值。先看见，再决定用 `pause` 静音。
+
 ## 静音而不删除：`pause` / `resume`
 
 ```
