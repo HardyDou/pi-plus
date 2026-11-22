@@ -45,10 +45,41 @@ test("quiet minutes count from the last frame that changed", () => {
     assert.equal(stuck.quiet, 4);
     assert.equal(stuck.busyMinutes, 4);
 
-    // a new frame (the spinner advanced) resets it — this is the whole point:
+    // a new line of real output resets it — this is the whole point:
     // a long build that keeps printing is *not* stuck
-    const alive = stallWatch(config, tmuxOf(frame("⠙", 9)), { name: "web" }, { env, now: t0 + 5 * 60000 });
+    const moved = ["transcript", "wrote report.json", `${rule}⠙ Working 9s`, rule, "› "].join("\n");
+    const alive = stallWatch(config, tmuxOf(moved), { name: "web" }, { env, now: t0 + 5 * 60000 });
     assert.equal(alive.quiet, 0);
     assert.equal(alive.busyMinutes, 5);
+
+    // ...but a fresh spinner glyph and a new elapsed counter are not output:
+    // they animate every frame while the agent is doing nothing visible, so the
+    // quiet clock keeps running from the last real change (t0 + 5m)
+    const turned = moved.replace("⠙ Working 9s", "⠹ Working 14s");
+    assert.notEqual(turned, moved, "the new frame must look different on screen");
+    const still = stallWatch(config, tmuxOf(turned), { name: "web" }, { env, now: t0 + 6 * 60000 });
+    assert.equal(still.quiet, 1, "an animating spinner must not reset the quiet clock");
+    assert.equal(still.busyMinutes, 6);
   });
+});
+
+test("a spinner and a counter are not progress", async () => {
+  const { contentSignature } = await import("../src/tmux.js");
+  const rule = "─".repeat(60);
+  const frame = (spinner, secs, tokens) =>
+    [
+      "  read file.ts",
+      rule,
+      `  ${spinner} Working ${secs}`,
+      rule,
+      "/data/Mango/mango (main) • 启元mango",
+      `↑${tokens}M ↓1.9M R611M CH99.9% $4.320 15.8%/1.0M (auto)`,
+    ].join("\n");
+  assert.equal(
+    contentSignature(frame("⠋", "6m 14s", "9.1")),
+    contentSignature(frame("⠙", "6m 39s", "9.4")),
+    "an animating spinner and moving counters must not look like new output",
+  );
+  const grown = `${frame("⠙", "6m 39s", "9.4")}\n  wrote build/report.json`;
+  assert.notEqual(contentSignature(frame("⠙", "6m 39s", "9.4")), contentSignature(grown), "real output still counts");
 });

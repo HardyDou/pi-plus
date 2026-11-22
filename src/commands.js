@@ -34,7 +34,7 @@ import {
   listAliases,
   removeAlias,
 } from "./aliases.js";
-import { hasEditor, isRule, looksBusy, resolveExecutable, screenSignature, Tmux } from "./tmux.js";
+import { contentSignature, hasEditor, isRule, looksBusy, resolveExecutable, screenSignature, Tmux } from "./tmux.js";
 import { findScenario, renderMarkdown, renderScenario, RUNBOOK } from "./runbook.js";
 import {
   authSummary,
@@ -4906,7 +4906,8 @@ export function stallWatch(config, tmux, session, { env = process.env, now = Dat
     return { name: session.name, busy: false, quiet: 0 };
   }
   const sinceBusy = busySinceOf(config.path, session.name, env) ?? markBusy(config.path, session.name, env, new Date(now).toISOString());
-  const signature = screenSignature(text);
+  // the spinner animates forever; only a change in content counts as progress
+  const signature = contentSignature(text);
   const previous = activityOf(config.path, session.name, env);
   if (!previous || previous.sig !== signature) {
     noteActivity(config.path, session.name, { at: new Date(now).toISOString(), sig: signature }, env);

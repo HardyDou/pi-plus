@@ -53,6 +53,23 @@ export function screenSignature(text) {
     .join("\n");
 }
 
+/**
+ * The screen without the things that move on their own: pi's braille spinner
+ * animates every few hundred milliseconds and its "Working 1m 23s" counter ticks
+ * every second, so a raw screen comparison says "active" forever. This signature
+ * only changes when the *content* does — which is what "stuck" means.
+ */
+export function contentSignature(text) {
+  const lines = String(text)
+    .replace(/[\u2800-\u28ff]/gu, "")
+    .replace(/\b\d+(\.\d+)?\s*(ms|s|m|h|d)\b/g, "#")
+    .split("\n")
+    // pi's status line is a set of live counters (tokens, context %, cost, sub-agents).
+    // The numbers move every frame; the shape is what tells you something happened.
+    .map((line) => (/[↑↓]|\$\s*\d|CH\d|%/.test(line) ? line.replace(/\d+(?:[.,]\d+)?\s*[kKmMgG]?/g, "#") : line));
+  return screenSignature(lines.join("\n"));
+}
+
 const ANSI = /\u001b\[[0-9;?]*[A-Za-z]/g;
 
 /** The rule lines a pi TUI draws above and below its input box. */

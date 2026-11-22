@@ -64,6 +64,11 @@ PP_STALL_MINUTES=180 pp doctor   # 判定的是"没有新输出"的分钟数，�
 如果一个会话的 `⠋ Working` 几个小时都不消失，那不是 `pp` 的问题：看 `pp attach <session>` 里
 卡住的那一步（常见是某个工具调用没返回）。
 
+`pp doctor` 的 `stalls` 检查看得是**内容**有没有变，不是屏幕有没有动：pi 的 spinner 每几百毫秒
+换一个字形，状态行里的 token 数、上下文百分比、`Elapsed 1m 2s` 每帧都在变。判据是
+`contentSignature`——抹掉盲文字形、把 `12s` / `9.1M` / `24%` 这类计数压平之后剩下的文本。
+所以"spinner 在转"不算它在干活，"又多打了一行"才算。`PP_STALL_MINUTES`（默认 45）调阈值。
+
 ## `pp status` 里 `off` 和 `off (hand)` 有什么不同
 
 `off` = 该在但没在（`pp up --drift` 补起来）。`off (hand)` = 有人特意停的：
