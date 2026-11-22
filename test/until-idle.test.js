@@ -96,3 +96,15 @@ test("trimPane keeps the last N lines when asked", async () => {
   const screen = ["a", "b", "c", "d", "e"].join("\n");
   assert.deepEqual(trimPane(screen, "ignored", 2), ["d", "e"]);
 });
+
+test("offlineTodos keeps only the ones whose session is gone, done ones aside", async () => {
+  const { offlineTodos } = await import("../src/commands.js");
+  const todos = [
+    { id: "a1", session: "live", state: "new" },
+    { id: "a2", session: "dead", state: "seen" },
+    { id: "a3", session: "dead", state: "new" },
+    { id: "a4", session: "old", state: "done" },
+  ];
+  const exists = (name) => name === "live";
+  assert.deepEqual(offlineTodos(todos, exists).map((todo) => todo.id), ["a2", "a3"]);
+});

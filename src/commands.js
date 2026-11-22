@@ -1044,6 +1044,45 @@ async function cmdTodoAttach(config, refs, options, ui) {
   process.exit(tmux.attach(name));
 }
 
+/**
+ * Which open todos point at a session that is no longer running.
+ *
+ * `pp todo ls` marks them `(offline)`; after a few days of work they are the
+ * bulk of the list, and deleting them by hand one # at a time is the wrong
+ * amount of work. Pure, so the rule can be tested without tmux.
+ */
+export function offlineTodos(todos, exists) {
+  const open = todos.filter((todo) => todo.state !== "done");
+  const seen = new Map();
+  for (const todo of open) {
+    if (!seen.has(todo.session)) seen.set(todo.session, Boolean(exists(todo.session)));
+  }
+  return open.filter((todo) => seen.get(todo.session) === false);
+}
+
+async function clearOfflineTodos(config, options, ui) {
+  let todos = readTodos();
+  const owners = new Map();
+  const exists = (name) => {
+    if (!owners.has(name)) {
+      const owner = (config?.sessions ?? []).find((item) => item.tmuxName === name || item.name === name) ?? null;
+      owners.set(name, makeTmux(config, options, owner));
+    }
+    return owners.get(name).sessionExists(name);
+  };
+  const gone = offlineTodos(todos, exists);
+  if (gone.length === 0) {
+    ui.info("nothing to clear — every open todo points at a session that is running");
+    return;
+  }
+  if (options.dryRun) {
+    for (const todo of gone) ui.info(`[dry-run] would drop #${todo.id} ${todo.session} — ${todo.title.slice(0, 60)}`);
+    return;
+  }
+  for (const todo of gone) todos = removeTodo(todos, todo);
+  ui.info(`cleared ${gone.length} todo(s) whose session is gone`);
+}
+
 async function cmdTodo(config, options, ui) {
   const rest = [...options.names];
   const sub = rest.shift() ?? "ls";
@@ -1127,6 +1166,7 @@ async function cmdTodo(config, options, ui) {
       }
       case "clear":
       case "prune": {
+        if (options.offline) return clearOfflineTodos(config, options, ui);
         const removed = clearTodos({ doneOnly: !options.force });
         ui.info(
           removed === 0

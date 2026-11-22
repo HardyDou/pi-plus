@@ -96,6 +96,7 @@ function parseArgs(argv) {
         case "--sweep": options.sweep = true; break;
         case "--to": options.to = takeValue(flag, inline); break;
         case "--remote": options.remote = true; break;
+        case "--offline": options.offline = true; break;
         case "--force": options.force = true; break;
         case "--once": options.once = true; break;
         case "--left": options.left = takeValue(flag, inline); break;

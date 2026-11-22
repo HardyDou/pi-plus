@@ -758,6 +758,11 @@ check "todo answer needs text"      2 'usage: pp todo answer'   bash -c "cd $E2E
 check "todo answer replies in place" 0 'answered #[0-9a-f]'     bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK todo answer 1 'echo answered-marker'"
 check "todo answer clears the entry" 0 'nothing needs you'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo ls"
 check "todo answer reaches the pane" 0 'answered-marker'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK logs e-always"
+# todos outlive the session that asked; --offline is the way back to a short list
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK down e-unless >/dev/null 2>&1; $ROOT/bin/pp.js -c $CFG --socket $SOCK todo add 'stale question' --session e-unless" > /dev/null 2>&1
+check "todo clear --offline shows what it would drop" 0 'stale question' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK todo clear --offline --dry-run"
+check "todo clear --offline drops them"    0 'cleared 1 todo'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK todo clear --offline"
+check "the offline sweep leaves a clean list" 0 'nothing needs you' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK todo ls"
 
 section "tui"
 check "tui renders the sessions panel" 0 'sessions \('          bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
