@@ -2446,7 +2446,7 @@ function shortAge(seconds) {
   return `${Math.round(seconds / 86400)}d`;
 }
 
-function tuiSessionRows(config, live) {
+export function tuiSessionRows(config, live, { stuck = null } = {}) {
   const rows = [];
   // a session with unanswered questions looks exactly like an idle one otherwise
   const waiting = (() => {
@@ -2473,7 +2473,9 @@ function tuiSessionRows(config, live) {
     const state = stateOf(entry);
     const idle = entry?.activity ? Date.now() / 1000 - entry.activity : null;
     const age = idle === null ? "" : shortAge(idle);
-    const stale = idle !== null && idle >= staleSeconds() && state !== "off" && state !== "dead";
+    const isStuck = stuck?.has(session.tmuxName) ?? false;
+    const idleStale = idle !== null && idle >= staleSeconds();
+    const stale = (idleStale || isStuck) && state !== "off" && state !== "dead";
     rows.push({
       name: session.tmuxName,
       role: session.role ?? "",
@@ -2487,6 +2489,7 @@ function tuiSessionRows(config, live) {
       label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}${session.node ? ` @${session.node}` : ""}${session.role ? ` ${session.role}` : ""}  ${state}${age ? ` ${age}${stale ? " !" : ""}` : ""}${waiting(session.tmuxName) ? ` ${waiting(session.tmuxName)}?` : ""}`,
       dim: state === "off" || state === "dead",
       warn: stale,
+      stuck: isStuck,
     });
   }
   for (const [name, entry] of live) {
@@ -2580,6 +2583,32 @@ async function cmdTui(config, options, ui) {
    */
   const REMOTE_TTL_MS = 5000;
   const remoteCache = new Map();
+  /**
+   * Sessions whose agent is mid-turn but has printed nothing for the stall
+   * window. The list already shows `!` for "no output at all" (window_activity),
+   * but a stuck agent keeps repainting its spinner, so window_activity stays
+   * fresh — only the *content* signature can tell. Costs two captures per local
+   * session, so it is cached; remote sessions are left to `pp doctor`.
+   */
+  const STUCK_TTL_MS = 10000;
+  let stuckCache = { at: 0, names: new Set() };
+  const stuckNow = () => {
+    if (Date.now() - stuckCache.at < STUCK_TTL_MS) return stuckCache.names;
+    const names = new Set();
+    const limit = stallMinutes();
+    for (const session of config.sessions.filter((entry) => !entry.node)) {
+      try {
+        const handle = makeTmux(config, options, session);
+        if (!handle.sessionExists(session.tmuxName)) continue;
+        const watch = stallWatch(config, handle, session);
+        if (watch?.busy && watch.quiet >= limit) names.add(session.tmuxName);
+      } catch {
+        // an unreachable pane is the drift check's business
+      }
+    }
+    stuckCache = { at: Date.now(), names };
+    return names;
+  };
   const nodesInUse = () => nodesToProbe(config);
   const readLive = ({ fresh = false } = {}) => {
     const live = new Map();
@@ -2619,7 +2648,7 @@ async function cmdTui(config, options, ui) {
     const layout = computeLayout(cols, rows, { leftWidth, todoCount: onceTodos.length });
     const { live } = readLive();
     const sortKey = options.sort ?? config.sort ?? "config";
-    const sessionRows = ordered(tuiSessionRows(config, live), sortKey);
+    const sessionRows = ordered(tuiSessionRows(config, live, { stuck: stuckNow() }), sortKey);
     function ordered(rows, key) {
       // --once should show the same order the live panel would
       if (key === "name") return [...rows].sort((a, b) => compareNames(a.name, b.name));
@@ -2701,7 +2730,7 @@ async function cmdTui(config, options, ui) {
       onResize: (callback) => process.stdout.on("resize", callback),
       async refresh({ index = 0 } = {}) {
         const { live, tmuxFor } = readLive();
-        const sessions = tuiSessionRows(config, live);
+        const sessions = tuiSessionRows(config, live, { stuck: stuckNow() });
         const todos = tuiTodoRows(filterTodos(readTodos()), Date.now());
         const current = sessions[index]?.name ?? sessions[0]?.name;
         let preview = { title: "—", lines: ["no session selected"] };

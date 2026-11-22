@@ -397,7 +397,11 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     // are not ours. Both are the reason someone opens this panel at 3am.
     const off = state.sessions.filter((row) => row.state === "off" || row.state === "dead" || row.state === "stopped").length;
     const unmanaged = state.sessions.filter((row) => row.unmanaged).length;
-    const drift = [off ? `${off} off` : null, unmanaged ? `${unmanaged} unmanaged` : null].filter(Boolean).join(" · ");
+    // "busy but silent": the row looked alive because the spinner kept moving
+    const stuck = state.sessions.filter((row) => row.stuck).length;
+    const drift = [off ? `${off} off` : null, unmanaged ? `${unmanaged} unmanaged` : null, stuck ? `${stuck} stuck` : null]
+      .filter(Boolean)
+      .join(" · ");
     if (state.typing) {
       const typed = `/ ${state.input}▌`;
       return `${DIM}${padWidth(` ${typed}  (Enter filter · Esc clear · ${filteredIndices().length} match)`, io.size().cols)}${RESET}`;

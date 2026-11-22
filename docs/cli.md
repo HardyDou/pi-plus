@@ -1117,6 +1117,11 @@ pp new api --node prod-01 -C api --save   # 落到 /srv/apps/api
 | 行末 `2h` + `!` | 该会话已安静超过 `PP_STALE_MINUTES`（默认 30）分钟，琥珀色提醒 |
 | `q` / `Esc` / `Ctrl-C` | 退出 |
 
+页脚会数三样东西：`N off`（该起没起）、`N unmanaged`（在跑但配置里没有）、`N stuck`
+（agent 在跑，但面板内容 `PP_STALL_MINUTES` 分钟没变化）。第三项只有它有意义：spinner 每几百
+毫秒换一次字形，`window_activity` 永远是新的，只有比对**内容签名**才能把"正在想"和"卡住了"分开。
+这项只看本机会话（远端归 `pp doctor`），并且每 10 秒才重算一次。
+
 ```bash
 pp tui
 pp tui --left 24              # 左列固定 24 列

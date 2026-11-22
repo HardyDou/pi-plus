@@ -679,3 +679,16 @@ test("the preview is reused while the pane has not printed anything", () => {
   assert.equal(reusePreview({ name: "api", activity: "1", height: 20, lines: null }, { name: "api", activity: "1", height: 20 }), false, "nothing captured yet");
   assert.equal(reusePreview(null, { name: "api", activity: "1", height: 20 }), false, "no cache");
 });
+
+test("a session that is busy but silent is marked stuck, not healthy", async () => {
+  const { tuiSessionRows } = await import("../src/commands.js");
+  const config = { sessions: [{ name: "api", tmuxName: "api", node: null, role: null }] };
+  const live = new Map([["api", { activity: Math.floor(Date.now() / 1000), attached: false, panes: [{ dead: false }] }]]);
+  const free = tuiSessionRows(config, live, { stuck: new Set() })[0];
+  assert.equal(free.stuck, false);
+  assert.equal(free.warn, false, "fresh activity and no stall: nothing to flag");
+  const stuck = tuiSessionRows(config, live, { stuck: new Set(["api"]) })[0];
+  assert.equal(stuck.stuck, true);
+  assert.equal(stuck.warn, true, "the same yellow ! as a quiet session");
+  assert.match(stuck.label, / !/);
+});

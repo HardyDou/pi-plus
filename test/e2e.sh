@@ -238,6 +238,32 @@ check "the log file starts growing"   0 '' bash -c "tmux -L $SOCK send-keys -t '
 tmux -L "$SOCK" pipe-pane -t "=piped:" >/dev/null 2>&1 || true
 check "a killed pipe is reported" 1 'nothing is writing' bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGPIPECFG --socket $SOCK doctor 2>&1"
 check "restart puts the pipe back" 0 '^1$' bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGPIPECFG --socket $SOCK restart piped >/dev/null 2>&1; $ROOT/bin/pp.js -c $LOGPIPECFG --socket $SOCK doctor 2>&1 | grep -c 'still piping'"
+
+section "stuck in the panel"
+# a busy agent that keeps its spinner but prints nothing new: window_activity
+# stays fresh, so only the content signature can tell it apart from a healthy
+# turn — the panel should say "stuck" in the footer
+STUCKCFG=$E2E/stuck.yml
+cat > "$STUCKCFG" <<'YAML'
+version: 1
+sessions:
+  - name: stuck-a
+    cwd: /tmp
+    agent: ["bash", "-c", "printf '\u2500\u2500\u2500\u2500\u2500\u2500\u280b Working\n'; sleep 900"]
+YAML
+"$ROOT/bin/pp.js" -c "$STUCKCFG" --socket "$SOCK" up >/dev/null 2>&1
+sleep 1.2
+SOCK_NAME_PP="$SOCK" node -e '
+const { Tmux, contentSignature } = await import(process.argv[1] + "/src/tmux.js");
+const fs = await import("node:fs");
+const file = process.env.XDG_STATE_HOME + "/pi-plus/state.json";
+const all = JSON.parse(fs.readFileSync(file, "utf8"));
+const bucket = all[process.argv[2]] ??= {};
+bucket["stuck-a"] = { ...(bucket["stuck-a"] ?? {}), activity: { at: new Date(Date.now() - 5 * 60000).toISOString(), sig: contentSignature(new Tmux({ socket: process.env.SOCK_NAME_PP }).capture("stuck-a", 40)) }, busySince: new Date(Date.now() - 9 * 60000).toISOString() };
+fs.writeFileSync(file, JSON.stringify(all, null, 2));
+' "$ROOT" "$STUCKCFG"
+check "the panel says one session is stuck" 0 '1 stuck' bash -c "cd $E2E && PP_STALL_MINUTES=1 $ROOT/bin/pp.js -c $STUCKCFG --socket $SOCK tui --once 2>&1"
+"$ROOT/bin/pp.js" -c "$STUCKCFG" --socket "$SOCK" down --force >/dev/null 2>&1 || true
 "$ROOT/bin/pp.js" -c "$LOGPIPECFG" --socket "$SOCK" down --force >/dev/null 2>&1 || true
 rm -f /tmp/e2e-piped.log
 

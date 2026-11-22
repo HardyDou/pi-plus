@@ -1232,6 +1232,11 @@ export const COMMANDS = [
       "Enter on a todo attaches to the session that todo belongs to. Nothing here",
       "parses escape sequences from the pane — tmux owns the real terminal — which",
       "is why the preview is a snapshot and not a live shell.",
+      "",
+      "The footer counts what a human would have to look at: N off (should be up),",
+      "N unmanaged (running, not in the config), N stuck (mid-turn with nothing new",
+      "for PP_STALL_MINUTES). Stuck is the one that matters at 3am — a spinning",
+      "agent looks alive, and only the *content* of the pane can tell otherwise.",
     ].join("\n"),
     options: [
       "--left <n|N%>    Width of the sessions column (default: 34% of the terminal)",
