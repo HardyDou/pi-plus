@@ -5903,6 +5903,23 @@ const HEAL_WINDOW_MS = 60 * 60 * 1000;
  * typed input in its editor and never submits it, so a busy pane would only
  * collect another copy (see `deliverJob`).
  */
+/** The config a job points at, or null — jobs outlive config edits. */
+function jobConfig(job) {
+  if (!job.configPath) return null;
+  try {
+    return loadConfig({ configPath: job.configPath, cwd: process.cwd() });
+  } catch {
+    return null;
+  }
+}
+
+/** A session that belongs to a drained machine, by job name or tmux name. */
+function drainedTarget(config, name) {
+  if (!config) return null;
+  const session = (config.sessions ?? []).find((entry) => entry.name === name || entry.tmuxName === name);
+  return session && drainOf(config, session) ? session : null;
+}
+
 function deliverToEverySession(tmux, job) {
   let live;
   try {
@@ -5910,8 +5927,16 @@ function deliverToEverySession(tmux, job) {
   } catch {
     live = new Map();
   }
-  const names = [...live.keys()].sort();
-  if (names.length === 0) return { status: "skipped: no tmux session is running" };
+  const config = jobConfig(job);
+  const drained = [...live.keys()].filter((name) => drainedTarget(config, name));
+  const names = [...live.keys()].filter((name) => !drained.includes(name)).sort();
+  if (names.length === 0) {
+    return {
+      status: drained.length
+        ? `deferred: all ${drained.length} running session(s) are on drained machines — the next tick will deliver`
+        : "skipped: no tmux session is running",
+    };
+  }
   const sent = [];
   const busy = [];
   const failed = [];
@@ -6123,6 +6148,14 @@ function deliverJob(job, options) {
   }
 
   if (job.role) return deliverToRole(job, options);
+  // a drained machine is under maintenance: its sessions stay down on purpose,
+  // so "session is not running" would be a nightly false alarm in the log
+  const onDrained = drainedTarget(jobConfig(job), job.session);
+  if (onDrained) {
+    return {
+      status: `deferred: ${job.session} is on a drained machine (${onDrained.node}) — pp node undrain ${onDrained.node}`,
+    };
+  }
   const tmux = new Tmux({ socket: job.socket ?? null });
   if (job.session === ALL_SESSIONS) return deliverToEverySession(tmux, job);
   if (!tmux.sessionExists(job.session)) {
@@ -7029,7 +7062,9 @@ async function cmdCronRun(config, options, ui) {
     // "delivered" on its own hides the interesting part: how many, and what
     // was refused. The tick writes the same text to cron.log.
     const detail = result.text ? ` ${ui.paint("dim", `— ${result.text}`)}` : "";
-    ui.info(`${ui.paint(paint, result.status)} ${id}${detail}`);
+    // a status with a sentence inside reads badly with the id tacked on the end
+    const sentence = result.status.includes(": ");
+    ui.info(`${ui.paint(paint, result.status)} ${sentence ? ui.paint("dim", `[${id}]`) : id}${detail}`);
   }
 }
 

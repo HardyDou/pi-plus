@@ -659,6 +659,27 @@ check "cron retarget moves the aim"  0 'retargeted .* -> session "e-onfail-renam
 check "cron ls shows the new target" 0 'e-onfail'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron ls | grep -F $LOST_ID"
 check "retargeted job is no longer dangling" 0 '' bash -c "cd $E2E && ! $ROOT/bin/pp.js -c $CFG doctor 2>&1 | grep -F '$LOST_ID targets'"
 check "cron retarget refuses an unknown role" 2 'no session has role "nobody"'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron retarget $LOST_ID --role nobody"
+# a job aimed at a drained machine must say so, not cry "not running" every tick
+cat > "$E2E/drained.yml" <<'YAML'
+version: 1
+nodes:
+  - name: dead
+    host: dead@127.0.0.1
+    drained: true
+sessions:
+  - name: dw
+    cwd: /tmp
+    agent: bash
+    node: dead
+    restart: no
+YAML
+bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml cron add --session dw --every 5m 'maintenance words'" > /dev/null 2>&1
+DRAIN_JOB=$(node -e 'const d=require(process.env.XDG_STATE_HOME+"/pi-plus/cron.json");process.stdout.write(d.jobs.find((j)=>j.prompt==="maintenance words").id)')
+check "cron run defers on a drained machine" 0 'is on a drained machine \(dead\) — pp node undrain dead' \
+  bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml cron run $DRAIN_JOB 2>&1"
+# pp cron run records lastStatus in cron.json (the tick writes cron.log), so read the table
+check "a drained job reads as deferred, not failed" 0 'deferred: dw is on a drained machine' \
+  bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/drained.yml cron ls 2>&1 | grep -F '$DRAIN_JOB'"
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $LOST_ID" > /dev/null 2>&1
 node -e '
   const fs = require("fs");

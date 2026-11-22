@@ -176,6 +176,10 @@ pi 在忙的时候只会把输入寄放在编辑框里、不会自己发出去�
      否则 `tmux send-keys -l -- <prompt>` + `Enter`。**这等于替用户敲了一句话**，目标会话里的
      agent 会当成新的用户消息处理。发送成功与否看"输入框是否被清空"——pi 在一轮没跑完时会把
      输入变成待发送草稿，盲按 Enter 什么也证明不了。
+   - 目标会话所在的机器被 `pp node drain`（维护中）时不投递，记
+     `lastStatus = "deferred: <session> is on a drained machine (<node>) — pp node undrain <node>"`；
+     `--all` 广播会跳过这些会话，一个都不剩时报同一条 `deferred`。理由：维护中的机器上
+     "会话没在跑"是**故意的**，记成 `skipped: session is not running` 每晚都会像故障。
    - `action=command`：`sh -c <command>`，收 rc。
 4. 成功 → `runs++`、`lastRun=now`、`lastStatus=delivered`；`deferred` 不算失败也不算运行
    （`runs`/`lastRun` 都不动，所以同一调度会自然再到期）；`once` 作业从文件里剪掉；
