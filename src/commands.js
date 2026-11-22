@@ -4216,7 +4216,11 @@ async function cmdWhy(config, options, ui) {
       jobs
         .map((job) => {
           const next = describeNext(nextRun(job, new Date(now)), new Date(now));
-          return `${job.id} ${job.action ?? job.schedule.kind}${next.text !== "-" ? ` (${next.text})` : ""}`;
+          // a job sitting in `deferred` is waiting *for this session* — saying only
+          // "in 7m" hides the fact that it already tried and backed off
+          const waiting = String(job.lastStatus ?? "").startsWith("deferred:");
+          const when = waiting ? `waiting on it ${agoText(job.lastAttempt ?? job.lastRun, new Date(now))}` : next.text;
+          return `${job.id} ${job.action ?? job.schedule.kind}${when !== "-" ? ` (${when})` : ""}`;
         })
         .join(" · "),
     );

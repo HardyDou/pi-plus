@@ -484,6 +484,9 @@ pp up <name> -v --dry-run
 
 ### 定时任务类
 
+> 任务"该跑却没跑"时，先看它是不是在**等目标**：`pp why <会话>` 的 `cron` 行会写
+> `a59cfc prompt (waiting on it 37s ago)`，`pp why <任务号>` 的 `state` 行是同一件事的详细版。
+
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | `pp doctor` 说 `0eed5f is 15m late — pp cron run 0eed5f` | tick 在跑但这条任务卡住（目标会话不存在、投递一直失败） | `pp cron log` 看它每次的结果；`pp cron run <id>` 手动跑一次；不再需要就 `pp cron rm <id>` |
