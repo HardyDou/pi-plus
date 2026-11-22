@@ -2390,6 +2390,19 @@ export function nodesToProbe(config) {
   return (config?.nodes ?? []).map((node) => node.name).filter((name) => used.has(name));
 }
 
+/**
+ * The preview is a `capture-pane` per frame — a subprocess every second, for a
+ * pane that usually has not printed anything new. Reuse the last capture while
+ * the same session is selected, its tmux activity stamp has not moved, and the
+ * box is still the same height.
+ */
+export function reusePreview(cache, { name = "", activity = "", height = 0 } = {}) {
+  if (!cache || !cache.lines) return false;
+  if (cache.name !== name) return false;
+  if (cache.height !== height) return false;
+  return String(cache.activity) === String(activity);
+}
+
 /** Bytes free on the filesystem holding `dir`, or null when node is too old. */
 export function freeSpace(dir) {
   try {
@@ -2634,6 +2647,7 @@ async function cmdTui(config, options, ui) {
     return;
   }
 
+  let previewCache = { name: "", activity: "", height: 0, lines: null };
   let paneCache = { at: 0, size: null };
   const paneSize = () => {
     const now = Date.now();
@@ -2686,8 +2700,16 @@ async function cmdTui(config, options, ui) {
         const current = sessions[index]?.name ?? sessions[0]?.name;
         let preview = { title: "—", lines: ["no session selected"] };
         if (current && live.has(current)) {
-          const text = tmuxFor(current).capture(current, previewLines());
-          preview = { title: current, lines: text ? text.split("\n") : ["(empty pane)"] };
+          const wanted = previewLines();
+          const activity = String(live.get(current)?.activity ?? "");
+          if (reusePreview(previewCache, { name: current, activity, height: wanted })) {
+            preview = { title: current, lines: previewCache.lines };
+          } else {
+            const text = tmuxFor(current).capture(current, wanted);
+            const lines = text ? text.split("\n") : ["(empty pane)"];
+            previewCache = { name: current, activity, height: wanted, lines };
+            preview = { title: current, lines };
+          }
         }
         return { sessions, todos, preview };
       },

@@ -3,6 +3,7 @@ import test from "node:test";
 import { EventEmitter } from "node:events";
 import {
   nodesToProbe,
+  reusePreview,
 } from "../src/commands.js";
 const ESC = "\u001b[";
 const WRAP_OFF = `${ESC}?7l`;
@@ -667,4 +668,14 @@ test("an unchanged row is not sent again, and a wiped screen is", async () => {
   assert.ok(!painted.includes("aaa"), "unchanged row is not");
   const shorter = paintFrame(["aaa"], { previous: frame });
   assert.ok(shorter.includes(`${ESC}2;1H${ESC}K`), "a shorter frame clears the row it no longer uses");
+});
+
+test("the preview is reused while the pane has not printed anything", () => {
+  const cache = { name: "api", activity: "1700000000", height: 20, lines: ["a"] };
+  assert.equal(reusePreview(cache, { name: "api", activity: "1700000000", height: 20 }), true, "same pane, same stamp, same box");
+  assert.equal(reusePreview(cache, { name: "api", activity: "1700000001", height: 20 }), false, "the pane printed something: capture again");
+  assert.equal(reusePreview(cache, { name: "web", activity: "1700000000", height: 20 }), false, "different session");
+  assert.equal(reusePreview(cache, { name: "api", activity: "1700000000", height: 30 }), false, "the box changed height");
+  assert.equal(reusePreview({ name: "api", activity: "1", height: 20, lines: null }, { name: "api", activity: "1", height: 20 }), false, "nothing captured yet");
+  assert.equal(reusePreview(null, { name: "api", activity: "1", height: 20 }), false, "no cache");
 });

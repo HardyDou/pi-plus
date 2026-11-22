@@ -1077,8 +1077,9 @@ export const COMMANDS = [
     details: [
       "A control panel, not a terminal emulator. Left column lists every session",
       "(config order first, then strays running in tmux); right column shows the",
-      "open todos and a read-only preview of the selected session's pane",
-      "(capture-pane, refreshed once a second). Session rows end with how long",
+      "open todos and a read-only preview of the selected session's pane — a",
+      "capture-pane that is only taken again when that pane has printed something",
+      "(tmux window activity), so an idle session costs nothing. Session rows end with how long",
       "ago that session last moved (`3m`, `2h`) — the quickest read on which",
       "machine is busy and which one has been idle since lunch.",
       "",
