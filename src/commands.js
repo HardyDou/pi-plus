@@ -6724,9 +6724,13 @@ export function deliveryTargets(job, sessions = []) {
   return job.session ? 1 : 0;
 }
 
-function cronRow(job, now = new Date()) {
+export function cronRow(job, now = new Date()) {
   const due = nextRun(job, now);
   const next = describeNext(due, now);
+  // A deferred job keeps its due time on purpose (the next tick retries it), so
+  // "late" would be the wrong word every minute until the target frees up.
+  const deferred = String(job.lastStatus ?? "").startsWith("deferred:");
+  const waiting = deferred && next.late ? next.text.replace(/^late [^(]*\(/, "waiting (") : next.text;
   return {
     id: job.id,
     session: job.action === "command"
@@ -6740,8 +6744,9 @@ function cronRow(job, now = new Date()) {
     session: job.session ?? null,
     role: job.role ?? null,
     schedule: `${describeSchedule(job.schedule)}${job.idleAfter ? ` · idle ${formatDuration(job.idleAfter)}` : ""}${job.window ? ` · quiet ${describeWindow(job.window)}` : ""}`,
-    next: next.text,
-    late: next.late,
+    next: waiting,
+    late: deferred ? false : next.late,
+    deferred,
     nextRun: due ? due.toISOString() : null,
     runs: job.runs ?? 0,
     last: job.lastStatus ?? "-",

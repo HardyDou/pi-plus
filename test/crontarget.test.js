@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { describeJobTarget, printCronJobs } from "../src/commands.js";
+import { cronRow, describeJobTarget, printCronJobs } from "../src/commands.js";
 
 const config = {
   nodes: [{ name: "t114" }],
@@ -94,4 +94,29 @@ test("a long status stays readable: the verdict word in the table, the sentence 
   assert.ok(!table.includes("nothing to nudge yet"), "the full sentence is not in the table");
   assert.ok(rows.some((line) => /1 deferred — nothing was sent/.test(line)), "and one line explains it");
   assert.ok(!rows.some((line) => /past due/.test(line)), "a deferred job is not counted as a stalled tick");
+});
+
+test("a deferred job waits, it is not late", () => {
+  const row = cronRow({
+    id: "cc0002",
+    session: "web",
+    action: "prompt",
+    schedule: { kind: "every", every: 600 },
+    createdAt: new Date(Date.now() - 3600_000).toISOString(),
+    runs: 5,
+    lastStatus: "deferred: web is working — the next tick will deliver",
+  });
+  assert.equal(row.late, false, "a deferred job is not late");
+  assert.equal(row.deferred, true);
+  assert.match(row.next, /^waiting \(/, `next should read waiting, got ${row.next}`);
+
+  const ordinary = cronRow({
+    id: "cc0003",
+    session: "web",
+    action: "prompt",
+    schedule: { kind: "every", every: 600 },
+    createdAt: new Date(Date.now() - 3600_000).toISOString(),
+    lastStatus: "delivered",
+  });
+  assert.equal(ordinary.deferred, false);
 });

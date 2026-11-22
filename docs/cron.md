@@ -121,6 +121,9 @@ its schedule and history are kept — pp cron ls
 1 deferred — the target was busy, the next tick retries: pp why a59cfc
 ```
 
+`NEXT` 列同理：deferred 的任务保持原到期时刻（下一拍会重试），所以显示
+`waiting (22:19)` 而不是 `late 2m`。
+
 而且 `deferred` 不再被算进 `N job(s) past due`（那条是"tick 可能没在跑"的诊断，
 deferred 恰恰说明 tick 在跑、目标正忙）。
 
