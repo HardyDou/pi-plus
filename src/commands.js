@@ -428,10 +428,22 @@ function readConfigText(path) {
  * later is "what did it change" — so diff the file around the write and keep the
  * first few field-level lines. Writes that change nothing record nothing.
  */
-function auditedWrite({ config, action, target, node = null, dryRun = false }, write) {
+// exported for the test that proves a bad edit is rolled back
+export function auditedWrite({ config, action, target, node = null, dryRun = false }, write) {
   const before = dryRun ? null : readConfigText(config?.path);
   const result = write();
   if (dryRun || before === null) return result;
+  // every writer goes through here, so the check goes here too: the file we just
+  // produced has to be one pp can read back, or the next command fails on the
+  // operator's machine with a parse error and no idea which edit caused it
+  try {
+    loadConfig({ configPath: config.path, cwd: process.cwd() });
+  } catch (error) {
+    writeFileSync(config.path, before);
+    const failure = new Error(`the edit produced a config pp cannot read — put the previous one back (${firstLine(error.message, 140)})`);
+    failure.rolledBack = true;
+    throw failure;
+  }
   const after = readConfigText(config.path);
   if (after === null || after === before) return result;
   const { total, lines } = configChanges(before, after);

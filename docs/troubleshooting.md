@@ -549,3 +549,14 @@ pp backup --list  ·  pp restore <another>  ·  pp restore 2026-11-20T09-12-08-4
 - 写盘之后还会再解析一次（`--force` 之后的兜底）：仍不通就把刚才那份放回去，
   并说清"临时副本在哪"（`what was there before is in …`）
 - 恢复前的现状**总会**先做一份备份，所以 `--force` 不会把你唯一的好配置弄丢
+
+## 改配置改坏了：`pp` 自己会回滚
+
+`pp role` / `pp mv` / `pp rm` / `pp adopt` / `pp node add` 这些会写 `plus.yml` 的命令，
+在写完之后都会把文件**读回来解析一次**。解析不通过就立刻把刚才那份写回去：
+
+```
+error: the edit produced a config pp cannot read — put the previous one back (…: line 4)
+```
+
+理由很直接：写坏了要等到**下一条命令**才炸，而那时你已经不记得是哪次编辑干的。
