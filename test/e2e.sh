@@ -1327,6 +1327,10 @@ check "an unknown backup is refused"      2 'no backup'     bash -c "cd $E2E && 
 # take a working machine and hand back a broken config
 check "a corrupt backup is refused"       1 'does not parse' bash -c "cd $E2E && PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG backup >/dev/null 2>&1; LAST=\$(ls -1 $E2E/backups | sort | tail -1); printf 'version: 1\nsessions:\n  - name: x\n   cwd: /tmp\n' > \"$E2E/backups/\$LAST/plus.yml\"; PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG restore latest --force 2>&1"
 check "and the live config is untouched"  0 ''               bash -c "cd $E2E && grep -q 'e-always' $CFG"
+check "a whole backup verifies"           0 'every file is the size' bash -c "cd $E2E && PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG backup >/dev/null 2>&1 && PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG backup --verify 2>&1"
+check "a truncated backup is caught"      1 'but the manifest says'  bash -c "cd $E2E && LAST=\$(ls -1 $E2E/backups | sort | tail -1); truncate -s 5 \"$E2E/backups/\$LAST/plus.yml\"; PP_BACKUP_DIR=$E2E/backups $ROOT/bin/pp.js -c $CFG backup --verify 2>&1"
+check "doctor notices the rotten backup"  1 'but the manifest says'  bash -c "cd $E2E && PP_BACKUP_DIR=$E2E/backups XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js -c $CFG doctor 2>&1"
+
 
 section "why a job (pp why <id>)"
 check "it says when the job runs next"   0 'next '        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK cron add --every 10m --session e-always 'why-job probe' | awk '{print \$2}' | tr -d ':' > $E2E/whyjob.id; $ROOT/bin/pp.js -c $CFG --socket $SOCK why \$(cat $E2E/whyjob.id) 2>&1"

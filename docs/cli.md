@@ -912,6 +912,19 @@ dry run — nothing was written
 它是一份**普通目录拷贝**，不是压缩包 —— 凌晨用 `ls` 和 `cat` 就能看，`pp restore` 也不依赖任何东西。
 
 - `--keep <n>`（默认 10）写完顺手清掉最旧的；`--list` 看已有；`--out <dir>` 存到别处（NAS、仓库）
+
+`--verify [name]`（默认最新一份）逐个文件对比"实际大小"与"manifest 里记的大小"：
+磁盘写满会截断文件、手清理会删掉文件，而 `--list` 显示的是 manifest **声称**的大小。
+
+```bash
+$ pp backup --verify
+2026-05-01T10-00-12-345  5 file(s)
+  plus.yml     ok
+  state.json   bad — 12 B
+error: plus.yml is 12 B but the manifest says 3.1 KB
+```
+
+`pp doctor` 的 `backup` 那一项跑的是同一个检查（最新一份）。
 - `pp restore` 先给 diff（就是 `pp audit --action config.changed` 那份），要 `--force` 才真写
 - 覆盖之前会**再备份一次**，所以"恢复错了"本身也能恢复
 - 目录名带毫秒：同一秒内跑两次不会互相覆盖（早期版本会，导致"恢复回来的还是错的"）

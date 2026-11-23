@@ -20,7 +20,7 @@ import {
   shellQuote,
 } from "./config.js";
 import { agoText, auditActor, auditPath, formatAuditEntry, pruneAudit, readAudit, recordAudit, stateDir } from "./audit.js";
-import { BACKUP_KEEP, backupDir, backupPlan, describeBackup, listBackups, pruneBackups, restorePlan, writeBackup } from "./backup.js";
+import { BACKUP_KEEP, backupDir, backupPlan, describeBackup, listBackups, pruneBackups, restorePlan, verifyBackup, writeBackup } from "./backup.js";
 import { clearPanel, findPanelPane, loadPanel, panelAlive, savePanel } from "./panel.js";
 import { readRemotePiConfig, remotePiConfigPath, writeRemotePiName } from "./remote-pi.js";
 import {
@@ -5706,10 +5706,17 @@ function cmdDoctor(config, options, ui) {
     const backups = listBackups(backupDir(process.env));
     const newest = backups[backups.length - 1];
     const newestAt = newest ? describeBackup(newest.path).at : null;
+    // a backup nobody has opened in a month is a hope, not a copy: check the
+    // newest one is still whole before calling this "fine"
+    const intact = newest ? verifyBackup(newest.path) : null;
     add(
       "backup",
-      true,
-      newest ? `last ${newestAt ? agoText(newestAt, new Date()) : newest.name} — ${newest.name}` : "none yet — pp backup before you edit the config",
+      !intact || intact.ok,
+      !newest
+        ? "none yet — pp backup before you edit the config"
+        : intact && !intact.ok
+          ? `${newest.name}: ${intact.problems[0]} — pp backup`
+          : `last ${newestAt ? agoText(newestAt, new Date()) : newest.name} — ${newest.name}, ${intact?.files.length ?? 0} file(s), intact`,
       "pp backup",
     );
   }
@@ -7439,6 +7446,35 @@ async function cmdCronAdd(config, options, ui) {
 async function cmdBackup(config, options, ui) {
   const env = process.env;
   const target = options.out ? expandPath(String(options.out), env) : backupDir(env);
+  if (options.verify !== undefined) {
+    const ref = String(options.verify) || "latest";
+    const all = listBackups(target);
+    const chosen =
+      ref === "latest"
+        ? all[all.length - 1]
+        : ref.includes("/")
+          ? { name: basename(ref), path: expandPath(ref, env) }
+          : all.find((entry) => entry.name === ref || entry.name.startsWith(ref));
+    if (!chosen) {
+      ui.error(`no backup "${ref}" — see: pp backup --list`);
+      process.exitCode = 2;
+      return;
+    }
+    const report = verifyBackup(chosen.path);
+    if (ui.json) {
+      ui.out(JSON.stringify({ backup: chosen.name, ...report }, null, 2));
+    } else {
+      ui.out(`${ui.paint("bold", chosen.name)}  ${report.files.length} file(s)`);
+      for (const file of report.files) {
+        const size = file.bytes === null ? "gone" : humanBytes(file.bytes);
+        ui.out(`  ${file.name.padEnd(12)} ${file.ok ? ui.paint("green", "ok") : ui.paint("red", `bad — ${size}`)}`);
+      }
+      if (report.ok) ui.out(ui.paint("dim", "every file is the size the manifest recorded"));
+      for (const line of report.problems) ui.error(line);
+    }
+    if (!report.ok) process.exitCode = 1;
+    return;
+  }
   if (options.list) {
     const all = listBackups(target);
     if (ui.json) {

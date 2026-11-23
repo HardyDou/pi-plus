@@ -112,6 +112,9 @@ function parseArgs(argv) {
         case "--keep": options.keep = takeValue(flag, inline); break;
         case "--out": options.out = takeValue(flag, inline); break;
         case "--list": options.list = true; break;
+          case "--verify":
+            options.verify = inline !== undefined ? String(inline) : "latest";
+            break;
         case "--grep": options.grep = takeValue(flag, inline); break;
         case "--context": options.context = takeValue(flag, inline); break;
         case "--ignore-case": options.ignoreCase = true; break;

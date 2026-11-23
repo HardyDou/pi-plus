@@ -7,7 +7,7 @@
  * at 3am: it is a directory with today's time on it, holding the files pp reads.
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 export const BACKUP_KEEP = 10;
 export const BACKUP_FILES = ["state.json", "cron.json", "panel.json", "todos.json", "audit.log"];
@@ -92,6 +92,39 @@ export function describeBackup(dir) {
         .map((name) => ({ name, bytes: statSync(join(dir, name)).size }))
     : [];
   return { at: null, files };
+}
+
+/**
+ * Is this backup still whole? Backups rot: a full disk truncates a copy, a
+ * prune removes a directory while the manifest stays, someone tidies a file
+ * away. Listing sizes only proves what the manifest *claims*.
+ */
+export function verifyBackup(dir) {
+  const manifestPath = join(dir, "manifest.json");
+  if (!existsSync(manifestPath)) {
+    return { ok: false, problems: [`${basename(dir)} has no manifest`], files: [] };
+  }
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  } catch (error) {
+    return { ok: false, problems: [`${basename(dir)} has a manifest that does not parse (${error.message})`], files: [] };
+  }
+  const files = [];
+  const problems = [];
+  for (const file of manifest.files ?? []) {
+    const path = join(dir, file.name);
+    if (!existsSync(path)) {
+      problems.push(`${file.name} is gone`);
+      files.push({ name: file.name, ok: false, bytes: null, expected: file.bytes ?? null });
+      continue;
+    }
+    const bytes = statSync(path).size;
+    const ok = bytes === file.bytes;
+    if (!ok) problems.push(`${file.name} is ${bytes} B but the manifest says ${file.bytes} B`);
+    files.push({ name: file.name, ok, bytes, expected: file.bytes ?? null });
+  }
+  return { ok: problems.length === 0, problems, files };
 }
 
 /** Which of the backup's files still exist next to the live ones. */
