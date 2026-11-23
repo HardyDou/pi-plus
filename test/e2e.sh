@@ -1204,6 +1204,12 @@ sessions:
     restart: \"no\"
 EOF
 env HOME=$BINDHOME XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js -c $E2E/bind2.yml bind one 2>&1"
+# pi records --name as a session_info event; that is what tells two agents
+# sharing one directory apart
+printf '{"type":"session_info","id":"e1","name":"one"}\n' \
+  >> "$BINDHOME/.pi/agent/sessions/--$BINDSLUG--/2026-11-22T00-00-00-000Z_01a1e833-6bdc-7139-abc2-bdb6706d849d.jsonl"
+check "the recorded name picks the right file" 0 'one . 01a1e833' \
+  bash -c "env HOME=$BINDHOME XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js -c $E2E/bind2.yml bind one 2>&1"
 check "an explicit id is written"            0 'two . 01a1e833-6bdc-7139-abc2-bdb6706d849d' \
   bash -c "env HOME=$BINDHOME XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js -c $E2E/bind2.yml bind two --id 01a1e833-6bdc-7139-abc2-bdb6706d849d 2>&1"
 check "a forced id lands in the config"      0 'pi_session: 01a1e833'  bash -c "grep pi_session $E2E/bind2.yml"

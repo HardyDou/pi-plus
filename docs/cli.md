@@ -584,10 +584,10 @@ api → 01a20308-8d42-720b-84e7-76007e4d4e00  (4m ago, 52 KB)
 next restart returns to this conversation: pp restart api
 ```
 
-同一个 cwd 上有多个 pi 会话时（一个仓库里两个 agent），"最新的那个文件"可能属于邻居，把两个 agent 接进同一个对话是数据破坏 —— 这种情况它列候选并**拒绝**，等你用 `--id` 指认：
+同一个 cwd 上有多个 pi 会话时（一个仓库里两个 agent），靠**pi 记录的名字**区分：会话文件里的 `session_info` 事件记着 `--name` 给的名字，`bind` 挑名字匹配的最新那个。名字也对不上时它列候选并**拒绝**，等你用 `--id` 指认 —— 把两个 agent 接进同一个对话是数据破坏，不该猜：
 
 ```
-$ pp bind bh-system-01
+$ pp bind api            # 没有任何会话文件带着这个名字时
 error: /data/.../baohan-system has more than one pi session (bh-system-02) — pick the id by hand
   01a1e833-6bdc-7139-abc2-bdb6706d849d  6m ago · 18182 KB
 then: pp bind bh-system-01 --id <id>

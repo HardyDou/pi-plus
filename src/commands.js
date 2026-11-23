@@ -6905,7 +6905,9 @@ export function rolesInUse(config) {
 
 /** Conversations pi already has on disk for this machine/session, newest first. */
 function bindCandidates(config, session) {
-  if (!session.node) return listPiSessions(session.cwd).sessions.map((entry) => ({ ...entry }));
+  if (!session.node) {
+    return listPiSessions(session.cwd, process.env, { withNames: true }).sessions.map((entry) => ({ ...entry }));
+  }
   const node = config.nodes.find((entry) => entry.name === session.node);
   if (!node) return [];
   const slug = session.cwd.replace(/^\/+/, "").replace(/\//g, "-");
@@ -6913,8 +6915,9 @@ function bindCandidates(config, session) {
     `d="$HOME/.pi/agent/sessions/--${slug}--"`,
     '[ -d "$d" ] || exit 0',
     'find "$d" -maxdepth 1 -name "*.jsonl" -printf "%T@|%s|%p\\n" 2>/dev/null | sort -rn | head -5 | while IFS="|" read -r mtime bytes path; do',
-    "  id=$(head -c 400 \"$path\" | sed -n 's/.*\"id\":\"\\([^\"]*\\)\".*/\\1/p')",
-    '  [ -n "$id" ] && echo "$id|$mtime|$bytes"',
+    "  id=$(head -c 400 \"$path\" | sed -n 's/.*\"id\":\"\([^\"]*\)\".*/\\1/p')",
+    "  label=$(tail -c 400000 \"$path\" | grep -o '\"type\":\"session_info\"[^}]*\"name\":\"[^\"]*\"' | tail -1 | sed -n 's/.*\"name\":\"\([^\"]*\)\".*/\\1/p')",
+    '  [ -n "$id" ] && echo "$id|$mtime|$bytes|$label"',
     'done',
   ].join("\n");
   const result = runOnNode(node, [script], { timeout: 20000 });
@@ -6924,8 +6927,8 @@ function bindCandidates(config, session) {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const [id, mtime, bytes] = line.split("|");
-      return { id, modified: Number(mtime) * 1000, bytes: Number(bytes), name: id };
+      const [id, mtime, bytes, label] = line.split("|");
+      return { id, modified: Number(mtime) * 1000, bytes: Number(bytes), name: id, displayName: label || null };
     });
 }
 
@@ -6967,6 +6970,32 @@ export function cmdBind(config, options, ui) {
     if (!candidates.length) {
       ui.error(`no pi conversation for ${session.cwd} yet — start ${session.name} once, then bind`);
       process.exitCode = 1;
+      return;
+    }
+    // A conversation records the name it was given (`session_info`), so when two
+    // agents share a directory the name is what tells them apart. Several files
+    // can carry the same name — that is the pile-up this command exists to stop,
+    // and the one still being written is the newest.
+    const label = session.piSessionName ?? session.name;
+    const named = candidates.filter((entry) => entry.displayName === label);
+    if (named.length) {
+      const pick = named[0];
+      if (options.dryRun) {
+        ui.out(ui.paint("dim", `[dry-run] would write pi_session: ${pick.id} to ${config.path} (matched by name ${label})`));
+        return;
+      }
+      auditedWrite({ config, action: "config.changed", target: session.name }, () =>
+        setSessionFieldInFile(config.path, session.name, "pi_session", pick.id),
+      );
+      ui.info(
+        `${ui.paint("bold", session.name)} → ${ui.paint("bold", pick.id)}${ui.paint("dim", `  (${ageOf(pick.modified)}, ${Math.round(pick.bytes / 1024)} KB, matched by name ${label})`)}`,
+      );
+      if (named.length > 1) {
+        ui.info(
+          ui.paint("dim", `${named.length - 1} older conversation(s) carry the same name — pick another: pp bind ${session.name} --id <id>`),
+        );
+      }
+      ui.info(ui.paint("dim", `next restart returns to this conversation: pp restart ${session.name}`));
       return;
     }
     if (siblings.length) {
