@@ -5844,7 +5844,7 @@ function cmdDoctor(config, options, ui) {
   const autostart = autostartState();
   add(
     "autostart",
-    Boolean(autostart.kind) && autostart.installed && autostart.enabled,
+    Boolean(autostart.kind) && autostart.installed && autostart.enabled && autostart.health?.ok !== false,
     describeAutostart(autostart),
     "pp install",
   );

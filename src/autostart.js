@@ -167,6 +167,32 @@ function run(command, args, { allowFailure = false } = {}) {
   return out;
 }
 
+/**
+ * Does the unit still point at files that exist? The service line and its PATH
+ * both carry absolute paths, and a node upgrade moves them — after which the
+ * unit stays "enabled" and "last run ok" (from before the upgrade) while every
+ * boot quietly starts nothing.
+ */
+export function unitHealth(text, { exists = existsSync } = {}) {
+  const problems = [];
+  const start = /^ExecStart=(.*)$/m.exec(String(text ?? ""));
+  if (!start) problems.push("the unit has no ExecStart");
+  else {
+    const tokens = start[1].trim().split(/\s+/).map((token) => token.replace(/^["']|["']$/g, ""));
+    // ExecStart=/usr/bin/env node <script> … — the script is the first path
+    const script = tokens.slice(1).find((token) => token.includes("/"));
+    if (!script) problems.push("the unit does not name the pp script");
+    else if (!exists(script)) problems.push(`the unit runs ${script}, which is gone`);
+  }
+  const env = /^Environment=PATH=(.*)$/m.exec(String(text ?? ""));
+  if (env) {
+    const dirs = env[1].trim().split(":").filter(Boolean);
+    const found = dirs.some((dir) => exists(join(dir, "node")));
+    if (!found) problems.push(`the unit's PATH has no node (${dirs[0] ?? "empty"})`);
+  }
+  return { ok: problems.length === 0, problems };
+}
+
 export function autostartState(kind = autostartKind()) {
   if (kind === "systemd") {
     const unitName = serviceName();
@@ -184,6 +210,12 @@ export function autostartState(kind = autostartKind()) {
       const at = line.indexOf("=");
       if (at > 0) props[line.slice(0, at)] = line.slice(at + 1).trim();
     }
+    let health = { ok: true, problems: [] };
+    try {
+      health = unitHealth(readFileSync(servicePath, "utf8"));
+    } catch {
+      health = { ok: false, problems: [`cannot read ${servicePath}`] };
+    }
     return {
       kind,
       installed: true,
@@ -191,6 +223,7 @@ export function autostartState(kind = autostartKind()) {
       active: props.ActiveState ?? null,
       result: props.Result ?? null,
       path: servicePath,
+      health,
     };
   }
   if (kind === "launchd") {
@@ -211,6 +244,7 @@ export function describeAutostart(state) {
     const failed = state.result && state.result !== "success";
     bits.push(`last run ${failed ? state.result : "ok"}`);
   }
+  if (state.health && !state.health.ok) bits.push(state.health.problems[0]);
   return bits.join(", ");
 }
 

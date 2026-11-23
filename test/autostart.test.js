@@ -99,3 +99,20 @@ test("the unit name is a knob, so a test run cannot stop the real service", () =
   assert.match(renderSystemdTimer({ intervalSeconds: 60, env: {} }), /Unit=pi-plus\.service/);
   assert.match(renderSystemdTimer({ intervalSeconds: 60, env: { PP_UNIT_NAME: "other" } }), /Unit=other\.service/);
 });
+
+test("a unit whose paths moved is not healthy", async () => {
+  const { renderSystemdService, unitHealth } = await import("../src/autostart.js");
+  const text = renderSystemdService({ scriptPath: "/srv/pp.js", configPath: "/home/u/.pi/plus.yml" });
+  const present = new Set(["/srv/pp.js"]);
+  const exists = (path) => present.has(path) || path.endsWith("/node");
+  assert.deepEqual(unitHealth(text, { exists }).problems, []);
+
+  const moved = unitHealth(text.replace("/srv/pp.js", "/old/pp.js"), { exists });
+  assert.equal(moved.ok, false);
+  assert.deepEqual(moved.problems, ["the unit runs /old/pp.js, which is gone"]);
+
+  // a node that moved out of the unit's PATH is the other half of the same bug
+  const noNode = unitHealth(text, { exists: (path) => path === "/srv/pp.js" });
+  assert.equal(noNode.ok, false);
+  assert.match(noNode.problems.join(" "), /PATH has no node/);
+});

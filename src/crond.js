@@ -133,12 +133,14 @@ export function tickHealth(text, { exists = (path) => { try { return statSync(pa
   const tickLine = status.lines.find((line) => line.includes("cron tick"));
   if (!status.installed || !tickLine) return { installed: false, ok: false, problems: ["the crontab has no pp tick"] };
   const quoted = [...tickLine.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+  // `pp` itself runs under a wrapper if the tick was written by 0.50.0+: then the
+  // second path is bin/pp, not pp.js — either is fine as long as it is a file
   const [nodePath, scriptPath] = quoted;
   const problems = [];
   if (!nodePath) problems.push("the tick does not name a node binary");
   else if (!exists(nodePath)) problems.push(`node ${nodePath} is gone`);
-  if (!scriptPath) problems.push("the tick does not name pp.js");
-  else if (!exists(scriptPath)) problems.push(`pp.js ${scriptPath} is gone`);
+  if (!scriptPath) problems.push("the tick does not name a script");
+  else if (!exists(scriptPath)) problems.push(`${scriptPath} is gone`);
   return { installed: true, ok: problems.length === 0, nodePath: nodePath ?? null, scriptPath: scriptPath ?? null, problems };
 }
 

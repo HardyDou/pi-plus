@@ -131,7 +131,7 @@ test("the tick is only healthy if the files it names still exist", async () => {
 
   const noScript = tickHealth(block, { exists: (path) => path === "/usr/bin/node" });
   assert.equal(noScript.ok, false);
-  assert.deepEqual(noScript.problems, ["pp.js /srv/pp.js is gone"]);
+  assert.deepEqual(noScript.problems, ["/srv/pp.js is gone"]);
 
   assert.equal(tickHealth("# nothing\n").installed, false);
 });

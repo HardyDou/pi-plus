@@ -717,6 +717,16 @@ chmod +x "$TICKSHIM/crontab"
 check "doctor sees a tick that cannot run" 1 'tick cannot run' bash -c "cd $E2E && PATH=$TICKSHIM:\$PATH XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js doctor 2>&1"
 check "a job exists to be starved"        0 '' bash -c "cd $E2E && XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js cron add --command true --every 1h >/dev/null 2>&1"
 check "the same paths, nothing flagged"   0 '' bash -c "cd $E2E && XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js doctor 2>&1 | grep -q 'tick cannot run' && exit 1; exit 0"
+
+# the same bug one layer up: a unit whose ExecStart points at a moved pp.js
+XDGUNIT=$E2E/xdg-unit
+mkdir -p "$XDGUNIT/systemd/user"
+cat > "$XDGUNIT/systemd/user/${PP_UNIT_NAME}.service" <<UNIT
+[Service]
+ExecStart=/usr/bin/env node /nonexistent/pp.js up --reconcile --quiet
+Environment=PATH=/nonexistent/bin:/usr/bin
+UNIT
+check "doctor sees a unit that cannot run" 1 'which is gone' bash -c "cd $E2E && XDG_CONFIG_HOME=$XDGUNIT XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js doctor 2>&1"
 check "cron rm removes job"       0 'removed [0-9a-f]'                  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron rm $CMD_ID"
 # pause is not delete: the schedule and the history survive being silenced
 bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG cron add --session e-always --every 9m 'paused one'" > /dev/null 2>&1
