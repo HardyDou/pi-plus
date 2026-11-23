@@ -4,7 +4,7 @@ _pp() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local commands="tui panel back new n create up start down stop rm remove delete adopt role plan runbook handover shift snapshot why explain mv restart status busy working doing ls list attach a logs log send mesh audit backup restore cron todo todos node nodes check clean validate doctor init install autostart uninstall alias link update upgrade version help"
+  local commands="tui panel back new n create up start down stop rm remove delete adopt bind role plan runbook handover shift snapshot why explain mv restart status busy working doing ls list attach a logs log send mesh audit backup restore cron todo todos node nodes check clean validate doctor init install autostart uninstall alias link update upgrade version help"
 
   case "$prev" in
     -c|--config)

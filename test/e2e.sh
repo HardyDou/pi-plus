@@ -1169,6 +1169,45 @@ check "mv brings a session home"   0 'moved mv-x'               bash -c "cd $E2E
 check "mv drops only that node line" 0 'clean'                  bash -c "grep -A2 'name: mv-x' $MVCFG | grep -q node: && echo still-there || echo clean"
 check "mv leaves the neighbour alone" 0 '^1$'                   bash -c "grep -c 'name: bystander' $MVCFG"
 check "mv sends it back out"       0 'moved mv-x'               bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $MVCFG --socket $SOCK mv mv-x --node far --force"
+section "bind (pin a pi session)"
+# a fake pi history so bind has something to find, and two sessions in one cwd
+BINDCWD="/tmp/pp-bind-$$"
+mkdir -p "$BINDCWD"
+BINDHOME="$E2E/bindhome"
+BINDSLUG=$(printf '%s' "$BINDCWD" | sed 's#^/##; s#/#-#g')
+mkdir -p "$BINDHOME/.pi/agent/sessions/--$BINDSLUG--"
+printf '{"type":"session","version":3,"id":"01a1e833-6bdc-7139-abc2-bdb6706d849d","cwd":"%s"}\n' "$BINDCWD" \
+  > "$BINDHOME/.pi/agent/sessions/--$BINDSLUG--/2026-11-22T00-00-00-000Z_01a1e833-6bdc-7139-abc2-bdb6706d849d.jsonl"
+printf '{"type":"session","version":3,"id":"01a20308-8d42-720b-84e7-76007e4d4e00","cwd":"%s"}\n' "$BINDCWD" \
+  > "$BINDHOME/.pi/agent/sessions/--$BINDSLUG--/2026-11-23T00-00-00-000Z_01a20308-8d42-720b-84e7-76007e4d4e00.jsonl"
+touch -d '2026-11-22T00:00:00Z' "$BINDHOME/.pi/agent/sessions/--$BINDSLUG--/2026-11-22T00-00-00-000Z_01a1e833-6bdc-7139-abc2-bdb6706d849d.jsonl"
+cat > "$E2E/bind.yml" <<EOF
+version: 1
+sessions:
+  - name: solo
+    cwd: $BINDCWD
+    restart: "no"
+    node: null
+EOF
+check "bind writes the newest conversation" 0 'solo . 01a20308-8d42-720b-84e7-76007e4d4e00' \
+  bash -c "env HOME=$BINDHOME XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js -c $E2E/bind.yml bind solo 2>&1"
+check "bind wrote pi_session"                0 'pi_session: 01a20308'  bash -c "grep pi_session $E2E/bind.yml"
+check "bind is idempotent"                   0 'already uses'          bash -c "env HOME=$BINDHOME XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js -c $E2E/bind.yml bind solo 2>&1"
+check "a shared cwd refuses to guess"        2 'pick the id by hand'    bash -c "cat > $E2E/bind2.yml <<EOF
+version: 1
+sessions:
+  - name: one
+    cwd: $BINDCWD
+    restart: \"no\"
+  - name: two
+    cwd: $BINDCWD
+    restart: \"no\"
+EOF
+env HOME=$BINDHOME XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js -c $E2E/bind2.yml bind one 2>&1"
+check "an explicit id is written"            0 'two . 01a1e833-6bdc-7139-abc2-bdb6706d849d' \
+  bash -c "env HOME=$BINDHOME XDG_STATE_HOME=$E2E/state $ROOT/bin/pp.js -c $E2E/bind2.yml bind two --id 01a1e833-6bdc-7139-abc2-bdb6706d849d 2>&1"
+check "a forced id lands in the config"      0 'pi_session: 01a1e833'  bash -c "grep pi_session $E2E/bind2.yml"
+
 section "adopt"
 ADOPTCFG="$E2E/adopt.yml"
 printf 'version: 1\nsessions:\n  - name: keeper\n    cwd: /tmp\n    agent: bash\n    restart: "no"\n' > "$ADOPTCFG"

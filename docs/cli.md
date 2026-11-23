@@ -572,6 +572,34 @@ pp adopt --all --node prod-01
 如果 pane 跑的不是常见 agent（不是 `pi`/`bash`/`node` 之类），会提醒你 `--agent` 手动记一个，
 免得下次 `pp up` 去执行一个跑不起来的命令。
 
+### `pp bind <会话> [--id <session-id>]`
+
+把会话钉在**一个** pi 对话上。`pi --name` 只是给对话起名，不负责重开；没有 `--session-id` 时每次启动都是新对话、只是名字一样 —— 所以一个目录会堆一串 session 文件，重启看起来像失忆。
+
+```
+$ pp bind api
+binding the newest of 2 conversations:
+  01a20308-8d42-720b-84e7-76007e4d4e00  4m ago · 52 KB
+api → 01a20308-8d42-720b-84e7-76007e4d4e00  (4m ago, 52 KB)
+next restart returns to this conversation: pp restart api
+```
+
+同一个 cwd 上有多个 pi 会话时（一个仓库里两个 agent），"最新的那个文件"可能属于邻居，把两个 agent 接进同一个对话是数据破坏 —— 这种情况它列候选并**拒绝**，等你用 `--id` 指认：
+
+```
+$ pp bind bh-system-01
+error: /data/.../baohan-system has more than one pi session (bh-system-02) — pick the id by hand
+  01a1e833-6bdc-7139-abc2-bdb6706d849d  6m ago · 18182 KB
+then: pp bind bh-system-01 --id <id>
+```
+
+手查 id：`ls -t ~/.pi/agent/sessions/--<slug>--/*.jsonl`，看首行的 `id`。`pp doctor` 会一直留一条 `pi sessions`，直到每个 pi 会话都钉住。
+
+| 选项 | 说明 |
+| --- | --- |
+| `--id <session-id>` | 钉这个对话，而不是最新的那个 |
+| `--dry-run` | 只打印将要写入的内容 |
+
 ### `pp mv <name|#> --node <machine> | --local`
 
 把一条会话挪到另一台机器：在原来的地方停掉、改配置里那一行 `node:`、在新地方起来。

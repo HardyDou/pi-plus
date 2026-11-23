@@ -74,6 +74,9 @@ function parseArgs(argv) {
         options.from = takeValue("--from", inline);
         break;
 
+        case "--id":
+          options.id = takeValue("--id", inline);
+          break;
         case "--role":
           options.role = takeValue("--role", inline);
           break;

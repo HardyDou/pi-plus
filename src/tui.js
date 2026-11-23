@@ -557,11 +557,21 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     draw();
   }
 
+  /** Put the terminal back, whatever killed us: a raw-mode shell is unusable. */
+  function restoreTerminal() {
+    try {
+      io.output.write(`${SHOW_CURSOR}${WRAP_ON}${MAIN_SCREEN}`);
+      io.input.setRawMode?.(false);
+    } catch {
+      // the tty may already be gone; nothing useful to do
+    }
+  }
+
   function cleanup() {
     running = false;
     if (timer) clearInterval(timer);
     timer = null;
-    io.output.write(`${SHOW_CURSOR}${WRAP_ON}${MAIN_SCREEN}`);
+    restoreTerminal();
   }
 
   function enterScreen() {
@@ -779,6 +789,8 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
       return state;
     },
     noteFromAttach,
+    // a signal must not leave the shell in raw mode with the cursor hidden
+    restoreTerminal,
   };
 }
 

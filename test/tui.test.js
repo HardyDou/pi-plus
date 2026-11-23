@@ -692,3 +692,22 @@ test("a session that is busy but silent is marked stuck, not healthy", async () 
   assert.equal(stuck.warn, true, "the same yellow ! as a quiet session");
   assert.match(stuck.label, / !/);
 });
+
+test("restoreTerminal undoes raw mode, cursor and the alternate screen", async () => {
+  const { createTui } = await import("../src/tui.js");
+  const calls = [];
+  const io = {
+    size: () => ({ cols: 100, rows: 30 }),
+    output: { write: (text) => calls.push(text) },
+    input: { setRawMode: (on) => calls.push(`raw:${on}`), resume() {}, pause() {}, setEncoding() {}, on() {} },
+    onResize() {},
+    refresh: async () => ({ sessions: [], todos: [], preview: "" }),
+  };
+  const tui = createTui({ io });
+  calls.length = 0;
+  tui.restoreTerminal();
+  const text = calls.filter((entry) => typeof entry === "string" && entry.startsWith("\u001b")).join("");
+  assert.match(text, /\u001b\[\?1049l/, "leaves the alternate screen");
+  assert.match(text, /\u001b\[\?7h/, "turns wrapping back on");
+  assert.ok(calls.includes("raw:false"), "raw mode off");
+});

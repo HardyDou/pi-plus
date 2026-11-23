@@ -3,7 +3,8 @@ import test from "node:test";
 import { COMMANDS, commandNames, findCommand, renderCommandHelp, renderOverview, suggestCommand } from "../src/help.js";
 
 const CANONICAL = ["new", "node", "audit", "up", "down", "rm", "restart",
-  "adopt", "role", "plan", "runbook", "handover",
+  "adopt",
+  "bind", "role", "plan", "runbook", "handover",
   "snapshot", "backup", "restore",
   "why", "mv", "status", "busy", "attach", "logs", "send", "mesh", "cron", "todo", "tui", "back", "check", "clean", "doctor", "init", "install", "uninstall", "alias", "update", "version", "help"];
 

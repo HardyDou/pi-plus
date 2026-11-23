@@ -152,6 +152,7 @@ import {
   TodoError,
 } from "./todo.js";
 import { computeLayout, createTui, displayWidth, parseLeftOption, renderFrame, stripAnsi } from "./tui.js";
+import { ageOf, listPiSessions } from "./pi-sessions.js";
 
 const COLORS = {
   reset: "\u001b[0m",
@@ -2844,7 +2845,20 @@ async function cmdTui(config, options, ui) {
       },
     },
   });
-  await tui.start();
+  // Ctrl-C, `kill`, or a closing terminal would otherwise leave the shell in raw
+  // mode with the cursor hidden and the alternate screen still up
+  const onSignal = (signal) => {
+    tui.restoreTerminal();
+    ui.error(`stopped by ${signal}`);
+    process.exit(128 + (signal === "SIGINT" ? 2 : signal === "SIGHUP" ? 1 : 15));
+  };
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.once(signal, () => onSignal(signal));
+  try {
+    await tui.start();
+  } finally {
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.removeAllListeners(signal);
+    tui.restoreTerminal();
+  }
 }
 
 async function cmdTuiDiag(config, options, ui) {
@@ -5826,6 +5840,22 @@ function cmdDoctor(config, options, ui) {
         // an unreachable pane is not this check's business
       }
     }
+    // `--name` labels a conversation; only `--session-id` reopens one. Without
+    // it every restart starts a fresh conversation under the same name.
+    const unbound = config.sessions.filter((entry) => entry.pi && !entry.piSession);
+    add(
+      "pi sessions",
+      unbound.length === 0,
+      unbound.length
+        ? `${unbound.length} session(s) start a new conversation on every restart (${unbound
+            .slice(0, 3)
+            .map((entry) => entry.name)
+            .join(", ")}${unbound.length > 3 ? `, +${unbound.length - 3}` : ""}) — pp bind ${unbound[0].name}`
+        : config.sessions.some((entry) => entry.pi)
+          ? `every pi session is pinned to one conversation`
+          : "no session runs pi",
+      `pp bind ${unbound[0]?.name ?? "<name>"}`,
+    );
     add(
       "pipes",
       deadPipes.length === 0,
@@ -5888,6 +5918,7 @@ function cmdDoctor(config, options, ui) {
     "own files",
     "drift",
     "logs",
+    "pi sessions",
     "pipes",
     "stalls",
     "tmux server",
@@ -6870,6 +6901,111 @@ export function rolesInUse(config) {
   return [...counts.values()]
     .map((entry) => ({ ...entry, sessions: [...entry.sessions].sort(compareNames), count: entry.sessions.length }))
     .sort((a, b) => b.count - a.count || compareNames(a.role, b.role));
+}
+
+/** Conversations pi already has on disk for this machine/session, newest first. */
+function bindCandidates(config, session) {
+  if (!session.node) return listPiSessions(session.cwd).sessions.map((entry) => ({ ...entry }));
+  const node = config.nodes.find((entry) => entry.name === session.node);
+  if (!node) return [];
+  const slug = session.cwd.replace(/^\/+/, "").replace(/\//g, "-");
+  const script = [
+    `d="$HOME/.pi/agent/sessions/--${slug}--"`,
+    '[ -d "$d" ] || exit 0',
+    'find "$d" -maxdepth 1 -name "*.jsonl" -printf "%T@|%s|%p\\n" 2>/dev/null | sort -rn | head -5 | while IFS="|" read -r mtime bytes path; do',
+    "  id=$(head -c 400 \"$path\" | sed -n 's/.*\"id\":\"\\([^\"]*\\)\".*/\\1/p')",
+    '  [ -n "$id" ] && echo "$id|$mtime|$bytes"',
+    'done',
+  ].join("\n");
+  const result = runOnNode(node, [script], { timeout: 20000 });
+  if (result.error || result.status !== 0) return [];
+  return String(result.stdout ?? "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [id, mtime, bytes] = line.split("|");
+      return { id, modified: Number(mtime) * 1000, bytes: Number(bytes), name: id };
+    });
+}
+
+/**
+ * Pin a session to one pi conversation.
+ *
+ * pi's `--name` only labels a session; without `--session-id` every start is a
+ * fresh conversation that happens to carry the same name. Guessing the id from
+ * "the newest file" is wrong whenever two agents share a directory, so there we
+ * list the candidates and refuse until you pick one.
+ */
+export function cmdBind(config, options, ui) {
+  const [ref] = options.names ?? [];
+  if (!ref) {
+    ui.error("give a session: pp bind <name|#> [--id <session-id>]");
+    process.exitCode = 2;
+    return;
+  }
+  const [session] = selectSessions(config, [ref], ui);
+  if (!session) return;
+  if (!session.pi) {
+    ui.error(`${session.name} does not run pi — there is no pi conversation to pin`);
+    process.exitCode = 2;
+    return;
+  }
+  if (session.piSession) {
+    ui.info(`${ui.paint("dim", session.name)} already uses ${ui.paint("bold", session.piSession)} — nothing to bind`);
+    return;
+  }
+  const candidates = bindCandidates(config, session);
+  const siblings = config.sessions.filter(
+    (other) =>
+      other.name !== session.name && other.pi && other.cwd === session.cwd && (other.node ?? null) === (session.node ?? null),
+  );
+  const describe = (entry) =>
+    `  ${ui.paint("bold", entry.id)}  ${ui.paint("dim", `${ageOf(entry.modified)} · ${Math.round(entry.bytes / 1024)} KB`)}`;
+  const want = options.id ?? null;
+  if (!want) {
+    if (!candidates.length) {
+      ui.error(`no pi conversation for ${session.cwd} yet — start ${session.name} once, then bind`);
+      process.exitCode = 1;
+      return;
+    }
+    if (siblings.length) {
+      ui.error(
+        `${session.cwd} has more than one pi session (${siblings.map((other) => other.name).join(", ")}) — pick the id by hand`,
+      );
+      ui.info(ui.paint("dim", "the newest conversations in that directory:"));
+      for (const entry of candidates.slice(0, 5)) ui.out(describe(entry));
+      ui.info(ui.paint("dim", `then: pp bind ${session.name} --id <id>`));
+      process.exitCode = 2;
+      return;
+    }
+    if (candidates.length > 1) {
+      ui.info(ui.paint("dim", `binding the newest of ${candidates.length} conversations:`));
+      for (const entry of candidates.slice(0, 3)) ui.out(describe(entry));
+    }
+  }
+  const id = want ?? candidates[0].id;
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(id)) {
+    ui.error(`"${id}" is not a pi session id`);
+    process.exitCode = 2;
+    return;
+  }
+  const match = candidates.find((entry) => entry.id === id) ?? null;
+  if (options.dryRun) {
+    ui.out(ui.paint("dim", `[dry-run] would write pi_session: ${id} to ${config.path}`));
+    return;
+  }
+  auditedWrite({ config, action: "config.changed", target: session.name }, () =>
+    setSessionFieldInFile(config.path, session.name, "pi_session", id),
+  );
+  ui.info(
+    `${ui.paint("bold", session.name)} → ${ui.paint("bold", id)}${
+      match
+        ? ui.paint("dim", `  (${ageOf(match.modified)}, ${Math.round(match.bytes / 1024)} KB)`)
+        : ui.paint("dim", "  (no file for it yet — pi will create it)")
+    }`,
+  );
+  ui.info(ui.paint("dim", `next restart returns to this conversation: pp restart ${session.name}`));
 }
 
 export function cmdRole(config, options, ui) {
@@ -8389,6 +8525,10 @@ export async function runCommand(command, options) {
     case "role": {
       const config = requireConfig(options, ui);
       return cmdRole(config, options, ui);
+    }
+    case "bind": {
+      const config = requireConfig(options, ui);
+      return cmdBind(config, options, ui);
     }
     case "mv":
     case "move": {
