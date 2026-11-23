@@ -7541,6 +7541,17 @@ async function cmdRestore(config, options, ui) {
     ui.error(`restoring overwrites ${plan.length} file(s) — add --force, or --dry-run to look first`);
     process.exit(1);
   }
+  // a backup is only a backup if it still parses: restoring a truncated file
+  // would take a working machine and give back a broken one
+  if (configEntry) {
+    try {
+      loadConfig({ configPath: configEntry.from, cwd: process.cwd() });
+    } catch (error) {
+      ui.error(`that backup's plus.yml does not parse — ${firstLine(error.message, 160)}`);
+      ui.out(ui.paint("dim", `pp backup --list  ·  pp restore <another>  ·  pp restore ${chosen.name} --dry-run to look`));
+      process.exit(1);
+    }
+  }
   // the state we are about to destroy is worth one last copy
   const safety = writeBackup(target, backupPlan(config?.path ?? null, env));
   let restored = 0;
@@ -7556,6 +7567,24 @@ async function cmdRestore(config, options, ui) {
   }
   ui.out(`restored ${restored} file(s) from ${chosen.name}${failed.length ? ui.paint("red", `, ${failed.length} failed`) : ""}`);
   for (const line of failed) ui.error(line);
+  // and prove it: if what landed cannot be read, put the previous one back
+  if (!failed.length && configEntry) {
+    try {
+      loadConfig({ configPath: configEntry.to, cwd: process.cwd() });
+    } catch (error) {
+      const spare = join(safety.dir, "plus.yml");
+      if (existsSync(spare)) {
+        copyFileSync(spare, configEntry.to);
+        ui.error(`the restored plus.yml does not parse (${firstLine(error.message, 120)}) — put the previous one back`);
+        ui.out(ui.paint("dim", `that one is also in ${safety.dir}`));
+        process.exitCode = 1;
+        return;
+      }
+      ui.error(`the restored plus.yml does not parse (${firstLine(error.message, 120)}) — nothing to roll back to`);
+      process.exitCode = 1;
+      return;
+    }
+  }
   ui.out(ui.paint("dim", `what was there before is in ${safety.dir}`));
   note("restore", chosen.name, { detail: `${restored} file(s)`, result: failed.length ? "partial" : "changed" });
   if (failed.length) process.exitCode = 1;

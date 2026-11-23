@@ -533,3 +533,19 @@ e2e 会真的安装并卸载一个 systemd 用户单元来验证自启，因此�
 `pp restart <name>` 会重新挂上管道并**验证**（`#{pane_pipe}` 为 1 才算成功），
 不再假设"命令返回 0 就是挂上了"。`pp up` 里也加了同样的验证与重试：
 第一个 `pipe-pane -o` 失败时会用不带 `-o` 的形式强制重挂。
+
+## 备份与恢复：`pp restore` 拒绝一份坏备份
+
+`pp restore` 现在会在动手之前先解析备份里的 `plus.yml`：
+
+```
+error: that backup's plus.yml does not parse — …/plus.yml: unexpected indentation (expected 2 spaces) (line 4)
+pp backup --list  ·  pp restore <another>  ·  pp restore 2026-11-20T09-12-08-441 --dry-run to look
+```
+
+一份备份只有在"能恢复出来"的时候才是备份 —— 磁盘写满、手改过、复制中断都会留下
+语法坏掉的文件，而恢复它等于把一台能用的机器换成一台不能用的。
+
+- 写盘之后还会再解析一次（`--force` 之后的兜底）：仍不通就把刚才那份放回去，
+  并说清"临时副本在哪"（`what was there before is in …`）
+- 恢复前的现状**总会**先做一份备份，所以 `--force` 不会把你唯一的好配置弄丢
