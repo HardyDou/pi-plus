@@ -2733,12 +2733,19 @@ async function cmdTui(config, options, ui) {
 
   let tui = null;
   const traceMs = [];
+  let slowNote = "";
   tui = createTui({
     version: options.version ?? "",
     leftWidth,
     sort: options.sort ?? config.sort ?? "config",
     intervalMs: options.refreshSeconds ? Math.round(Number(options.refreshSeconds) * 1000) : 1000,
     staticMode: Boolean(options.staticPanel),
+    onSlow: ({ took }) => {
+      // the frame did not fit in the terminal: stop capturing the pane and say so
+      if (options.noPreview) return;
+      options.noPreview = true;
+      slowNote = `preview off — a frame took ${Math.round(took)}ms`;
+    },
     trace: (sample) => {
       traceMs.push(sample);
       if (traceMs.length > 200) traceMs.shift();
@@ -2762,7 +2769,7 @@ async function cmdTui(config, options, ui) {
         const todos = tuiTodoRows(filterTodos(readTodos()), Date.now());
         const current = sessions[index]?.name ?? sessions[0]?.name;
         let preview = options.noPreview
-          ? { title: "—", lines: ["preview off (--no-preview)"] }
+          ? { title: slowNote ? "preview off — slow link" : "—", lines: [slowNote || "preview off (--no-preview)"] }
           : { title: "—", lines: ["no session selected"] };
         if (current && live.has(current) && !options.noPreview) {
           const wanted = previewLines();

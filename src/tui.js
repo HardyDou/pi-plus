@@ -351,7 +351,16 @@ export function moveSelection(index, length, delta) {
  *   io.onResize(cb)  io.refresh() -> {sessions, todos, preview}
  *   io.attach(name) -> promise settled when tmux gives the terminal back
  */
-export function createTui({ io, version = "", leftWidth = 0, sort = "config", intervalMs = 1000, staticMode = false, trace = null }) {
+export function createTui({
+  io,
+  version = "",
+  leftWidth = 0,
+  sort = "config",
+  intervalMs = 1000,
+  staticMode = false,
+  trace = null,
+  onSlow = null,
+}) {
   let state = {
     sessions: [],
     todos: [],
@@ -776,6 +785,14 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config", in
     } finally {
       const took = Date.now() - started;
       trace?.({ took, writeMs: lastWriteMs, bytes: lastBytes, interval });
+      // Half a second for one frame is not a "slow link", it is a frame the
+      // terminal cannot swallow in time — and while it is blocked, so is the
+      // keyboard. Dropping the preview is the one change that shrinks a frame by
+      // an order of magnitude, so do it before stretching the interval further.
+      if (took > 400 && !options.staticMode) {
+        if (state.sessionIndex === undefined) state.sessionIndex = 0;
+        onSlow?.({ took, bytes: lastBytes });
+      }
       if (took > Math.max(150, interval / 3) && interval < 10000) {
         interval = Math.min(10000, Math.round(interval * 1.5));
         schedule();
