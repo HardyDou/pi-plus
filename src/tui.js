@@ -351,7 +351,7 @@ export function moveSelection(index, length, delta) {
  *   io.onResize(cb)  io.refresh() -> {sessions, todos, preview}
  *   io.attach(name) -> promise settled when tmux gives the terminal back
  */
-export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) {
+export function createTui({ io, version = "", leftWidth = 0, sort = "config", intervalMs = 1000, staticMode = false, trace = null }) {
   let state = {
     sessions: [],
     todos: [],
@@ -410,7 +410,10 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     const shown = filteredIndices().length;
     const filterNote = state.filter ? `filter: ${state.filter} (${shown}/${total}) · / clear · ` : "/ find · ";
     const base = ` ↑↓ move · PgUp/PgDn · Tab · Enter attach · ${filterNote}d done · D start what is off · [ ] width · -/+ rows · f follow · q quit `;
-    const text = extra ? `${paused}${extra}  ${base}` : `${paused}${base}`;
+    // the panel stretched its own interval because the link could not keep up:
+    // say so, otherwise "why is it not updating" has no answer on screen
+    const slow = interval > baseIntervalMs ? `slow ${(interval / 1000).toFixed(1)}s · ` : "";
+    const text = extra ? `${slow}${paused}${extra}  ${base}` : `${slow}${paused}${base}`;
     return `${drift ? `${YELLOW}${drift}${RESET}${DIM} · ` : ""}${DIM}${padWidth(text, io.size().cols)}${RESET}`;
   }
 
@@ -524,6 +527,12 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     if (changed) draw();
   }
 
+  const baseIntervalMs = Math.max(250, Number(intervalMs) || 1000);
+  let interval = baseIntervalMs;
+  let refreshing = false;
+  let lastWriteMs = 0;
+  let lastBytes = 0;
+
   function draw() {
     const { cols, rows } = io.size();
     const layout = computeLayout(cols, rows, { leftWidth: state.leftWidth, todoCount: state.todos.length, todoRows: state.todoRows });
@@ -533,7 +542,14 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
     const lines = renderFrame(model, layout).slice(0, Math.max(1, rows || layout.height));
     const text = paintFrame(lines, { previous: state.painted });
     state.painted = lines;
-    if (text) io.output.write(text);
+    if (!text) return;
+    const startedAt = Date.now();
+    io.output.write(text);
+    // How long the write took is the only honest measure of "is this link keeping
+    // up" — a blocked tty write is also why keystrokes feel stuck.
+    lastWriteMs = Date.now() - startedAt;
+    lastBytes = text.length;
+    state.note = state.note ?? "";
   }
 
   async function refresh(extra = "", { sticky = false } = {}) {
@@ -735,12 +751,50 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
       if (!finished) {
         running = true;
         enterScreen();
-        timer = setInterval(() => {
-          refresh().catch(() => {});
-        }, 1000);
+        schedule();
         await refresh();
       }
     }
+  }
+
+  /**
+   * One tick: refresh, measure, and back off if this terminal cannot keep up.
+   *
+   * Two rules, both learned from "the panel is stuck": never let a slow frame
+   * queue another one behind it, and if a frame takes longer than a fraction of
+   * the interval, stretch the interval instead of redrawing faster than the link
+   * can carry it.
+   */
+  async function tick() {
+    if (refreshing) return;
+    refreshing = true;
+    const started = Date.now();
+    try {
+      await refresh();
+    } catch {
+      // a failed refresh must not stop the clock
+    } finally {
+      const took = Date.now() - started;
+      trace?.({ took, writeMs: lastWriteMs, bytes: lastBytes, interval });
+      if (took > Math.max(150, interval / 3) && interval < 10000) {
+        interval = Math.min(10000, Math.round(interval * 1.5));
+        schedule();
+      } else if (took < interval / 8 && interval > baseIntervalMs) {
+        interval = Math.max(baseIntervalMs, Math.round(interval / 1.5));
+        schedule();
+      }
+      refreshing = false;
+    }
+  }
+
+  function schedule() {
+    if (timer) clearInterval(timer);
+    timer = null;
+    // --static: redraw only when the keyboard says so (the calm option over ssh)
+    if (staticMode) return;
+    timer = setInterval(() => {
+      void tick();
+    }, interval);
   }
 
   return {
@@ -764,9 +818,7 @@ export function createTui({ io, version = "", leftWidth = 0, sort = "config" }) 
           handle(key).catch(() => {});
         }
       });
-      timer = setInterval(() => {
-        refresh().catch(() => {});
-      }, 1000);
+      schedule();
       await refresh();
       return new Promise((resolve) => {
         io.input.on("end", () => {

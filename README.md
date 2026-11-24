@@ -552,6 +552,7 @@ pp rm <name|#>...             删除（杀掉会话 + 从配置里删掉这一�
 pp restart [name|#...]        重启（遵守 restart 策略）
 pp adopt [name...]            把已在跑但配置里没有的会话登记进来（--all、--node）
 pp bind <name>                把会话钉在一个 pi 对话上（否则每次重启都是新对话）
+pp tui --static               面板只在按键时重画（慢链路/ssh）
 pp mv <name|#> --node <机器>  把会话搬到别的机器（--local 搬回本机、--cwd 换目录）
 
 # 看

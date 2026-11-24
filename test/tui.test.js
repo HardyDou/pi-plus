@@ -24,6 +24,8 @@ import {
   truncateWidth,
 } from "../src/tui.js";
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 const plain = (line) => stripAnsi(line);
 
 test("displayWidth counts CJK and ignores colour codes", () => {
@@ -710,4 +712,60 @@ test("restoreTerminal undoes raw mode, cursor and the alternate screen", async (
   assert.match(text, /\u001b\[\?1049l/, "leaves the alternate screen");
   assert.match(text, /\u001b\[\?7h/, "turns wrapping back on");
   assert.ok(calls.includes("raw:false"), "raw mode off");
+});
+
+test("--static redraws only when the keyboard moves, not on a clock", async () => {
+  const fake = fakeIo({
+    sessions: [{ label: "1 alpha", name: "alpha" }, { label: "2 beta", name: "beta" }],
+    todos: [],
+    preview: ["pane line"],
+  });
+  let refreshes = 0;
+  const base = fake.io.refresh;
+  fake.io.refresh = async (arg) => {
+    refreshes += 1;
+    return base(arg);
+  };
+  const tui = createTui({ io: fake.io, staticMode: true, intervalMs: 100 });
+  const done = tui.start();
+  await sleep(60);
+  const afterFirst = refreshes;
+  await sleep(400); // four intervals' worth
+  assert.equal(refreshes, afterFirst, "no timer fired");
+  fake.input.emit("data", "j");
+  await sleep(60);
+  assert.equal(refreshes, afterFirst + 1, "a key still redraws");
+  fake.input.emit("data", "q");
+  await done;
+});
+
+test("a slow frame never queues another one behind it", async () => {
+  const fake = fakeIo({
+    sessions: [{ label: "1 alpha", name: "alpha" }, { label: "2 beta", name: "beta" }],
+    todos: [],
+    preview: ["pane line"],
+  });
+  let refreshes = 0;
+  let inflight = 0;
+  let worst = 0;
+  fake.io.refresh = async ({ index = 0 } = {}) => {
+    refreshes += 1;
+    inflight += 1;
+    worst = Math.max(worst, inflight);
+    await sleep(120);
+    inflight -= 1;
+    return {
+      sessions: fake.data.sessions.map((item, position) => ({ ...item, selected: position === index })),
+      todos: [],
+      preview: { title: "alpha", lines: ["pane line"] },
+    };
+  };
+  fake.data = { sessions: [{ label: "1 alpha", name: "alpha" }, { label: "2 beta", name: "beta" }] };
+  const tui = createTui({ io: fake.io, intervalMs: 40 });
+  const done = tui.start();
+  await sleep(700);
+  fake.input.emit("data", "q");
+  await done;
+  assert.equal(worst, 1, "frames never overlap");
+  assert.ok(refreshes < 12, `the panel backed off instead of hammering (${refreshes} frames)`);
 });

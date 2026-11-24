@@ -1,4 +1,4 @@
-import { closeSync, copyFileSync, existsSync, ftruncateSync, mkdirSync, openSync, readFileSync, readSync, statSync, statfsSync, writeFileSync, writeSync } from "node:fs";
+import { appendFileSync, closeSync, copyFileSync, existsSync, ftruncateSync, mkdirSync, openSync, readFileSync, readSync, statSync, statfsSync, writeFileSync, writeSync } from "node:fs";
 import { configChanges } from "./configdiff.js";
 import { basename, dirname, join } from "node:path";
 import { homedir, hostname } from "node:os";
@@ -2690,7 +2690,7 @@ async function cmdTui(config, options, ui) {
       todos: onceTodos,
       preview: { title: "—", lines: [] },
       focus: "sessions",
-      footer: `${onceDrift ? `${onceDrift} · ` : ""}pp tui --once  (--left 30 adjusts the sessions column)`,
+      footer: `${onceDrift ? `${onceDrift} · ` : ""}pp tui --once  (--left 30 adjusts the sessions column)${options.noPreview ? " · preview off" : ""}`,
     };
     for (const line of renderFrame(model, layout)) ui.out(line);
     return;
@@ -2732,10 +2732,24 @@ async function cmdTui(config, options, ui) {
   }
 
   let tui = null;
+  const traceMs = [];
   tui = createTui({
     version: options.version ?? "",
     leftWidth,
     sort: options.sort ?? config.sort ?? "config",
+    intervalMs: options.refreshSeconds ? Math.round(Number(options.refreshSeconds) * 1000) : 1000,
+    staticMode: Boolean(options.staticPanel),
+    trace: (sample) => {
+      traceMs.push(sample);
+      if (traceMs.length > 200) traceMs.shift();
+      if (options.trace) {
+        try {
+          appendFileSync(options.trace, `${new Date().toISOString()} ${JSON.stringify(sample)}\n`);
+        } catch {
+          // a trace that cannot be written must not break the panel
+        }
+      }
+    },
     io: {
       input: process.stdin,
       output: process.stdout,
@@ -2747,8 +2761,10 @@ async function cmdTui(config, options, ui) {
         const sessions = tuiSessionRows(config, live, { stuck: stuckNow() });
         const todos = tuiTodoRows(filterTodos(readTodos()), Date.now());
         const current = sessions[index]?.name ?? sessions[0]?.name;
-        let preview = { title: "—", lines: ["no session selected"] };
-        if (current && live.has(current)) {
+        let preview = options.noPreview
+          ? { title: "—", lines: ["preview off (--no-preview)"] }
+          : { title: "—", lines: ["no session selected"] };
+        if (current && live.has(current) && !options.noPreview) {
           const wanted = previewLines();
           const activity = String(live.get(current)?.activity ?? "");
           if (reusePreview(previewCache, { name: current, activity, height: wanted })) {

@@ -11,7 +11,7 @@ _pp() {
       COMPREPLY=( $(compgen -f -- "$cur") )
       return 0
       ;;
-    --socket|--lines|--idle-over|--sort|--cwd|-n|--agent|-C|--dir|--host|--port|--user|--identity|--password|--note|--tag|--timeout|--role|--node|--from|--password-env|--from-ssh-config|--base-path|--default-agent|--default-restart|--default-remote-pi-mode|--default-role)
+    --socket|--lines|--idle-over|--sort|--refresh|--trace|--cwd|-n|--agent|-C|--dir|--host|--port|--user|--identity|--password|--note|--tag|--timeout|--role|--node|--from|--password-env|--from-ssh-config|--base-path|--default-agent|--default-restart|--default-remote-pi-mode|--default-role)
       return 0
       ;;
     --password-env|--from-ssh-config)
@@ -21,6 +21,7 @@ _pp() {
       COMPREPLY=( $(compgen -W "ls list resolve send inbox listen watch" -- "$cur") )
       return 0
       ;;
+    tui|panel) opts="--once --left --sort --refresh --no-preview --static --trace --diag -c --socket" ;;
     backup)  opts="--list --keep --out --json --dry-run -c --socket" ;;
     restore) opts="--dry-run --force --out --json -c --socket" ;;
     audit)

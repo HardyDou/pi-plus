@@ -239,6 +239,12 @@ tmux -L "$SOCK" pipe-pane -t "=piped:" >/dev/null 2>&1 || true
 check "a killed pipe is reported" 1 'nothing is writing' bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGPIPECFG --socket $SOCK doctor 2>&1"
 check "restart puts the pipe back" 0 '^1$' bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGPIPECFG --socket $SOCK restart piped >/dev/null 2>&1; $ROOT/bin/pp.js -c $LOGPIPECFG --socket $SOCK doctor 2>&1 | grep -c 'still piping'"
 
+section "panel on a slow link"
+check "tui --static is accepted"        0 ''          bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once --static --no-preview >/dev/null 2>&1"
+check "--no-preview says so"            0 'preview off' bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once --no-preview --left 30 2>&1"
+check "--refresh takes seconds"         0 ''          bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once --refresh 5 >/dev/null 2>&1"
+check "a trace file gets written"       0 '^[1-9][0-9]*$'    bash -c "rm -f $E2E/trace.log; timeout 6 script -qec '$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --refresh 1 --trace $E2E/trace.log' /dev/null >/dev/null 2>&1; grep -c took $E2E/trace.log"
+
 section "stuck in the panel"
 # a busy agent that keeps its spinner but prints nothing new: window_activity
 # stays fresh, so only the content signature can tell it apart from a healthy

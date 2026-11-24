@@ -74,6 +74,18 @@ function parseArgs(argv) {
         options.from = takeValue("--from", inline);
         break;
 
+        case "--refresh":
+          options.refreshSeconds = Number(takeValue("--refresh", inline));
+          break;
+        case "--no-preview":
+          options.noPreview = true;
+          break;
+        case "--static":
+          options.staticPanel = true;
+          break;
+        case "--trace":
+          options.trace = takeValue("--trace", inline) ?? "/tmp/pp-tui-trace.log";
+          break;
         case "--id":
           options.id = takeValue("--id", inline);
           break;
