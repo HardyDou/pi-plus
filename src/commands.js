@@ -232,6 +232,34 @@ function liveStraySession(config, options, name) {
   return null;
 }
 
+/**
+ * Resolve `pp attach 7` against the list `pp ls` prints: configured sessions
+ * plus the unmanaged ones running on configured nodes, in the same order. A
+ * number that means one thing in the table and another to the command is worse
+ * than no numbers at all.
+ */
+function numberFromTable(config, options, ref) {
+  if (!/^\d+$/.test(String(ref))) return null;
+  const index = Number(ref);
+  const entries = config.sessions.map((session) => ({ name: session.name, session }));
+  for (const node of config.nodes ?? []) {
+    try {
+      const live = makeTmux(config, options ?? {}, { node: node.name }).listSessions();
+      for (const name of live.keys()) {
+        if (entries.some((entry) => entry.name === name && entry.session?.node === node.name)) continue;
+        entries.push({ name, stray: { name, node: node.name } });
+      }
+    } catch {
+      // an unreachable machine contributes no rows, so it contributes no numbers
+    }
+  }
+  const sortKey = options?.sort ?? config.sort ?? "config";
+  if (sortKey === "name") entries.sort((a, b) => compareNames(a.name, b.name));
+  const picked = entries[index - 1];
+  if (!picked) return null;
+  return picked.session ?? liveStraySession(config, options, picked.stray.name);
+}
+
 function selectSessions(config, names, ui, { all = false, options = null, respectDrain = false } = {}) {
   // `--node <name>` narrows any batch command to one machine, so a broken host
   // can be restarted without touching the other 40 sessions.
@@ -294,7 +322,10 @@ function selectSessions(config, names, ui, { all = false, options = null, respec
   }
   const picked = [];
   for (const name of names) {
-    const session = resolveSessionRef(config, name) ?? liveStraySession(config, options, name);
+    const session =
+      (config.nodes?.length ? numberFromTable(config, options, name) : null) ??
+      resolveSessionRef(config, name) ??
+      liveStraySession(config, options, name);
     if (!session) {
       const hint = `${config.sessions.length} session(s) configured; see pp ls`;
       ui.error(`unknown session "${name}" (${hint})`);

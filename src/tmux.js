@@ -324,7 +324,9 @@ export class Tmux {
         panes: [],
       };
       entry.activity = Math.max(entry.activity, Number(activity) || 0);
-      entry.panes.push({ id: paneId, pid: Number(pid) || 0, command, dead: dead === "1" });
+      // the path is what "where does this session live" answers, and the only
+      // source for a session that is running but not in the config
+      entry.panes.push({ id: paneId, pid: Number(pid) || 0, command, dead: dead === "1", path });
       sessions.set(name, entry);
     }
     return sessions;

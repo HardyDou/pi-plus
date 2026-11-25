@@ -921,6 +921,9 @@ check "a session on a node shows up in pp ls"  0 '^1$'   bash -c "cd $E2E && PAT
 check "and it is marked unmanaged"             0 'unmanaged'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls | grep -i unmanaged"
 check "attach works on such a session"         0 'attach-session' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach far-stray --dry-run"
 check "logs works on such a session"           0 ''            bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK logs far-stray -n 2"
+# the numbers in the table must mean the same thing to the commands
+check "a row number reaches an unmanaged session" 0 'attach-session' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach 3 --dry-run"
+check "the CWD of an unmanaged session is known"  0 ''  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls --json | node -e 'const j=JSON.parse(require(\"fs\").readFileSync(0,\"utf8\")); const r=j.sessions.find((s)=>s.name===\"far-stray\"); process.exit(r && r.cwd ? 0 : 1)'"
 tmux -L "$SOCK" kill-session -t far-stray 2>/dev/null || true
 check "node test runs the probe"     0 'host +[A-Za-z0-9]'       bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG node test far"
 # maintenance: drain stops an accidental start, undrain gives the machine back
