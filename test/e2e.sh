@@ -476,7 +476,9 @@ for i in $(seq 1 40); do
   sleep 1
 done
 check "pi session file created"  0 'e2esession1'                bash -c "ls ~/.pi/agent/sessions/--tmp-e2e-pifarm-piws--/ | grep e2esession1"
-check "pi status shows session"  0 'e2esession1'                pp -c "$E2E/pi.yml" --socket "$SOCK" status
+# the default table shortens the id to eight characters on purpose; the full
+# one lives behind --wide (and in --json)
+check "pi status shows session"  0 'e2esession1'                pp -c "$E2E/pi.yml" --socket "$SOCK" status --wide
 check "pi restart resumes"       0 'started e-pi'               pp -c "$E2E/pi.yml" --socket "$SOCK" restart
 sleep 6
 check "resumed same session"     0 '^1$'                        bash -c "ls ~/.pi/agent/sessions/--tmp-e2e-pifarm-piws--/ | grep -c e2esession1"

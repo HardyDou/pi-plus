@@ -116,7 +116,10 @@ function parseArgs(argv) {
         case "--reconcile": options.reconcile = true; break;
         case "--quiet": options.quiet = true; break;
         case "--verbose": options.verbose = true; break;
-        case "--started": options.started = true; break;
+        case "--wide":
+        options.wide = true;
+        break;
+      case "--started": options.started = true; break;
         case "--brief": options.brief = true; break;
         case "--quarantine": options.quarantine = true; break;
         case "--keep": options.keep = takeValue(flag, inline); break;

@@ -106,7 +106,7 @@ import {
   todoRow,
   TodoError,
 } from "./todo.js";
-import { computeLayout, createTui, displayWidth, parseLeftOption, renderFrame, stripAnsi } from "./tui.js";
+import { computeLayout, createTui, displayWidth, parseLeftOption, renderFrame, stripAnsi, truncateWidth } from "./tui.js";
 import { ageOf, listPiSessions } from "./pi-sessions.js";
 
 const COLORS = {
@@ -2009,6 +2009,19 @@ function cmdStatus(config, options, ui) {
     ...(showClient ? ["CLIENT"] : []),
     ...(showStarted ? ["STARTED"] : []),
   ];
+  // A path is read from the right: /data/Yunxin/baohan/mango-risk tells you more
+  // than /data/Yunxin/baohan/… does.
+  const tailPath = (path, width = 30) => {
+    const text = String(path ?? "");
+    if (displayWidth(text) <= width) return text;
+    let tail = "";
+    for (const part of text.split("/").reverse()) {
+      const next = tail ? `${part}/${tail}` : part;
+      if (displayWidth(next) + 1 > width) break;
+      tail = next;
+    }
+    return tail ? `…/${tail}` : `…${text.slice(-Math.max(1, width - 1))}`;
+  };
   const table = shown.map((r) => [
     String(r.index),
     r.name,
@@ -2022,11 +2035,15 @@ function cmdStatus(config, options, ui) {
     r.restart,
     r.pid,
     r.command,
-    r.cwd,
+    options.wide ? r.cwd : tailPath(r.cwd),
     !r.pi
       ? "-"
       : r.piSession
-        ? `${r.piSessionName ? `${r.piSessionName} ` : ""}(${r.piSession})`
+        ? options.wide
+          ? `${r.piSessionName ? `${r.piSessionName} ` : ""}(${r.piSession})`
+          : r.piSessionName
+            ? `${r.piSessionName} (${String(r.piSession).slice(0, 8)}…)`
+            : `(${String(r.piSession).slice(0, 8)}…)`
         : r.piSessionName
           ? `${r.piSessionName} (new)`
           : "(new)",
@@ -2037,10 +2054,37 @@ function cmdStatus(config, options, ui) {
     ...(showClient ? [r.client || "-"] : []),
     ...(showStarted ? [r.lastStart ? `${shortAge(Math.max(0, Math.round((Date.now() - Date.parse(r.lastStart.at)) / 1000)))} ${r.lastStart.why}` : "-"] : []),
   ]);
-  const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
-  const pad = (value, width) => value + " ".repeat(Math.max(0, width - value.length));
+  // A table that does not fit the terminal is not a table: it wraps, and every
+  // row becomes two lines of noise. Keep the columns that answer "is it up, how
+  // long has it been quiet, where does it live", drop the rest, and truncate
+  // what is left to the space available. `--wide` opts out for a file or a pipe.
+  const CELL_LIMITS = { NAME: 28, CWD: 30, AGENT: 16, "PI SESSION": 20, "REMOTE-PI": 12, CLIENT: 20, ROLE: 16, STARTED: 14, NODE: 12 };
+  const COLUMN_ORDER = ["#", "NAME", "STATE", "IDLE", "NODE", "CWD", "RESTART", "AGENT", "TODOS", "ROLE", "CRON", "CLIENT", "STARTED", "PID", "PI SESSION", "REMOTE-PI"];
+  const cellWidth = (header, values) =>
+    Math.min(CELL_LIMITS[header] ?? 40, Math.max(header.length, ...values.map((value) => displayWidth(value))));
+  const budget = options.wide || !process.stdout.columns ? Infinity : Math.max(60, process.stdout.columns - 1);
+  const keep = [];
+  let used = 0;
+  for (const name of COLUMN_ORDER) {
+    const index = headers.indexOf(name);
+    if (index === -1) continue;
+    const width = cellWidth(name, table.map((row) => row[index]));
+    const gap = keep.length ? 2 : 0;
+    const base = name === "#" || name === "NAME" || name === "STATE" || name === "IDLE";
+    if (used + gap + width <= budget || base) {
+      keep.push(index);
+      used += gap + width;
+    }
+  }
+  keep.sort((a, b) => a - b);
+  const hidden = headers.length - keep.length;
+  const shownHeaders = keep.map((index) => headers[index]);
+  const fitRows = table.map((row) => keep.map((index) => row[index]));
+  const widths = shownHeaders.map((header, i) => cellWidth(header, fitRows.map((row) => row[i])));
+  const pad = (value, width) => value + " ".repeat(Math.max(0, width - displayWidth(value)));
+  const cell = (value, width) => pad(truncateWidth(value, width), width);
   const at = (name) => headers.indexOf(name);
-  ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
+  ui.out(ui.paint("bold", shownHeaders.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
   shown.forEach((row, i) => {
     const colored = [...table[i]];
     const stateAt = at("STATE");
@@ -2068,8 +2112,9 @@ function cmdStatus(config, options, ui) {
     } else if (row.idle) {
       colored[idleAt] = ui.paint("dim", colored[idleAt]);
     }
-    ui.out(colored.map((cell, idx) => pad(cell, widths[idx])).join("  ").trimEnd());
+    ui.out(keep.map((index, i) => (index === stateAt ? pad(colored[index], widths[i]) : cell(colored[index], widths[i]))).join("  ").trimEnd());
   });
+  if (hidden > 0) ui.info(`${hidden} column(s) did not fit ${process.stdout.columns} columns — pp ls --wide for all of them`);
   if (shown.length === 1 && shown[0].lastStart) {
     // one session was asked about: say who brought it back, and when
     const start = shown[0].lastStart;
