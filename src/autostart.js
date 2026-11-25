@@ -105,12 +105,22 @@ WantedBy=default.target
 }
 
 export function renderSystemdTimer({ intervalSeconds = 300, env = process.env } = {}) {
+  const seconds = Math.max(30, Math.floor(intervalSeconds));
+  // A oneshot service that has already exited leaves a monotonic timer with no
+  // next elapse ("Trigger: n/a"), so "every N seconds" silently means "never".
+  // A calendar timer does not depend on the service's state at all -- prefer it
+  // whenever the interval divides into a minute, and fall back to the monotonic
+  // form for odd intervals.
+  const trigger =
+    seconds % 60 === 0 && seconds / 60 <= 60
+      ? `OnCalendar=*:0/${seconds / 60}`
+      : `OnUnitInactiveSec=${seconds}s`;
   return `[Unit]
 Description=pi-plus: reconcile tmux sessions
 
 [Timer]
 OnBootSec=45s
-OnUnitActiveSec=${Math.max(30, Math.floor(intervalSeconds))}s
+${trigger}
 AccuracySec=30s
 Persistent=true
 Unit=${serviceName(env)}.service
@@ -308,7 +318,17 @@ export function installAutostart({ scriptPath, configPath, watch = false, print 
       run("systemctl", ["--user", "daemon-reload"], { allowFailure: true });
       run("systemctl", ["--user", "enable", `${serviceName()}.service`], { allowFailure: true });
       if (timer) {
-        run("systemctl", ["--user", "enable", "--now", `${serviceName()}.timer`], { allowFailure: true });
+        // A oneshot left in "active (exited)" by an older unit is still "the
+        // same activation" to systemd: it will neither run again nor schedule
+        // the timer's next elapse. Clear that state before arming the timer.
+        run("systemctl", ["--user", "stop", `${serviceName()}.service`], { allowFailure: true });
+        run("systemctl", ["--user", "enable", `${serviceName()}.timer`], { allowFailure: true });
+        // `enable --now` on an already-running timer keeps the *old* schedule:
+        // installing over an older unit needs a restart to re-read the file.
+        const started = run("systemctl", ["--user", "restart", `${serviceName()}.timer`], { allowFailure: true });
+        if (started.status !== 0) {
+          run("systemctl", ["--user", "start", `${serviceName()}.timer`], { allowFailure: true });
+        }
       } else {
         // `restart` (not `start`): the oneshot stays "active (exited)" after a
         // run, so `start` would be a no-op when installing over an old unit —

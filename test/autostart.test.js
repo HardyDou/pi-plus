@@ -51,7 +51,13 @@ test("systemd unit runs up with --reconcile and the config path", () => {
 test("watch mode leaves the job re-triggerable and pairs with a timer", () => {
   const unit = renderSystemdService({ scriptPath: GLOBAL, configPath: "/tmp/x.yml", watch: true });
   assert.match(unit, /RemainAfterExit=no/);
-  assert.match(renderSystemdTimer({ intervalSeconds: 120 }), /OnUnitActiveSec=120s/);
+  // Monotonic OnUnitActiveSec left a oneshot timer with no next elapse at all
+  // ("Trigger: n/a"), so the schedule is calendar-based whenever it can be.
+  const timer = renderSystemdTimer({ intervalSeconds: 120 });
+  assert.match(timer, /OnCalendar=\*:0\/2$/m);
+  assert.doesNotMatch(timer, /OnUnitActiveSec/);
+  assert.match(renderSystemdTimer({ intervalSeconds: 45 }), /OnUnitInactiveSec=45s/);
+  assert.match(renderSystemdTimer({ intervalSeconds: 300 }), /OnCalendar=\*:0\/5$/m);
 });
 
 test("launchd plist runs at load with the config path", () => {
