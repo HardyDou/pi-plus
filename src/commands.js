@@ -2160,7 +2160,12 @@ function cmdStatus(config, options, ui) {
         (unmanaged.length
           ? `  ${ui.paint("yellow", `${unmanaged.length} unmanaged`)} ${ui.paint("dim", `(${unmanaged.slice(0, 3).join(", ")}${unmanaged.length > 3 ? ", …" : ""}) — pp adopt`)}`
           : "") +
-        (config.nodes?.length ? `  ${ui.paint("dim", `${config.nodes.length} node${config.nodes.length === 1 ? "" : "s"}`)}` : "") +
+        (config.nodes?.length
+          ? `  ${ui.paint("dim", `${config.nodes.length} node${config.nodes.length === 1 ? "" : "s"}`)}` +
+            (shown.some((r) => r.node)
+              ? ""
+              : ui.paint("dim", ` (no session runs on one yet — pp fleet sees what is there; pp new --node ${config.nodes[0].name} -C /srv/app --save)`))
+          : "") +
         (rows.some((r) => r.reason === "hand")
           ? `  ${ui.paint("dim", "(hand) = stopped on purpose; pp up <name> brings it back")}`
           : "") +
