@@ -5030,21 +5030,24 @@ async function cmdUpdate(options, ui) {
     return;
   }
   const after = readManifest(packageRoot()).version;
-  if (compareVersions(after, latest) >= 0) ui.info(`now pi-farm ${after}`);
+  // Three independent facts, three independent sentences. These used to be one
+  // if/else chain, which made "the copy is now 0.80.10" and "the copy is still
+  // 0.80.10" print together -- a false alarm that reads like a real one.
+  const upgraded = compareVersions(after, latest) >= 0;
+  if (upgraded) ui.info(`now pi-farm ${after}`);
+  else {
+    ui.error(`npm finished but this copy is still ${after} (another pi-farm may shadow it: type -a pp)`);
+    process.exitCode = 1;
+  }
+  if (result.status !== 0 && result.status !== null) process.exitCode = result.status;
   // the /pp-* commands live in the pi extension, which npm does not touch:
   // upgrading the cli alone leaves a stale extension behind (it has bitten us
   // twice — a command that "does not exist" although the version looked right)
   const nowExtension = installedExtension(process.env);
   const hint = extensionUpgradeHint(nowExtension, after);
   if (nowExtension && hint) {
-    const extension = nowExtension;
-    ui.warn(`the pi extension is still ${extension.version} — /pp-* commands come from it, not from the cli`);
+    ui.warn(`the pi extension is still ${nowExtension.version} — /pp-* commands come from it, not from the cli`);
     ui.info(ui.paint("dim", `${hint}  (then /reload inside pi)`));
-  } else if (result.status === 0) {
-    ui.error(`npm finished but this copy is still ${after} (another pi-farm may shadow it: type -a pp)`);
-    process.exitCode = 1;
-  } else {
-    process.exitCode = result.status ?? 1;
   }
 }
 
