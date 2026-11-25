@@ -572,26 +572,20 @@ pp adopt --all --node prod-01
 如果 pane 跑的不是常见 agent（不是 `pi`/`bash`/`node` 之类），会提醒你 `--agent` 手动记一个，
 免得下次 `pp up` 去执行一个跑不起来的命令。
 
-### `pp tui` 在慢链路上：`--refresh` / `--no-preview` / `--static`
+### `pp tui` 只看列表，不看内容
 
-面板每秒重画一次。本机一帧是几毫秒，但**跨 ssh 时写入本身会阻塞** —— 而当 stdout 卡住时，键盘事件也进不来，看起来就是"卡死"。
+面板现在只有两栏：左边会话，右边待办。**不再抓取 pane 内容** —— 终端内容该由 tmux 自己画，抓进面板既慢又贵（一个正在输出的会话，单帧就是 9KB）。
 
-所以它现在会自保：一帧太久就把间隔拉长（最多 10 秒），footer 显示 `slow 3.0s`，并且在上一帧没画完时不排队下一帧。同时也给了三个直接的开关：
+还有两件事值得知道：
 
-| 开关 | 作用 |
-| --- | --- |
-| `--refresh <秒>` | 基础刷新间隔（默认 1） |
-| `--no-preview` | 完全不抓预览（慢链路上通常占大头） |
-| `--static` | 只在按键时重画，没有时钟 |
-| `--trace [文件]` | 每帧耗时 JSON 追加到文件（默认 `/tmp/pp-tui-trace.log`） |
+- 客户端在看别的会话时，面板**完全不画**（它问 tmux 自己的 pane 是否可见）。往隐藏的 pane 里堆帧，就是你 `/pp-back` 回来觉得卡死的原因。
+- 慢链路上单帧太久会自动拉长间隔（最多 10 秒），footer 写 `slow 3.0s`；`--static` 只在按键时重画，`--refresh 5` 自己定间隔。
 
 ```bash
-pp tui --static            # 最省：按键才画
-pp tui --no-preview        # 保留刷新，但不抓屏
-pp tui --trace /tmp/t.log  # 想知道到底慢在哪
+pp tui --static            # 只在按键时画
+pp tui --refresh 5         # 每 5 秒一帧
+pp tui --once              # 打印一帧就退出
 ```
-
-真要"只要一眼"：`pp tui --once` 打印一帧就退出。
 
 ### `pp bind <会话> [--id <session-id>]`
 

@@ -77,9 +77,6 @@ function parseArgs(argv) {
         case "--refresh":
           options.refreshSeconds = Number(takeValue("--refresh", inline));
           break;
-        case "--no-preview":
-          options.noPreview = true;
-          break;
         case "--static":
           options.staticPanel = true;
           break;

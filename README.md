@@ -191,7 +191,7 @@ sessions:
 ```
 
 之后 `pp ls` 的 NODE 列显示归属，`pp attach prod-api`、`pp logs prod-api`、
-`pp send prod-api "..."`、`pp tui` 里的预览、`pp cron` 的投递全都自动走 ssh。
+`pp send prod-api "..."`、`pp logs`、`pp attach` 全都自动走 ssh。
 连不上的机器整台标成 `unreachable`，而不是假装里面的会话都停了。
 
 密码走 `sshpass -e`（环境变量 `SSHPASS`），不进命令行，`ps` 看不到；
@@ -321,19 +321,19 @@ pp todo ls --all --json       # 连已完成的、机器可读
 
 ```
 ┌ sessions (7) ──────────────────────────┐ ┌ todo (2) ─────────────────────────────────────────────┐
-│ 1 bh-system-01  running                │ │ 1. risk-01 — 要我现在合并到 main 吗？ (3m, settled)     │
-│ 2 bh-system-02  running                │ │ 2. backend — waiting: 选一个分支 (18m, prompt)          │
-│ 3 mango-release-01  running            │ └───────────────────────────────────────────────────────┘
-│ 4 mano-dev-01  attached                │ ┌ preview: bh-system-01 ────────────────────────────────┐
-│ 5 ops-5  running                       │ │ ● Bash(git log --oneline -5)                          │
-│ 6 risk-01  running                     │ │   a1b2c3d fix: ...                                    │
-│ 7 risk-02  running                     │ │ ⏳ Working...                                          │
+│ 1 bh-system-01  running         1s  !  │ │ 1. risk-01 — 要我现在合并到 main 吗？ (3m, settled)     │
+│ 2 bh-system-02  running         4m     │ │ 2. backend — waiting: 选一个分支 (18m, prompt)          │
+│ 3 mango-release-01  running     1s     │ │                                                       │
+│ 4 mano-dev-01  attached         12s    │ │                                                       │
+│ 5 ops-5  running                3h  !  │ │                                                       │
 └────────────────────────────────────────┘ └───────────────────────────────────────────────────────┘
- ↑↓ move   PgUp/PgDn scroll   Tab panel   Enter attach   d done   [ ] width   -/+ rows   f follow   / find   q quit
+ ↑↓ move   PgUp/PgDn   Tab panel   Enter attach   d done   [ ] width   s sort   / find   q quit
 ```
 
-- 待办框的高度跟着内容走（空 3 行、每条 +1、最多 9 行），预览拿走剩下的行；
-- 终端窄于 88 列时自动竖排（会话 / 待办 / 预览），空待办框直接隐藏；
+
+- **不抓取终端内容**：面板只有会话与待办两栏，pane 里的东西由 tmux 自己画（抓一屏既慢又贵）；
+- 终端窄于 88 列时自动竖排（会话在上、待办在下），空待办框直接隐藏；
+- 客户端在看别的会话时面板完全不画 —— 这是 `/pp-back` 回来不再卡死的原因；
 - 会话行末的 `3m` / `2h` 是这条会话最后一次有动静的时间（`#{session_activity}`），一眼看出谁在干活、谁已经晾了一下午；
 - 安静超过 `PP_STALE_MINUTES`（默认 30）分钟的会话标成琥珀色、行末带 `!` —— "卡在 Working 一下午"那种最费时间的情况一眼就能看见（`pp ls` 的 `IDLE` 列、`--json` 的 `idleSeconds` 是同一份数据）；
 - 从会话回到面板：`pp back` 或 `/pp-back`（`switch-client`，不 detach，不留残留画面）。
@@ -344,10 +344,8 @@ pp todo ls --all --json       # 连已完成的、机器可读
 |---|---|
 | `↑` `↓` / `k` `j` | 在聚焦的列表里移动 |
 | `PgUp` / `PgDn` | 整页翻动列表（光标跟着走，标题框不会跑丢） |
-| `-` / `+` | 待办框少一行 / 多一行，预览把行让出来或收回去 |
 | `s` | 切换排序：配置顺序 → 最久没动优先 → 按名字（footer 显示当前排序） |
 | `/` | 输入子串过滤会话（名字/机器/状态），Enter 保留、Esc 清除 |
-| `f` | 暂停 / 恢复预览跟随（要读一段输出时按住它别动） |
 | `Tab` | 切换列表（会话 ↔ 待办） |
 | `Enter` | 进入（会话：在 tmux 里 `switch-client`，在 tmux 外 `tmux attach`）；从待办进则进它所属的会话 |
 | `d` | 把选中的待办标记完成 |

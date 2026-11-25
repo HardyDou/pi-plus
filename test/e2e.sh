@@ -240,10 +240,10 @@ check "a killed pipe is reported" 1 'nothing is writing' bash -c "cd $E2E && $RO
 check "restart puts the pipe back" 0 '^1$' bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGPIPECFG --socket $SOCK restart piped >/dev/null 2>&1; $ROOT/bin/pp.js -c $LOGPIPECFG --socket $SOCK doctor 2>&1 | grep -c 'still piping'"
 
 section "panel on a slow link"
-check "tui --static is accepted"        0 ''          bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once --static --no-preview >/dev/null 2>&1"
-check "--no-preview says so"            0 'preview off' bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once --no-preview --left 30 2>&1"
+check "tui --static is accepted"        0 ''          bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once --static >/dev/null 2>&1"
+check "the panel has no pane preview"   0 'sessions \(' bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once --left 30 2>&1; $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once --left 30 2>&1 | grep -qv 'preview:'"
 check "--refresh takes seconds"         0 ''          bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once --refresh 5 >/dev/null 2>&1"
-check "a trace file gets written"       0 '^[1-9][0-9]*$'    bash -c "rm -f $E2E/trace.log; timeout 6 script -qec '$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --refresh 1 --trace $E2E/trace.log' /dev/null >/dev/null 2>&1; grep -c took $E2E/trace.log"
+check "a trace file gets written"       0 '^[1-9][0-9]*$'    bash -c "rm -f $E2E/trace.log; ( tmux -L $SOCK has-session -t tui-trace 2>/dev/null && tmux -L $SOCK kill-session -t tui-trace ); tmux -L $SOCK new-session -d -s tui-trace -x 100 -y 30 '$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --refresh 1 --trace $E2E/trace.log'; sleep 4; tmux -L $SOCK kill-session -t tui-trace 2>/dev/null; grep -c 'skipped\|took' $E2E/trace.log"
 
 section "stuck in the panel"
 # a busy agent that keeps its spinner but prints nothing new: window_activity
@@ -987,7 +987,7 @@ check "the offline sweep leaves a clean list" 0 'nothing needs you' bash -c "cd 
 section "tui"
 check "tui renders the sessions panel" 0 'sessions \('          bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
 check "tui renders the todo panel"     0 'todo \('              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
-check "tui renders the preview panel"  0 'preview'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
+check "tui renders both panels"        0 'sessions ([0-9]*)' bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
 check "tui lists a real session"       0 'e-always'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
 check "tui without a tty explains itself" 2 'needs a terminal'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui < /dev/null"
 check "tui --diag reports a fit"       0 'verdict *fits'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --diag"

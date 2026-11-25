@@ -2410,18 +2410,6 @@ export function nodesToProbe(config) {
   return (config?.nodes ?? []).map((node) => node.name).filter((name) => used.has(name));
 }
 
-/**
- * The preview is a `capture-pane` per frame — a subprocess every second, for a
- * pane that usually has not printed anything new. Reuse the last capture while
- * the same session is selected, its tmux activity stamp has not moved, and the
- * box is still the same height.
- */
-export function reusePreview(cache, { name = "", activity = "", height = 0 } = {}) {
-  if (!cache || !cache.lines) return false;
-  if (cache.name !== name) return false;
-  if (cache.height !== height) return false;
-  return String(cache.activity) === String(activity);
-}
 
 /** Bytes free on the filesystem holding `dir`, or null when node is too old. */
 export function freeSpace(dir) {
@@ -2690,13 +2678,13 @@ async function cmdTui(config, options, ui) {
       todos: onceTodos,
       preview: { title: "—", lines: [] },
       focus: "sessions",
-      footer: `${onceDrift ? `${onceDrift} · ` : ""}pp tui --once  (--left 30 adjusts the sessions column)${options.noPreview ? " · preview off" : ""}`,
+      footer: `${onceDrift ? `${onceDrift} · ` : ""}pp tui --once  (--left 30 adjusts the sessions column)`,
     };
     for (const line of renderFrame(model, layout)) ui.out(line);
     return;
   }
 
-  let previewCache = { name: "", activity: "", height: 0, lines: null };
+  let visibleCache = { at: 0, visible: true };
   let paneCache = { at: 0, size: null };
   const paneSize = () => {
     const now = Date.now();
@@ -2711,7 +2699,6 @@ async function cmdTui(config, options, ui) {
     return { cols: Math.min(cols, pane.visibleCols), rows: Math.min(rows, pane.visibleRows) };
   };
 
-  const previewLines = () => Math.max(4, computeLayout(screenSize().cols, screenSize().rows).preview.h - 2);
 
   // where the panel itself lives, so `pp back` can find it and so Enter cannot "attach" to itself
   let panelSession = "";
@@ -2733,19 +2720,14 @@ async function cmdTui(config, options, ui) {
 
   let tui = null;
   const traceMs = [];
-  let slowNote = "";
   tui = createTui({
     version: options.version ?? "",
     leftWidth,
     sort: options.sort ?? config.sort ?? "config",
     intervalMs: options.refreshSeconds ? Math.round(Number(options.refreshSeconds) * 1000) : 1000,
     staticMode: Boolean(options.staticPanel),
-    onSlow: ({ took }) => {
-      // the frame did not fit in the terminal: stop capturing the pane and say so
-      if (options.noPreview) return;
-      options.noPreview = true;
-      slowNote = `preview off — a frame took ${Math.round(took)}ms`;
-    },
+    // a frame that did not fit stretches the interval; that is all we can do now
+    // that there is no preview to drop,
     trace: (sample) => {
       traceMs.push(sample);
       if (traceMs.length > 200) traceMs.shift();
@@ -2764,26 +2746,33 @@ async function cmdTui(config, options, ui) {
       size: screenSize,
       onResize: (callback) => process.stdout.on("resize", callback),
       async refresh({ index = 0 } = {}) {
-        const { live, tmuxFor } = readLive();
+        const { live } = readLive();
         const sessions = tuiSessionRows(config, live, { stuck: stuckNow() });
         const todos = tuiTodoRows(filterTodos(readTodos()), Date.now());
-        const current = sessions[index]?.name ?? sessions[0]?.name;
-        let preview = options.noPreview
-          ? { title: slowNote ? "preview off — slow link" : "—", lines: [slowNote || "preview off (--no-preview)"] }
-          : { title: "—", lines: ["no session selected"] };
-        if (current && live.has(current) && !options.noPreview) {
-          const wanted = previewLines();
-          const activity = String(live.get(current)?.activity ?? "");
-          if (reusePreview(previewCache, { name: current, activity, height: wanted })) {
-            preview = { title: current, lines: previewCache.lines };
-          } else {
-            const text = tmuxFor(current).capture(current, wanted);
-            const lines = text ? text.split("\n") : ["(empty pane)"];
-            previewCache = { name: current, activity, height: wanted, lines };
-            preview = { title: current, lines };
-          }
-        }
-        return { sessions, todos, preview };
+        // no pane capture: the panel lists what exists, tmux draws the rest
+        return { sessions, todos };
+      },
+      /**
+       * Is this pane on screen right now? After `attach` the client is looking at
+       * some other session; painting our hidden pane from a timer is what made
+       * coming back look frozen (a backlog of frames).
+       */
+      visible: () => {
+        if (!process.env.TMUX) return true;
+        if (Date.now() - visibleCache.at < 1000) return visibleCache.visible;
+        const out = process.env.TMUX_PANE
+          ? (() => {
+            try {
+              const result = spawnSync("tmux", ["display-message", "-p", "-t", process.env.TMUX_PANE, "#{window_visible}"], { encoding: "utf8" });
+              return result.status === 0 ? result.stdout : null;
+            } catch {
+              return null;
+            }
+          })()
+          : null;
+        const visible = out === null ? true : String(out).trim() === "1";
+        visibleCache = { at: Date.now(), visible };
+        return visible;
       },
       async driftUp() {
         // count what the config expects and is not running, then start those
@@ -2926,7 +2915,7 @@ async function cmdTuiDiag(config, options, ui) {
     );
   }
   ui.out(
-    `  layout         ${layout.mode} — sessions ${layout.sessions.w}x${layout.sessions.h}, todo ${layout.todos.h} rows, preview ${layout.preview.h} rows`,
+    `  layout         ${layout.mode} — sessions ${layout.sessions.w}x${layout.sessions.h}, todo ${layout.todos.h} rows`,
   );
   ui.out(`  frame          ${layout.height} rows x ${layout.width} cols, painted into ${screen.rows} rows`);
   ui.out(

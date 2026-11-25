@@ -1,8 +1,7 @@
 /**
  * `pp tui` — a control panel, not a terminal emulator.
  *
- * Two lists (sessions, todos) and a read-only preview of the selected session's
- * pane. Enter hands the terminal over to tmux (`attach-session` / `switch-client`)
+ * Two lists: the sessions on the left, the todos on the right. Enter hands the terminal over to tmux (`attach-session` / `switch-client`)
  * and comes back when you detach — no VT parsing lives here, which is the whole
  * point: tmux already knows how to draw a pane.
  *
@@ -134,9 +133,6 @@ export function parseKeys(input) {
       else if (char === "]") keys.push("wider");
       else if (char === "g") keys.push("top");
       else if (char === "G") keys.push("bottom");
-      else if (char === "-") keys.push("less");
-      else if (char === "+" || char === "=") keys.push("more");
-      else if (char === "f") keys.push("follow");
       else if (char === "s") keys.push("sort");
       else if (char === "D") keys.push("drift");
       else if (char === "/") keys.push("filter");
@@ -183,41 +179,33 @@ export const TODO_MIN_HEIGHT = 3;
 export const TODO_MAX_HEIGHT = 9;
 
 /**
- * The todo list is usually one or two rows long, while the preview is the thing
- * you actually read — so the todo box grows with its content (between
- * TODO_MIN_HEIGHT and TODO_MAX_HEIGHT) and the preview takes everything else.
+ * The todo box grows with its content (between TODO_MIN_HEIGHT and
+ * TODO_MAX_HEIGHT) when the panels are stacked; side by side it takes the column.
  */
 export function todoBoxHeight(todoCount, body) {
   const wanted = Math.max(TODO_MIN_HEIGHT, Math.min((Number(todoCount) || 0) + 2, TODO_MAX_HEIGHT));
   return Math.max(3, Math.min(wanted, body - 3));
 }
 
-export function computeLayout(cols, rows, { leftWidth: wanted = 0, todoCount = 0, todoRows = 0 } = {}) {
+export function computeLayout(cols, rows, { leftWidth: wanted = 0, todoCount = 0 } = {}) {
   const width = Math.max(40, cols);
   const height = Math.max(10, rows);
   const footer = 1;
   const body = height - footer;
   const mode = width < STACK_WIDTH ? "stacked" : "split";
-  // on a narrow terminal an empty todo box is pure overhead: give the rows to the preview
-  const forced = Math.max(0, Math.round(Number(todoRows) || 0));
-  const autoHeight = mode === "stacked" && (Number(todoCount) || 0) === 0 ? 0 : todoBoxHeight(todoCount, body);
-  // -/+ pin the todo box to an exact height; keep at least 3 rows for the preview
-  const todoHeight = forced
-    ? Math.max(TODO_MIN_HEIGHT, Math.min(forced, Math.max(TODO_MIN_HEIGHT, body - 3)))
-    : autoHeight;
+  // no pane preview any more: the todo list gets the whole right column
+  const todoHeight = (Number(todoCount) || 0) === 0 && mode === "stacked" ? 0 : body;
 
   if (mode === "stacked") {
-    const previewMin = 3;
-    const sessionsHeight = Math.max(4, Math.min(body - todoHeight - previewMin, Math.max(5, Math.floor(body * 0.4))));
-    const rest = body - sessionsHeight - todoHeight;
+    const todos = todoHeight ? Math.max(TODO_MIN_HEIGHT, Math.min(todoBoxHeight(todoCount, body), body - 4)) : 0;
+    const sessionsHeight = body - todos;
     return {
       width,
       height,
       mode,
-      todoHeight,
+      todoHeight: todos,
       sessions: { x: 0, y: 0, w: width, h: sessionsHeight },
-      todos: { x: 0, y: sessionsHeight, w: width, h: todoHeight },
-      preview: { x: 0, y: sessionsHeight + todoHeight, w: width, h: Math.max(previewMin, rest) },
+      todos: { x: 0, y: sessionsHeight, w: width, h: todos },
       footer: { x: 0, y: body, w: width, h: footer },
     };
   }
@@ -230,8 +218,7 @@ export function computeLayout(cols, rows, { leftWidth: wanted = 0, todoCount = 0
     mode,
     todoHeight,
     sessions: { x: 0, y: 0, w: leftWidth, h: body },
-    todos: { x: leftWidth + 1, y: 0, w: rightWidth, h: todoHeight },
-    preview: { x: leftWidth + 1, y: todoHeight, w: rightWidth, h: body - todoHeight },
+    todos: { x: leftWidth + 1, y: 0, w: rightWidth, h: body },
     footer: { x: 0, y: body, w: width, h: footer },
   };
 }
@@ -273,21 +260,14 @@ export function renderFrame(state, layout) {
     .slice(Math.max(0, state.todoOffset ?? 0), Math.max(0, state.todoOffset ?? 0) + Math.max(0, layout.todos.h - 2))
     .map((item) => listRow(item, inner(layout.todos), state.focus === "todos" && item.selected));
 
-  const previewTitle = state.preview?.title ? `preview: ${state.preview.title}` : "preview";
-  const previewRows = (state.preview?.lines ?? [])
-    .slice(0, Math.max(0, layout.preview.h - 2))
-    .map((line) => padWidth(truncateWidth(line, inner(layout.preview)), inner(layout.preview)));
-
   const left = boxLines(layout.sessions, `sessions (${state.sessions.length})`, sessionRows, { focus: state.focus === "sessions" });
   const rightTop = boxLines(layout.todos, `todo (${state.todos.length})`, todoRows, { focus: state.focus === "todos" });
-  const rightBottom = boxLines(layout.preview, previewTitle, previewRows);
 
   const out = [];
   if (layout.mode === "stacked") {
     for (const [block, rect] of [
       [left, layout.sessions],
       [rightTop, layout.todos],
-      [rightBottom, layout.preview],
     ]) {
       if (!rect || rect.h <= 0) continue;
       for (const line of block) out.push(padWidth(line, layout.width));
@@ -299,7 +279,7 @@ export function renderFrame(state, layout) {
         continue;
       }
       const leftLine = left[row] ?? "";
-      const rightLine = row < layout.todos.h ? (rightTop[row] ?? "") : (rightBottom[row - layout.todos.h] ?? "");
+      const rightLine = rightTop[row] ?? "";
       out.push(padWidth(`${leftLine} ${rightLine}`, layout.width));
     }
   }
@@ -348,7 +328,7 @@ export function moveSelection(index, length, delta) {
 /**
  * The interactive shell. `io` is injected so tests can drive it without a tty:
  *   io.input  (readable) io.output (writable) io.isTTY io.size() {cols, rows}
- *   io.onResize(cb)  io.refresh() -> {sessions, todos, preview}
+ *   io.onResize(cb)  io.refresh() -> {sessions, todos}
  *   io.attach(name) -> promise settled when tmux gives the terminal back
  */
 export function createTui({
@@ -364,7 +344,6 @@ export function createTui({
   let state = {
     sessions: [],
     todos: [],
-    preview: { title: "—", lines: [] },
     focus: "sessions",
     footer: "",
     todoOffset: 0,
@@ -373,9 +352,6 @@ export function createTui({
     todoIndex: 0,
     leftWidth: 0,
     /** 0 = let the layout decide; otherwise the todo box gets exactly this many rows */
-    todoRows: 0,
-    /** false = the preview keeps the last frame it showed (someone is reading it) */
-    follow: true,
     /** config | idle (quietest first) | name | role — see SORTS */
     sort: SORTS.includes(sort) ? sort : "config",
     /** substring the session list is narrowed to; "" = everything */
@@ -401,7 +377,6 @@ export function createTui({
   state.leftWidth = leftWidth;
 
   function footerText(extra = "") {
-    const paused = state.follow === false ? "PAUSED · " : "";
     // drift, in the footer: sessions of ours that are off, and live ones that
     // are not ours. Both are the reason someone opens this panel at 3am.
     const off = state.sessions.filter((row) => row.state === "off" || row.state === "dead" || row.state === "stopped").length;
@@ -418,11 +393,11 @@ export function createTui({
     const total = state.sessions.length;
     const shown = filteredIndices().length;
     const filterNote = state.filter ? `filter: ${state.filter} (${shown}/${total}) · / clear · ` : "/ find · ";
-    const base = ` ↑↓ move · PgUp/PgDn · Tab · Enter attach · ${filterNote}d done · D start what is off · [ ] width · -/+ rows · f follow · q quit `;
+    const base = ` ↑↓ move · PgUp/PgDn · Tab · Enter attach · ${filterNote}d done · D start what is off · [ ] width · q quit `;
     // the panel stretched its own interval because the link could not keep up:
     // say so, otherwise "why is it not updating" has no answer on screen
     const slow = interval > baseIntervalMs ? `slow ${(interval / 1000).toFixed(1)}s · ` : "";
-    const text = extra ? `${slow}${paused}${extra}  ${base}` : `${slow}${paused}${base}`;
+    const text = extra ? `${slow}${extra}  ${base}` : `${slow}${base}`;
     return `${drift ? `${YELLOW}${drift}${RESET}${DIM} · ` : ""}${DIM}${padWidth(text, io.size().cols)}${RESET}`;
   }
 
@@ -544,7 +519,7 @@ export function createTui({
 
   function draw() {
     const { cols, rows } = io.size();
-    const layout = computeLayout(cols, rows, { leftWidth: state.leftWidth, todoCount: state.todos.length, todoRows: state.todoRows });
+    const layout = computeLayout(cols, rows, { leftWidth: state.leftWidth, todoCount: state.todos.length });
     const model = indexItems();
     model.footer = footerText(state.note ?? "");
     // never paint more rows than the terminal actually has
@@ -574,7 +549,6 @@ export function createTui({
     const note = [extra, kept].filter(Boolean).join(" · ");
     state.sessions = data.sessions ?? [];
     state.todos = data.todos ?? [];
-    if (state.follow) state.preview = data.preview ?? { title: "—", lines: [] };
     state.sessionIndex = Math.min(state.sessionIndex, Math.max(0, state.sessions.length - 1));
     state.todoIndex = Math.min(state.todoIndex, Math.max(0, state.todos.length - 1));
     state.note = note;
@@ -622,7 +596,7 @@ export function createTui({
   /** How many rows the focused panel can show right now. */
   function panelHeight(focus) {
     const { cols, rows } = io.size();
-    const layout = computeLayout(cols, rows, { leftWidth: state.leftWidth, todoCount: state.todos.length, todoRows: state.todoRows });
+    const layout = computeLayout(cols, rows, { leftWidth: state.leftWidth, todoCount: state.todos.length });
     const box = focus === "sessions" ? layout.sessions : layout.todos;
     return Math.max(1, (box?.h ?? 3) - 2);
   }
@@ -657,6 +631,13 @@ export function createTui({
     }
     if (key === "quit" || key === "escape") {
       quit();
+      return;
+    }
+    if (key === "sort") {
+      const next = SORTS[(SORTS.indexOf(state.sort) + 1) % SORTS.length];
+      state.sort = next;
+      await refresh(`sorted: ${{ config: "config order", idle: "quietest first", name: "by name", role: "by role" }[next]} (s cycles)`);
+      state.noteUntil = Date.now() + 5000;
       return;
     }
     if (key === "tab") {
@@ -694,36 +675,6 @@ export function createTui({
       else state.todoIndex = key === "top" ? 0 : Math.max(0, state.todos.length - 1);
       keepVisible();
       await refresh();
-      return;
-    }
-    if (key === "less" || key === "more") {
-      // the todo box and the preview share one column: asking one for rows takes them from the other
-      const { rows } = io.size();
-      const layout = computeLayout(io.size().cols, rows, { leftWidth: state.leftWidth, todoCount: state.todos.length, todoRows: state.todoRows });
-      const current = state.todoRows || layout.todos.h;
-      state.todoRows = Math.max(TODO_MIN_HEIGHT, Math.min(current + (key === "more" ? 2 : -2), Math.max(TODO_MIN_HEIGHT, layout.height - 4)));
-      keepVisible();
-      await refresh(`todo box: ${state.todoRows} rows`);
-      return;
-    }
-    if (key === "sort") {
-      const next = SORTS[(SORTS.indexOf(state.sort) + 1) % SORTS.length];
-      state.sort = next;
-      keepVisible();
-      await refresh(
-        next === "idle"
-          ? "sorted: quietest first (s cycles)"
-          : next === "name"
-            ? "sorted: by name (s cycles)"
-            : next === "role"
-              ? "sorted: by role (s cycles)"
-              : "sorted: config order (s cycles)",
-      );
-      return;
-    }
-    if (key === "follow") {
-      state.follow = !state.follow;
-      await refresh(state.follow ? "following the preview" : "preview paused — f resumes");
       return;
     }
     if (key === "refresh") {
@@ -776,6 +727,14 @@ export function createTui({
    */
   async function tick() {
     if (refreshing) return;
+    // Someone is reading another pane: writing to a hidden pane only piles frames
+    // up, and the day they come back `pp back` the panel looks frozen. Ask tmux
+    // whether this pane is on screen and skip the frame when it is not.
+    if (typeof io.visible === "function" && !io.visible()) {
+      // say so in the trace: "the panel is not updating" has this answer too
+      trace?.({ skipped: "pane not visible" });
+      return;
+    }
     refreshing = true;
     const started = Date.now();
     try {
@@ -787,8 +746,7 @@ export function createTui({
       trace?.({ took, writeMs: lastWriteMs, bytes: lastBytes, interval });
       // Half a second for one frame is not a "slow link", it is a frame the
       // terminal cannot swallow in time — and while it is blocked, so is the
-      // keyboard. Dropping the preview is the one change that shrinks a frame by
-      // an order of magnitude, so do it before stretching the interval further.
+      // keyboard: the frame cannot fit, so stretch the interval instead.
       if (took > 400 && !options.staticMode) {
         if (state.sessionIndex === undefined) state.sessionIndex = 0;
         onSlow?.({ took, bytes: lastBytes });

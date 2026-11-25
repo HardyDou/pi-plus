@@ -3,7 +3,6 @@ import test from "node:test";
 import { EventEmitter } from "node:events";
 import {
   nodesToProbe,
-  reusePreview,
 } from "../src/commands.js";
 const ESC = "\u001b[";
 const WRAP_OFF = `${ESC}?7l`;
@@ -62,7 +61,7 @@ test("computeLayout splits the screen without overlaps", () => {
   assert.equal(layout.width, 100);
   assert.equal(layout.height, 30);
   assert.equal(layout.sessions.w + 1 + layout.todos.w, 100);
-  assert.equal(layout.todos.h + layout.preview.h, 29);
+  assert.equal(layout.todos.h, 29, "the todo column takes the whole body");
   assert.equal(layout.footer.y, 29);
   const tiny = computeLayout(10, 5);
   assert.equal(tiny.width, 40);
@@ -78,7 +77,6 @@ test("renderFrame fills the screen exactly and shows both panels", () => {
         { label: "2 beta  off", dim: true },
       ],
       todos: [{ label: "1. alpha — ship it (2m, settled)", selected: false }],
-      preview: { title: "alpha", lines: ["$ echo hi", "hi"] },
       focus: "sessions",
       footer: " q quit ",
     },
@@ -89,8 +87,7 @@ test("renderFrame fills the screen exactly and shows both panels", () => {
   const text = lines.map(plain).join("\n");
   assert.match(text, /sessions \(2\)/);
   assert.match(text, /todo \(1\)/);
-  assert.match(text, /preview: alpha/);
-  assert.match(text, /\$ echo hi/);
+  assert.ok(!/preview/.test(text), "no pane preview any more");
   assert.match(text, /q quit/);
   assert.match(lines[1], /\u001b\[7m/, "selected row is reversed");
   assert.match(lines[2], /\u001b\[2m/, "dim row is dimmed");
@@ -136,7 +133,7 @@ test("renderFrame scrolls the todo list with todoOffset", () => {
   const layout = computeLayout(80, 24, { todoCount: 20 });
   const todos = Array.from({ length: 20 }, (_, index) => ({ label: `todo-${index}` }));
   const lines = renderFrame(
-    { sessions: [], todos, preview: { title: "—", lines: [] }, focus: "todos", footer: "", todoOffset: 5 },
+    { sessions: [], todos, focus: "todos", footer: "", todoOffset: 5 },
     layout,
   );
   const text = lines.map(plain).join("\n");
@@ -157,44 +154,6 @@ test("PageDown scrolls the session list instead of running off the screen", asyn
   await done;
   assert.match(last, /row-[23][0-9]/, "the cursor went deep into the list and the frame followed it");
   assert.doesNotMatch(last, /row-0 /, "the top of the list scrolled out of view");
-});
-
-test("f pauses the preview and f again resumes it", async () => {
-  let calls = 0;
-  const { input, io, lastFrame } = fakeIo({ sessions: [{ label: "1 alpha", name: "alpha" }], todos: [], preview: [] });
-  io.refresh = async () => {
-    calls += 1;
-    return {
-      sessions: [{ label: "1 alpha", name: "alpha" }],
-      todos: [],
-      preview: { title: "alpha", lines: [`frame-${calls}`] },
-    };
-  };
-  const shown = () => (lastFrame().match(/frame-(\d+)/) ?? [])[1];
-  const tui = createTui({ io, version: "9.9.9" });
-  const done = tui.start();
-  await new Promise((resolve) => setTimeout(resolve, 60));
-  input.emit("data", "f");
-  await new Promise((resolve) => setTimeout(resolve, 60));
-  const frozen = shown();
-  assert.ok(frozen, "the preview is on screen");
-  await new Promise((resolve) => setTimeout(resolve, 1300));
-  assert.equal(shown(), frozen, "the preview kept the frame it was showing");
-  assert.match(lastFrame(), /PAUSED/);
-  input.emit("data", "f");
-  await new Promise((resolve) => setTimeout(resolve, 120));
-  assert.notEqual(shown(), frozen, "following again picks up the live pane");
-  input.emit("data", "q");
-  await done;
-});
-
-test("- and + give the todo box an exact height", () => {
-  const auto = computeLayout(120, 30, { todoCount: 2 });
-  const tall = computeLayout(120, 30, { todoCount: 2, todoRows: 9 });
-  assert.equal(tall.todos.h, 9);
-  assert.equal(tall.preview.h, auto.preview.h - (9 - auto.todos.h), "the preview lends the rows");
-  const huge = computeLayout(120, 30, { todoCount: 2, todoRows: 999 });
-  assert.ok(huge.preview.h >= 3, "the preview always keeps three rows");
 });
 
 test("moveSelection clamps to the list", () => {
@@ -310,8 +269,7 @@ test("createTui draws, moves the selection and quits on q", async () => {
 
   const drawn = text();
   assert.match(drawn, /sessions \(2\)/);
-  assert.match(drawn, /preview: beta/, "preview follows the selection");
-  assert.match(drawn, /pane line/);
+  assert.match(drawn, /sessions \(2\)/, "the list is still there after a key");
   assert.match(raw(), /\u001b\[\?1049h/, "enters the alternate screen");
   assert.match(raw(), /\u001b\[\?1049l/, "leaves the alternate screen on quit");
 });
@@ -357,7 +315,7 @@ test("Enter does not end the session — the panel still takes keys when tmux gi
   assert.equal(finished, false, "handing the terminal to tmux must not be mistaken for a quit");
   input.emit("data", "\u001b[B");
   await new Promise((resolve) => setTimeout(resolve, 80));
-  assert.match(lastFrame(), /preview: beta/, "keys are still handled after the attach returns");
+  assert.match(lastFrame(), /sessions \(2\)/, "keys are still handled after the attach returns");
   input.emit("data", "q");
   await done;
   assert.deepEqual(calls, ["alpha"]);
@@ -470,7 +428,6 @@ test("a CJK preview never produces a line wider than the screen", () => {
     {
       sessions: [{ label: "1 risk-01  running", selected: true }],
       todos: [{ label: `1. mano-dev-01 — ${chinese}` }],
-      preview: { title: "risk-01", lines: [chinese, chinese + chinese] },
       focus: "sessions",
       footer: " ↑↓ move · q quit ",
     },
@@ -483,15 +440,18 @@ test("a CJK preview never produces a line wider than the screen", () => {
   }
 });
 
-test("the todo box grows with its content, the preview takes the rest", () => {
+test("the todo box grows with its content when the panels are stacked", () => {
   assert.equal(todoBoxHeight(0, 30), 3, "empty list: header + one row + border");
   assert.equal(todoBoxHeight(1, 30), 3);
   assert.equal(todoBoxHeight(3, 30), 5, "three items and two borders");
   assert.equal(todoBoxHeight(50, 30), TODO_MAX_HEIGHT, "capped once it stops being useful");
-  const tall = computeLayout(120, 40, { todoCount: 0 });
-  const busy = computeLayout(120, 40, { todoCount: 6 });
-  assert.ok(busy.preview.h < tall.preview.h, "a longer list costs the preview rows");
-  assert.equal(tall.todos.h + tall.preview.h, tall.sessions.h, "the right column still adds up");
+  const none = computeLayout(70, 40, { todoCount: 0 });
+  const busy = computeLayout(70, 40, { todoCount: 6 });
+  assert.equal(none.todos.h, 0, "an empty list costs nothing on a narrow terminal");
+  assert.ok(busy.todos.h > 0, "a real list gets its rows");
+  assert.equal(busy.sessions.h + busy.todos.h, busy.height - 1, "the column adds up");
+  const split = computeLayout(120, 40, { todoCount: 2 });
+  assert.equal(split.todos.h, split.sessions.h, "side by side the todo column is full height");
 });
 
 test("a narrow terminal stacks the panels instead of squeezing two columns", () => {
@@ -499,11 +459,10 @@ test("a narrow terminal stacks the panels instead of squeezing two columns", () 
   assert.equal(layout.mode, "stacked");
   assert.equal(layout.sessions.w, layout.width, "panels are full width");
   assert.equal(layout.todos.y, layout.sessions.h, "todo sits under sessions");
-  assert.equal(layout.preview.y, layout.sessions.h + layout.todos.h);
-  assert.equal(layout.sessions.h + layout.todos.h + layout.preview.h, layout.height - 1);
+  assert.equal(layout.sessions.h + layout.todos.h, layout.height - 1);
 
   const lines = renderFrame(
-    { sessions: [], todos: [], preview: { title: "x", lines: [] }, footer: "f", focus: "sessions" },
+    { sessions: [], todos: [], footer: "f", focus: "sessions" },
     layout,
   );
   assert.equal(lines.length, layout.height);
@@ -513,9 +472,9 @@ test("a narrow terminal stacks the panels instead of squeezing two columns", () 
 test("an empty todo list is hidden entirely on a narrow terminal", () => {
   const layout = computeLayout(70, 26, { todoCount: 0 });
   assert.equal(layout.todos.h, 0, "no rows wasted on an empty list");
-  assert.ok(layout.preview.h > computeLayout(70, 26, { todoCount: 3 }).preview.h);
+  assert.ok(layout.sessions.h > computeLayout(70, 26, { todoCount: 3 }).sessions.h, "the rows go to the list");
   const lines = renderFrame(
-    { sessions: [], todos: [], preview: { title: "x", lines: [] }, footer: "f", focus: "sessions" },
+    { sessions: [], todos: [], footer: "f", focus: "sessions" },
     layout,
   );
   assert.ok(!lines.some((line) => line.includes(" todo (")), "no empty todo box");
@@ -670,16 +629,6 @@ test("an unchanged row is not sent again, and a wiped screen is", async () => {
   assert.ok(!painted.includes("aaa"), "unchanged row is not");
   const shorter = paintFrame(["aaa"], { previous: frame });
   assert.ok(shorter.includes(`${ESC}2;1H${ESC}K`), "a shorter frame clears the row it no longer uses");
-});
-
-test("the preview is reused while the pane has not printed anything", () => {
-  const cache = { name: "api", activity: "1700000000", height: 20, lines: ["a"] };
-  assert.equal(reusePreview(cache, { name: "api", activity: "1700000000", height: 20 }), true, "same pane, same stamp, same box");
-  assert.equal(reusePreview(cache, { name: "api", activity: "1700000001", height: 20 }), false, "the pane printed something: capture again");
-  assert.equal(reusePreview(cache, { name: "web", activity: "1700000000", height: 20 }), false, "different session");
-  assert.equal(reusePreview(cache, { name: "api", activity: "1700000000", height: 30 }), false, "the box changed height");
-  assert.equal(reusePreview({ name: "api", activity: "1", height: 20, lines: null }, { name: "api", activity: "1", height: 20 }), false, "nothing captured yet");
-  assert.equal(reusePreview(null, { name: "api", activity: "1", height: 20 }), false, "no cache");
 });
 
 test("a session that is busy but silent is marked stuck, not healthy", async () => {
