@@ -370,6 +370,7 @@ pp tui -c ./pi-plus.yml --socket work
 | [docs/autostart.md](docs/autostart.md) | 开机自启：systemd 单元为什么必须有 `KillMode=none`、linger、timer、launchd、WSL 两侧配置、冷启动验证 |
 | [docs/architecture.md](docs/architecture.md) | 内部实现：模块职责、`up` 数据流、名字解析、restart 状态机、tmux 目标规则 |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | 排障手册：按报错原文查（起不来、`can't find pane`、名字不对、自启没生效、attach 乱码…） |
+| [docs/from-a-mac.md](docs/from-a-mac.md) | 排障手册：按报错原文查（起不来、`can't find pane`、名字不对、自启没生效、attach 乱码…） |
 | [docs/development.md](docs/development.md) | 开发指南：跑测试、改代码的规矩、测试分层、发布流程（含 npm staged publishing 的坑） |
 | [docs/extension.md](docs/extension.md) | pi 扩展 `/pp-*` 与 `schedule` 工具：在会话里切 tmux、看别人的屏幕、断开连接、让 agent 自己排定时任务 |
 | [docs/cron.md](docs/cron.md) | 定时任务：三种时间表、crond 托管块、补跑与迟到语义、时区、调试 |
