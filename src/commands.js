@@ -2001,10 +2001,22 @@ function cmdStatus(config, options, ui) {
   const showRole = rows.some((row) => row.role);
   // STARTED is opt-in: it answers "did it restart by itself?" not "is it up?"
   const showStarted = Boolean(options.started) && rows.some((row) => row.lastStart);
+  // Three columns that are usually noise: a config of one stopped session was
+  // printing two empty columns (PID, AGENT) and a REMOTE-PI column that just
+  // repeated the name. They earn their width only when they say something.
+  const showPid = rows.some((row) => row.pid && row.pid !== "-");
+  const showAgent = rows.some((row) => row.command && row.command !== "-");
+  const showRemotePi = rows.some((row) => row.remotePiName && row.remotePiName !== row.name);
   const headers = [
-    ...(showNode
-      ? ["#", "NAME", "NODE", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]
-      : ["#", "NAME", "STATE", "IDLE", "RESTART", "PID", "AGENT", "CWD", "PI SESSION", "REMOTE-PI"]),
+    ...(showNode ? ["#", "NAME", "NODE"] : ["#", "NAME"]),
+    "STATE",
+    "IDLE",
+    "RESTART",
+    ...(showPid ? ["PID"] : []),
+    ...(showAgent ? ["AGENT"] : []),
+    "CWD",
+    "PI SESSION",
+    ...(showRemotePi ? ["REMOTE-PI"] : []),
     ...(showRole ? ["ROLE"] : []),
     ...(showCron ? ["CRON"] : []),
     ...(showTodos ? ["TODOS"] : []),
@@ -2038,8 +2050,8 @@ function cmdStatus(config, options, ui) {
         : r.state,
     r.idle || "-",
     r.restart,
-    r.pid,
-    r.command,
+    ...(showPid ? [r.pid] : []),
+    ...(showAgent ? [r.command] : []),
     options.wide ? r.cwd : tailPath(r.cwd),
     !r.pi
       ? "-"
@@ -2052,7 +2064,7 @@ function cmdStatus(config, options, ui) {
         : r.piSessionName
           ? `${r.piSessionName} (new)`
           : "(new)",
-    r.remotePiName,
+    ...(showRemotePi ? [r.remotePiName] : []),
     ...(showRole ? [r.role || "-"] : []),
     ...(showCron ? [r.cron || "-"] : []),
     ...(showTodos ? [r.todos ? String(r.todos) : "-"] : []),
@@ -2094,7 +2106,7 @@ function cmdStatus(config, options, ui) {
     const colored = [...table[i]];
     const stateAt = at("STATE");
     colored[0] = ui.paint("dim", colored[0]);
-    if (showNode) colored[2] = ui.paint(row.node ? "cyan" : "dim", colored[2]);
+    if (showNode) colored[at("NODE")] = ui.paint(row.node ? "cyan" : "dim", colored[at("NODE")]);
     if (row.state === "off") colored[stateAt] = ui.paint("dim", colored[stateAt]);
     if (row.role) colored[at("ROLE")] = ui.paint("dim", colored[at("ROLE")]);
     if (row.state === "unreachable") colored[stateAt] = ui.paint("red", "unreachable");
@@ -2156,31 +2168,27 @@ function cmdStatus(config, options, ui) {
       const nodeName = key === "local" ? "" : key;
       for (const name of map.keys()) if (!configured.has(`${nodeName}:${name}`)) unmanaged.push(name);
     }
-    ui.out(
-      `\n${running}/${shown.length} running` +
-        (down ? `  ${ui.paint("yellow", formatDownReasons(downReasons(rows)))}` : "") +
-        (unmanaged.length
-          ? `  ${ui.paint("yellow", `${unmanaged.length} unmanaged`)} ${ui.paint("dim", `(${unmanaged.slice(0, 3).join(", ")}${unmanaged.length > 3 ? ", …" : ""}) — pp adopt`)}`
-          : "") +
-        (config.nodes?.length
-          ? `  ${ui.paint("dim", `${config.nodes.length} node${config.nodes.length === 1 ? "" : "s"}`)}` +
-            (shown.some((r) => r.node)
-              ? ""
-              : ui.paint("dim", ` (no session runs on one yet — pp fleet sees what is there; pp new --node ${config.nodes[0].name} -C /srv/app --save)`))
-          : "") +
-        (rows.some((r) => r.reason === "hand")
-          ? `  ${ui.paint("dim", "(hand) = stopped on purpose; pp up <name> brings it back")}`
-          : "") +
-        (rows.some((r) => r.reason === "drain")
-          ? `  ${ui.paint("dim", "(drain) = machine under maintenance; pp node undrain <name> lets it start")}`
-          : "") +
-        (showCron ? `  ${ui.paint("dim", "cron: jobs aimed here (* = every session)")}` : "") +
-        (sortKey !== "config" && shown.length
-          ? `  ${ui.paint("dim", `sorted by ${sortKey}; # is the row number you are looking at`)}`
-          : "") +
-        (unreachableNodes.length ? `  ${ui.paint("red", `unreachable: ${unreachableNodes.join(", ")}`)}` : "") +
-        `  ${ui.paint("dim", `config: ${config.path}`)}`,
-    );
+    const width = process.stdout.columns && !options.wide ? Math.max(40, process.stdout.columns - 1) : Infinity;
+    const short = (text) => (width === Infinity ? text : truncateWidth(text, width));
+    const notes = [];
+    const downText = down ? `  ${ui.paint("yellow", formatDownReasons(downReasons(rows)))}` : "";
+    const extras = [];
+    if (unmanaged.length) {
+      extras.push(ui.paint("yellow", `${unmanaged.length} unmanaged`));
+      notes.push(`${unmanaged.length} unmanaged session(s) are in tmux but not in the config: ${unmanaged.slice(0, 3).join(", ")}${unmanaged.length > 3 ? ", …" : ""} — pp adopt`);
+    }
+    if (config.nodes?.length) extras.push(ui.paint("dim", `${config.nodes.length} node${config.nodes.length === 1 ? "" : "s"}`));
+    if (unreachableNodes.length) extras.push(ui.paint("red", `unreachable: ${unreachableNodes.join(", ")}`));
+    ui.out(short(`\n${running}/${shown.length} running${downText}${extras.length ? `  ${extras.join("  ")}` : ""}  ${ui.paint("dim", `config: ${config.path}`)}`));
+    if (sortKey !== "config" && shown.length) notes.push(`sorted by ${sortKey}; # is the row number you are looking at`);
+    if (rows.some((r) => r.reason === "hand")) notes.push("(hand) = stopped on purpose; pp up <name> brings it back");
+    if (rows.some((r) => r.reason === "drain")) notes.push("(drain) = machine under maintenance; pp node undrain <name> lets it start");
+    if (showCron) notes.push("cron: jobs aimed here (* = every session)");
+    const idleNodes = (config.nodes ?? []).filter((node) => !shown.some((row) => row.node === node.name)).map((node) => node.name);
+    if (idleNodes.length) {
+      notes.push(`no session on ${idleNodes.join(", ")} yet — pp new --node ${idleNodes[0]} -C <dir> --save   (pp fleet shows what runs there)`);
+    }
+    for (const note of notes) ui.info(ui.paint("dim", short(note)));
   }
 }
 
