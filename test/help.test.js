@@ -2,11 +2,36 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { COMMANDS, commandNames, findCommand, renderCommandHelp, renderOverview, suggestCommand } from "../src/help.js";
 
-const CANONICAL = ["new", "node", "audit", "up", "down", "rm", "restart",
+const CANONICAL = [
+  "new",
+  "node",
+  "up",
+  "down",
+  "rm",
+  "restart",
   "adopt",
-  "bind", "rename", "fleet", "role", "plan", "runbook", "handover",
-  "snapshot", "backup", "restore",
-  "why", "mv", "status", "busy", "attach", "logs", "send", "mesh", "cron", "todo", "tui", "back", "check", "clean", "doctor", "init", "install", "uninstall", "alias", "update", "version", "help"];
+  "bind",
+  "rename",
+  "fleet",
+  "backup",
+  "restore",
+  "status",
+  "attach",
+  "logs",
+  "send",
+  "cron",
+  "todo",
+  "tui",
+  "back",
+  "doctor",
+  "init",
+  "install",
+  "uninstall",
+  "alias",
+  "update",
+  "version",
+  "help",
+];
 
 test("every command has a complete help page", () => {
   for (const name of CANONICAL) {
@@ -32,7 +57,6 @@ test("aliases resolve to the canonical command", () => {
     ["ls", "status"],
     ["list", "status"],
     ["log", "logs"],
-    ["validate", "check"],
     ["autostart", "install"],
     ["START", "up"],
   ]) {

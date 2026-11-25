@@ -30,7 +30,6 @@ pi-plus.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --n
 - **直接跟别的 agent 说话**：`pp mesh ls/send` 直连 remote-pi 的本地 broker，按会话名或跨机地址发消息、拿 ACK、等回复。
 - **定时任务**：`pp cron add` 按「一次 / 每 N 分钟 / crontab 表达式」把 prompt 打进会话，或跑一条命令；装一个 crontab 行就管所有任务，重启后能补跑。
 - **谁在等我**：`pp todo` 列出「哪个会话卡在问题上」，`pp todo attach 2` 直接进去；pi 弹提示或跑完停在问句时自动登记。
-- **能查账**：`pp audit` 是每次改动的流水（谁、什么时候、把哪个会话停了/起了/发了什么），`--since 12h --action down` 就是"昨晚谁动的"。
 - **多机器一张表**：`pp node add` 登记一台 ssh 能到的机器，会话写 `node: prod-01` 就跑到那台机器上——远端不用装 pp，`pp ls`/`tui`/`cron`/`todo` 一视同仁；机器的 `base_path`/`defaults` 让会话条目只剩两行。
 - **机群体检**：`pp doctor --nodes` 并行 ssh 一遍，每台一行给出连通性、负载、uptime、会话数、磁盘、内存。
 - **会话可搬家**：`pp mv <会话> --node <机器>` 停掉、改一行 `node:`、在新机器起来；`--local` 挪回来。
@@ -94,7 +93,6 @@ fpath+=(~/path/to/pi-plus/completions); compinit    # zsh
 ```bash
 pp init                 # 生成 ~/.pi/plus.yml（或 --local 生成 ./pi-plus.yml）
 $EDITOR ~/.pi/plus.yml
-pp check                # 只校验配置，不碰 tmux
 pp doctor               # 环境体检：node / tmux / pi / 自启
 pp up                   # 后台拉起所有 session
 pp up --drift           # 只补没起来的（可反复敲，适合放 cron）
@@ -140,12 +138,6 @@ pp n api --save               # 同时写进配置文件，重启后自动拉起
 不需要 pi 进程、不需要配对，本机和其它电脑上的 agent 都能发：
 
 ```bash
-pp mesh ls                                  # 谁在线（只读探测，不会让别人看到上下线）
-pp mesh resolve backend                     # 配置里的会话 → mesh 地址 + 在线状态
-pp mesh send backend "构建绿了，可以发版"      # 会话名/序号都行
-pp mesh send 1 macbook:/Users/me/code/api@api "ping"   # 跨机直接写地址
-pp mesh send all "5 分钟后重启机器"           # 广播
-pp mesh send backend "跑一下测试" --reply 60000        # 等它回话，收到就返回
 ```
 
 - 单个目标 = 单播并等 broker 的 ACK：`delivered to …`（收到）、`busy`（对方正在跑，
@@ -164,7 +156,6 @@ pp mesh send backend "跑一下测试" --reply 60000        # 等它回话，收
 ```bash
 pp node add prod-01 --host 10.0.0.11 --user deploy --identity ~/.ssh/id_ed25519
 pp node test prod-01                 # tmux/pi/pp/负载/会话数，一次 ssh 往返
-pp node exec prod-01 -- df -h /      # 一条命令，不占会话
 pp node ls                  # NODE  TARGET  PORT  AUTH  SESSIONS  NOTE
 ```
 
@@ -174,7 +165,6 @@ nodes:
     host: 10.0.0.11
     user: deploy
     identity: ~/.ssh/id_ed25519
-    tags: [prod, web]                # pp up --tag prod / pp node exec --tag web -- …
     guarded: true                    # pp down / pp rm 跳过它，除非 --force
     drained: true                    # 维护中：pp up / 自启 / --heal 都跳过它
   - name: textbook
@@ -384,7 +374,6 @@ pp tui -c ./pi-plus.yml --socket work
 | [docs/extension.md](docs/extension.md) | pi 扩展 `/pp-*` 与 `schedule` 工具：在会话里切 tmux、看别人的屏幕、断开连接、让 agent 自己排定时任务 |
 | [docs/cron.md](docs/cron.md) | 定时任务：三种时间表、crond 托管块、补跑与迟到语义、时区、调试 |
 | [docs/nodes.md](docs/nodes.md) | 多机器：`nodes:` 与 `node:` 字段、四种认证方式（密钥/agent/ssh config/密码）、`pp node add/ls/show/rm/test/ssh`、远端会话怎么跑、连不上怎么查 |
-| [docs/roles.md](docs/roles.md) | 角色：`role` 是什么、怎么贴、一个标签能做什么（筛/排/批量/审计/追问）、命名经验与常见问题 |
 | [docs/todo.md](docs/todo.md) | 待办：三种来源、去重、`PP_TODO_SETTLED` 噪音控制、数据文件、边界 |
 
 ## 配置参考
@@ -531,20 +520,11 @@ pp help instal          # 拼错会给建议：did you mean 'pp help install'?
 | --- | --- |
 | `pp new --from risk-01 --save` | 照着一个跑对的会话克隆（同名族第 N 个不用重打） |
 | `pp`（不带参数） | 三行现状 + 六个常用命令 |
-| `pp plan` | 该先做哪一件、再做什么（带顺序与原因） |
-| `pp handover` | 换班那一页：过去 24h 变了什么、现在什么没起、还有什么要人决定 |
-| `pp plan --node t114` | 只问那一台机器：要让它现在能接活，按顺序敲哪几条 |
 | `pp backup` / `pp restore` | 改配置前留一份，改坏了拿回来（普通目录拷贝，带 diff 预演） |
-| `pp runbook` | 事故处理手册：会话全没了 / 不投递 / 机器连不上 … 各自按序怎么查 |
-| `pp snapshot` | 把会话表、定时任务、机器、审计尾部打成一块，直接贴进工单 |
-| `pp why risk-01` | 一句话解释它为什么是这个状态（drain/手工停/该在跑却没在跑） |
-| `pp why --node t114` | 同一问题问整台机器（ssh/tmux/维护中/哪些没起） |
-| `pp role risk-01 pm` | 给会话贴角色标签（`dev`/`pm`/`qa`）；`--role` 可筛选表，也能筛选批量动作（`pp send --role pm "…"`） |
 
 ```
 # 会话
 pp new [name] [opts]          在当前目录/指定目录临时开一个（别名 n、create；--from 克隆、--node 远端、--role、--save）
-pp up [name|#...]             后台创建/启动（别名 start；--drift 只补没起的、--wait 等到能接话、--node/--tag/--role 批量）
 pp down [name|#...]           停止（--force 连 guarded/drained 一起、--yes 确认维护窗口内的操作）
 pp rm <name|#>...             删除（杀掉会话 + 从配置里删掉这一条）
 pp restart [name|#...]        重启（遵守 restart 策略）
@@ -553,37 +533,23 @@ pp rename <old> <new>         改名：tmux 与配置一起改
 pp fleet                      所有机器上正在跑的会话（现查，不缓存）
 pp bind <name>                把会话钉在一个 pi 对话上（否则每次重启都是新对话）
 pp tui --static               面板只在按键时重画（慢链路/ssh）
-pp mv <name|#> --node <机器>  把会话搬到别的机器（--local 搬回本机、--cwd 换目录）
 
 # 看
 pp status [name|#...]         状态表，第一列是 # 序号（--json、--watch、--started、--role、--sort、--node）
 pp logs <name|#> [-n 200]     打印滚动输出（-f 跟随，--grep/--context、--stamp、--save）
-pp why <会话|机器>            一句话解释它为什么是这个状态（--node 问整台机器、--role 问一个标签）
-pp plan                       该先做哪一件、再做什么（--node 只看一台机器）
-pp handover [--since 24h]     换班那一页：变了什么 / 现在什么没起 / 还有什么要人决定（--send 交给某个会话）
-pp snapshot                   会话表 + 定时任务 + 机器 + 审计尾部打成一块，直接贴进工单
-pp audit [target]             这台机器改过什么、谁改的（--action、--since、--role、--prune）
-pp runbook [场景]             事故处理手册（--markdown 输出整本 docs/runbook.md）
 pp tui                        一块屏管所有会话和待办（Enter 进入、pp back 回来）
 
 # 动
 pp attach <name|#>            进入；不存在则先启动
-pp send <name|#> "文本"        往 pane 里打字并回车（--no-enter 不回车；--all/--node/--tag/--role 撒网，忙的跳过；--until-idle 干完再打印屏幕）
 pp todo [ls|attach|done]      谁在等我决策：列表 / 进去 / 完成（--all、--session）
-pp role <会话> [角色|-]       给会话贴标签（--list 看所有标签与未贴的）
 pp cron add|ls|rm|run|tick    定时把 prompt/命令送进会话（--in/--every/--cron，--all/--role，--heal/--sweep）
-pp mesh ls|resolve|send       直连 remote-pi broker：看谁在线 / 查地址 / 发消息（--reply 等回复）
 
 # 多机
 pp node ls|show|add|rm        管别的机器：登记、看详情（--from-ssh-config 抄 ~/.ssh/config）
 pp node test [name|--all]     体检：ssh / os / tmux / pi / 负载 / 磁盘 / 会话数（--json）
-pp node exec <name> -- <cmd>  在机器上跑一条命令（--tag/--all、--parallel、--timeout）
 pp node ssh <name>            用登记的认证方式开一个交互 shell
-pp node drain|undrain <name>  维护窗口：期间 pp up / 自启 / --heal 都不动它的会话
 
 # 本机与自身
-pp check                      校验配置（--remote 连远端会话、--brief 只报结论）
-pp clean [--keep 2m]          把 pp 自己写大的日志原地收回（--dry-run）
 pp doctor                     环境诊断：配置/自启/扩展/漂移/日志/卡住/定时任务（--brief 给下一条命令）
 pp init                       写示例配置
 pp install [--watch N]        安装开机自启（别名 autostart）
@@ -717,7 +683,6 @@ name, and a remote-pi mesh name — all defaulting to the same `name`.
 ```bash
 npm i -g pi-farm
 pp init && $EDITOR ~/.pi/plus.yml
-pp check && pp up && pp status
 pp attach backend
 pp install --watch 300      # survive reboots, reconcile every 5 min
 ```
@@ -755,16 +720,8 @@ remote-pi mode: `config` (default, writes `<cwd>/.pi/remote-pi/config.json`),
 | --- | --- |
 | see everything and jump in | `pp tui` (Enter attaches, `pp back` returns) |
 | a table, or a live one | `pp status`, `pp status --watch` |
-| `pp busy` | 谁在干活、在干什么（`--json`）；安静超过 `PP_STALL_MINUTES` 会被点名 |
-| what should I do next | `pp plan` — ordered steps with reasons |
-| hand the shift over | `pp handover [--send <session>]` |
-| why is this one like this | `pp why <session>`, `pp why --node <machine>` |
-| work an incident | `pp runbook` — the runbook, one scenario at a time |
-| one line into an agent | `pp send <session> "…"` (`--all`, `--role`, `--tag`, `--node`) |
 | something on a schedule | `pp cron add --all --every 10m "…"` (`--heal`, `--sweep`) |
 | sessions on other machines | `pp node add/test/exec/ssh/drain` |
-| who changed what, and when | `pp audit [--action up] [--role dev]` |
-| shrink what pp wrote | `pp clean` (in-place, keeps the last 2 MB) |
 
 Tag any session with a `role` (`pp role api dev`) and every verb that takes
 `--role` will fan out over it: `pp up --role dev`, `pp logs --role dev -f`,

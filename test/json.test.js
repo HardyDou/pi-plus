@@ -131,58 +131,7 @@ test("status --json: one row per session, plus the drift block", () => {
   }
 });
 
-test("plan --json: ordered steps and the facts they came from", () => {
-  const box = sandbox();
-  try {
-    const payload = box.json(["plan"]);
-    shape(payload, { steps: "array", facts: "object" }, "plan");
-    shape(payload.facts, {
-      reach: "array",
-      drift: "array",
-      unmanaged: "array",
-      stuck: "array",
-      cron: "array",
-      dangling: "array",
-      deferred: "array",
-      waiting: "array",
-      logs: "array",
-      autostart: "object|null",
-      extension: "object|null",
-    }, "plan.facts");
-    if (payload.steps.length) {
-      shape(payload.steps[0], { priority: "number", title: "string", command: "string", why: "string" }, "plan.steps[0]");
-    }
-  } finally {
-    box.stop();
-  }
-});
 
-test("why --json: the same keys for a session, whether it runs or not", () => {
-  const box = sandbox();
-  try {
-    for (const name of ["ja", "jb"]) {
-      shape(box.json(["why", name]), {
-        name: "string",
-        tmux: "string",
-        node: "string|null",
-        role: "string|null",
-        state: "string",
-        verdict: "string",
-        reason: "object",
-        cwd: "string",
-        agent: "array",
-        restart: "string",
-        lastStart: "object|null",
-        restarts: "array",
-        busy: "boolean",
-        cron: "array",
-        todos: "number",
-      }, `why ${name}`);
-    }
-  } finally {
-    box.stop();
-  }
-});
 
 test("doctor --json: every check carries the command that fixes it", () => {
   const box = sandbox();
@@ -208,61 +157,8 @@ test("doctor --json: every check carries the command that fixes it", () => {
   }
 });
 
-test("check/ls surfaces keep their shape, empty or not", () => {
-  const box = sandbox();
-  try {
-    shape(box.json(["check"]), { ok: "boolean", problems: "array", notes: "array", config: "string" }, "check");
-    for (const job of box.json(["cron", "ls"])) {
-      shape(job, { id: "string", schedule: "string", next: "string", nextRun: "string|null", runs: "number", last: "string" }, "cron ls[]");
-    }
-    for (const node of box.json(["node", "ls"])) {
-      shape(node, { name: "string", host: "string", port: "number", auth: "string", tags: "array" }, "node ls[]");
-    }
-    for (const entry of box.json(["audit"])) {
-      shapePart(
-        entry,
-        { action: "string", target: "string", actor: "string", result: "string", ts: "string", node: "string|null", detail: "string|null" },
-        "audit[]",
-      );
-    }
-    for (const scenario of box.json(["runbook"])) {
-      shape(scenario, { id: "string", title: "string", symptom: "string", means: "string", steps: "array", fix: "string" }, `runbook[${scenario.id}]`);
-      for (const step of scenario.steps) shape(step, { do: "string", see: "string" }, `runbook[${scenario.id}].steps`);
-    }
-  } finally {
-    box.stop();
-  }
-});
 
-test("snapshot --json wraps the block and names its parts", () => {
-  const box = sandbox();
-  try {
-    const payload = box.json(["snapshot"]);
-    shape(payload, { version: "string", host: "string", time: "string", config: "string|null", text: "string", cron: "array", nodes: "array", todos: "array", audit: "array" }, "snapshot");
-    for (const todo of payload.todos) shape(todo, { id: "string", session: "string|null", title: "string" }, "snapshot.todos[]");
-    assert.match(payload.text, /9?\d*\/\d+ running|running/, "the block carries the session table");
-    for (const job of payload.cron) shape(job, { id: "string", target: "string|null", schedule: "string", next: "string", runs: "number", last: "string" }, "snapshot.cron[]");
-    for (const node of payload.nodes) shape(node, { name: "string", target: "string", tags: "array", drained: "boolean", guarded: "boolean", sessions: "number" }, "snapshot.nodes[]");
-  } finally {
-    box.stop();
-  }
-});
 
-test("role --list --json and todo ls --json keep their shape", () => {
-  const box = sandbox();
-  try {
-    const roles = box.json(["role", "--list"]);
-    assert.ok(Array.isArray(roles), "role --list --json is an array, empty or not");
-    for (const entry of roles) shape(entry, { role: "string", count: "number", sessions: "array" }, "role list[]");
-    const todos = box.json(["todo", "ls"]);
-    assert.ok(Array.isArray(todos), "todo ls --json is an array");
-    for (const entry of todos) {
-      shapePart(entry, { id: "string", session: "string", kind: "string", title: "string", state: "string" }, "todo ls[]");
-    }
-  } finally {
-    box.stop();
-  }
-});
 
 test("doctor prints its table even where tmux is missing — that is what it is for", () => {
   // reproduce the CI runner: node, and nothing else on PATH
@@ -301,46 +197,4 @@ test("cron dryrun --json: one entry per job, with the plan or the reason", () =>
   }
 });
 
-test("why <job> --json: the schedule, the counts, and the reach", () => {
-  const box = sandbox();
-  try {
-    const added = box.pp(["cron", "add", "--session", "ja", "--every", "10m", "ping"]);
-    const id = (added.text.match(/scheduled ([0-9a-f]+)/) ?? [])[1];
-    const payload = box.json(["why", id]);
-    shape(payload, {
-      id: "string",
-      action: "string|null",
-      target: "string|null",
-      schedule: "object",
-      catchUp: "number|null",
-      idleAfter: "number|null",
-      maxPerDay: "number|null",
-      dayRuns: "number",
-      verdict: "string",
-      tick: "boolean",
-      nextRun: "string|null",
-      lastRun: "string|null",
-      lastAttempt: "string|null",
-      lastStatus: "string|null",
-      runs: "number",
-      skipped: "number",
-      busyTarget: "boolean",
-      targetDetail: "string",
-      wouldReach: "object|null",
-    }, "why.job");
-    if (payload.wouldReach) shape(payload.wouldReach, { send: "number", total: "number", note: "string|null" }, "why.job.wouldReach");
-  } finally {
-    box.stop();
-  }
-});
 
-test("why --role --json: who carries the label, and which jobs aim at it", () => {
-  const box = sandbox();
-  try {
-    const payload = box.json(["why", "--role", "pm"]);
-    shape(payload, { role: "string", up: "number", total: "number", sessions: "array", cron: "array" }, "why.role");
-    shape(payload.sessions[0], { name: "string", state: "string", node: "string|null", verdict: "string" }, "why.role.sessions[0]");
-  } finally {
-    box.stop();
-  }
-});

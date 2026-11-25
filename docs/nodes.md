@@ -94,7 +94,8 @@ sessions:
 | `password` | | 明文密码（不推荐，文件会被 chmod 600） |
 | `password_env` | | 从这个环境变量读密码 |
 | `note` | | 自由文本，`pp node ls` 里显示 |
-| `tags` | | 标签数组（或逗号串），给 `--tag` 选机器用 |
+> `tags` / `guarded` / `drained` / `base_path` / `defaults` 是配置文件里的字段，直接手写 YAML；`pp` 的命令行只为最常用的几项提供旗标（`--host/--port/--user/--identity/--note`）。
+
 | `guarded` | | `true` 时这台机器上的会话拒绝 `pp down` / `pp rm`（除非 `--force`） |
 | `base_path` | | 这台机器的根目录，会话写相对的 `cwd` 时拼在它下面 |
 | `defaults` | | 这台机器的会话默认值：`agent` / `restart` / `remote_pi_mode` |
@@ -137,7 +138,6 @@ sessions:
 "这台机器上的会话都算 prod"通常是**构造成立的事实**，不是人工判断。
 
 ```bash
-pp node add p201 --default-role prod     # 以后在 p201 上新建的会话自动带 prod
 pp node show p201                        # defaults 里能看到
 pp status --role prod                    # 立刻按语义筛（远端会话按名字显示）
 ```
@@ -167,8 +167,6 @@ sessions:
 命令行等价物：
 
 ```bash
-pp node add prod-01 --host 10.0.0.11 --base-path /srv/apps \
-  --default-agent "node /srv/agent.js" --default-restart unless-stopped
 pp node show prod-01          # 看它现在带的默认值
 pp new api --node prod-01 -C api --save   # 落到 /srv/apps/api
 ```
@@ -212,7 +210,6 @@ env HTTP_PROXY=http://127.0.0.1:7890 LOG_LEVEL=debug … pi --model deepseek --v
 | `args` | **堆叠不覆盖**：机器模板的参数在前，会话自己的参数接在后面 |
 | `cwd` | 相对路径按机器的 `base_path` 解析（`api` → `/srv/api`），绝对路径原样 |
 
-`pp node show t114` 会把模板原样打出来，`pp node add t114 --base-path /srv` 只改路径、
 不会顺手清掉模板（编辑时未提到的字段一律沿用旧值）。
 
 ## 命令
@@ -224,7 +221,6 @@ env HTTP_PROXY=http://127.0.0.1:7890 LOG_LEVEL=debug … pi --model deepseek --v
 | `pp node add <name> …` | 新增；同名视为编辑，会报告改了哪些字段 |
 | `pp node rm <name>` | 删除；还有会话指向它时**拒绝**，`--force` 才硬删（会留下悬空引用） |
 | `pp node test <name>` | 一次 ssh 往返，报告机器体检结果（`--all` 测全部） |
-| `pp node exec <name>… -- <cmd>` | 在机器上跑一条命令，不占会话；`--all`/`--tag` 选机群，`--timeout <秒>` 限时，`--json` 机读 |
 | `pp node ssh <name>` | 照着登记的参数开一个交互式 ssh 会话 |
 
 `pp node add --dry-run` 只打印将要写入的 YAML 块，不动文件。
@@ -245,14 +241,8 @@ nodes:
 ```
 
 ```bash
-pp node add p201 --from-ssh-config p201 --tag prod        # 加标签（可重复，累加不覆盖）
-pp node ls --tag prod                                     # 只看这类机器
-pp node exec --tag prod -- 'systemctl is-active nginx'    # 只在这类机器上跑
-pp up --tag prod                                          # 只拉起这类机器上的会话
-pp restart --tag mysql                                    # 只重启这类机器上的会话
 ```
 
-多个 `--tag` 是**都要满足**（`--tag prod --tag db` = 既 prod 又 db）。`--tag` 与 `--node` 可以叠加，
 等价于"这台机器且带这些标签"。
 
 ### 生产机器加一把锁：`guarded: true`
@@ -267,8 +257,6 @@ nodes:
 ```
 
 ```bash
-pp node add p201 --from-ssh-config p201 --guard      # 加锁
-pp node add p201 --from-ssh-config p201 --no-guard   # 解锁（其它字段原样保留）
 pp down p201-web            # 跳过并提示；会话不动
 pp down p201-web --force    # 真的停
 pp rm p201-web              # 确认时会把"guarded machine"写进问句
@@ -398,7 +386,6 @@ MACHINE    TARGET              PING   TMUX  LOAD  UP  SESSIONS  DISK  MEM
 ```
 
 一次 ssh 打一台（并行发出），回答的是"哪台机器不对劲"，而不是"我连不连得上"：
-负载、uptime、磁盘、内存、会话数都在一行里。`--node <名>` / `--tag <标签>` 收窄范围，
 `--json` 里每台机器带完整 `probe`，失败的那台退出码为 1（适合放进巡检脚本）。
 
 `pp node test <名>` 仍然是单台的详细探测（逐项打印），两者的区别是"体检表"和"化验单"。

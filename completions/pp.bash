@@ -4,30 +4,22 @@ _pp() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local commands="tui panel back new n create up start down stop rm remove delete adopt bind rename fleet role plan runbook handover shift snapshot why explain mv restart status busy working doing ls list attach a logs log send mesh audit backup restore cron todo todos node nodes check clean validate doctor init install autostart uninstall alias link update upgrade version help"
+  local commands="tui panel back new n create up start down stop rm remove delete adopt bind rename fleet restart status ls list attach a logs log send backup restore cron todo todos node nodes doctor init install autostart uninstall alias link update upgrade version help"
 
   case "$prev" in
     -c|--config)
       COMPREPLY=( $(compgen -f -- "$cur") )
       return 0
       ;;
-    --socket|--lines|--idle-over|--sort|--refresh|--trace|--cwd|-n|--agent|-C|--dir|--host|--port|--user|--identity|--password|--note|--tag|--timeout|--role|--node|--from|--password-env|--from-ssh-config|--base-path|--default-agent|--default-restart|--default-remote-pi-mode|--default-role)
+    --socket|--lines|--idle-over|--sort|--refresh|--trace|--cwd|-n|--agent|-C|--dir|--host|--port|--user|--identity|--password|--note|--timeout|--node|--from|--password-env|--from-ssh-config)
       return 0
       ;;
     --password-env|--from-ssh-config)
       return 0
       ;;
-    mesh)
-      COMPREPLY=( $(compgen -W "ls list resolve send inbox listen watch" -- "$cur") )
-      return 0
-      ;;
-    tui|panel) opts="--once --left --sort --refresh --no-preview --static --trace --diag -c --socket" ;;
+    tui|panel) opts="--once --left --sort --refresh --static --trace --diag -c --socket" ;;
     backup)  opts="--list --keep --out --json --dry-run -c --socket" ;;
     restore) opts="--dry-run --force --out --json -c --socket" ;;
-    audit)
-      COMPREPLY=($(compgen -W "--limit --action --since --prune --file --json --window --max-per-day --idle-after" -- "$cur"))
-      return 0
-      ;;
     cron)
       COMPREPLY=( $(compgen -W "add ls list rm remove delete run fire dryrun preview pause hold resume unpause retarget reaim tick install uninstall status logs log reset" -- "$cur") )
       return 0
@@ -37,7 +29,7 @@ _pp() {
       return 0
       ;;
     node|nodes)
-      COMPREPLY=( $(compgen -W "ls list status show info describe add set upsert rm remove delete test ping probe check exec run drain undrain resume ssh" -- "$cur") )
+      COMPREPLY=( $(compgen -W "ls list status add set upsert rm remove delete test ping probe ssh" -- "$cur") )
       return 0
       ;;
     alias|link)

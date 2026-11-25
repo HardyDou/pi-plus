@@ -36,7 +36,6 @@ import {
   removeAlias,
 } from "./aliases.js";
 import { contentSignature, hasEditor, isRule, lastActionLine, looksBusy, resolveExecutable, screenSignature, Tmux } from "./tmux.js";
-import { findScenario, renderMarkdown, renderScenario, RUNBOOK } from "./runbook.js";
 import {
   authSummary,
   DEFAULT_PORT,
@@ -91,16 +90,6 @@ import {
   UpdateError,
 } from "./update.js";
 import { spawnSync } from "node:child_process";
-import {
-  BROADCAST_TARGET,
-  connectPeer,
-  describeEnvelope,
-  livePeersFor,
-  MeshError,
-  peerPc,
-  probePeers,
-  sessionMeshAddress,
-} from "./mesh.js";
 import {
   buildSchedule,
   describeSchedule,
@@ -1975,7 +1964,6 @@ async function cmdNode(config, options, ui) {
     }
     return printNodes(config, options, ui);
   }
-  if (["show", "info", "describe"].includes(sub)) return showNode(config, options, ui);
   if (["add", "set", "upsert"].includes(sub)) return cmdNodeAdd(config, options, ui);
   if (["rm", "remove", "delete"].includes(sub)) return cmdNodeRm(config, options, ui);
   if (["test", "ping", "probe", "check"].includes(sub)) return cmdNodeTest(config, options, ui);
@@ -1987,9 +1975,6 @@ async function cmdNode(config, options, ui) {
     ui.error(`no node ${sub} — there ${config.nodes.length === 1 ? "is 1 node" : `are ${config.nodes.length} nodes`}: pp node ls`);
     process.exit(2);
   }
-  if (["exec", "run", "sh"].includes(sub)) return cmdNodeExec(config, options, ui);
-  if (["drain", "maintenance"].includes(sub)) return cmdNodeDrain(config, options, ui, { drained: true });
-  if (["undrain", "resume", "unmaintenance"].includes(sub)) return cmdNodeDrain(config, options, ui, { drained: false });
   ui.error(`unknown node "${sub}" — try: pp node ls  (then pp node <1|name> to log in)`);
   process.exit(2);
 }
@@ -8741,48 +8726,9 @@ export async function runCommand(command, options) {
       const config = requireConfig(options, ui);
       return cmdAdopt(config, options, ui);
     }
-    case "plan": {
-      return cmdPlan(requireConfig(options, ui), options, ui);
-    }
-    case "snapshot": {
-      // needs no config: "there is no config here" is part of the snapshot
-      let config = null;
-      try {
-        config = loadConfig({ configPath: options.config, cwd: options.cwd });
-      } catch (error) {
-        if (options.config) throw error;
-      }
-      return cmdSnapshot(config, options, ui);
-    }
-    case "handover": {
-      return cmdHandover(requireConfig(options, ui), options, ui);
-    }
-    case "runbook": {
-      // works without a config: the manual is worth reading before you have one
-      let config = null;
-      try {
-        config = loadConfig({ configPath: options.config, cwd: options.cwd });
-      } catch {
-        config = null;
-      }
-      return cmdRunbook(config, options, ui);
-    }
-    case "why":
-    case "explain": {
-      return cmdWhy(requireConfig(options, ui), options, ui);
-    }
-    case "role": {
-      const config = requireConfig(options, ui);
-      return cmdRole(config, options, ui);
-    }
     case "bind": {
       const config = requireConfig(options, ui);
       return cmdBind(config, options, ui);
-    }
-    case "mv":
-    case "move": {
-      const config = requireConfig(options, ui);
-      return cmdMv(config, options, ui);
     }
     case "down":
     case "stop": {
@@ -8798,7 +8744,7 @@ export async function runCommand(command, options) {
     case "node":
     case "nodes": {
       const sub = String(options.names[0] ?? "ls").toLowerCase();
-      const readOnly = ["ls", "list", "status", "show", "info", "describe", "test", "ping", "probe", "check"].includes(sub);
+      const readOnly = ["ls", "list", "status", "test", "ping", "probe"].includes(sub);
       let config = null;
       try {
         config = loadConfig({ configPath: options.config, cwd: options.cwd });
@@ -8821,10 +8767,6 @@ export async function runCommand(command, options) {
     case "restore": {
       const config = tryLoadConfig(options);
       return cmdRestore(config, options, ui);
-    }
-    case "audit": {
-      const config = tryLoadConfig(options);
-      return cmdAudit(config, options, ui);
     }
     case "cron": {
       let config = null;
@@ -8868,7 +8810,6 @@ export async function runCommand(command, options) {
       const config = requireConfig(options, ui);
       return cmdStatus(config, options, ui);
     }
-    case "busy":
     case "working":
     case "doing": {
       const config = requireConfig(options, ui);
@@ -8888,20 +8829,6 @@ export async function runCommand(command, options) {
       const config = requireConfig(options, ui);
       return cmdSend(config, options, ui);
     }
-    case "mesh": {
-      let config = null;
-      try {
-        config = loadConfig({ configPath: options.config, cwd: options.cwd });
-      } catch {
-        config = null; // raw addresses and `pp mesh ls` work without a config
-      }
-      return cmdMesh(config, options, ui);
-    }
-    case "clean": {
-      const config = requireConfig(options, ui);
-      return cmdClean(config, options, ui);
-    }
-    case "check":
     case "validate": {
       const config = requireConfig(options, ui);
       return cmdCheck(config, options, ui);

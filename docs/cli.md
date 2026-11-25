@@ -62,86 +62,6 @@ pp <command> [names...] [options]
 
 ## 命令
 
-### `pp snapshot`
-
-```bash
-pp snapshot                # 会话表 + 定时任务 + 机器 + 待办 + 审计尾部，一整块
-pp snapshot --limit 20     # 底部多带些历史
-pp snapshot --json | jq -r .text
-
-# 有人在等你回答的时候，块里会多一段：
-# todos (1 waiting) — pp todo answer <#> "…"
-#   issue-1940       #38b15b  #1940 收官：8 项待决…
-
-```
-
-只读、不 ssh、半坏也能用：坏掉的 `cron.json` 变成块里的一行（提示 `pp doctor --quarantine`）、
-没有配置就直说。适合往 ticket / 群里贴一整段上下文。
-
-### `pp busy [--json]`
-
-哪些会话此刻真的在干活、在干什么。
-
-```bash
-pp busy
-pp busy --json | jq -r '.[] | select(.busy) | .name + "  " + .doing'
-```
-
-QUIET = "内容多久没变了"。spinner、`Elapsed 1m 2s`、token/费用那一行每帧都在动，都被排除在比较之外（和 `pp doctor` 的 `stalls` 同一套判据）。超过 `PP_STALL_MINUTES`（默认 45 分钟）会在页脚点名。
-
-### `pp handover [--since <窗口>] [--send <会话>] [--json]`
-
-换班贴到群里的那一页。三段，按接手人需要的顺序：
-
-```
-handover  last 24h, up to 2026-11-22T06:39Z  ·  pp 0.73.19  ·  ~/.pi/plus.yml
-
-changed 7 recorded — up ×4, down ×1, restart ×1, config.changed ×1
-           2h ago  up             api
-           5h ago  config.changed risk-01 — 1 change: sessions.risk-01 role: (absent) -> risk  (user@host#812)
-
-now     9 session(s) configured, 9/9 local up
-cron    3 job(s), tick installed, none late
-
-human   nothing — nothing is off, stuck or late
-```
-
-- `changed` 来自 `pp audit`，**不含 `send`**（那是工作本身，会把要紧的七行淹掉）
-- `now` = 配置期望多少、本地几个活着、定时任务数与 tick 是否还在
-- `waiting` = 会话里等回答的问题（`pp todo` 里未完成的），按时间从旧到新，最多列 3 条，附 `pp todo attach <id>`
-- `human` = 需要人做决定的：没起的、没登记的、卡住的、迟到的，每条都带修它的命令
-
-`busy` 那行是"此刻谁在跑"：交接给对方时最该交代的一句是"这两个还在跑，先别重启"（明细用 `pp busy`）。
-
-只读，除了**交接**：`pp handover --send <会话>` 会把这一页**打进那个会话的 agent**（它正在思考时拒绝，避免在错误的位置插话），让下一班从事实开始，而不是面对一个空提示符 —— 凌晨三点最容易跳过的一步就是"把它粘过去"。
-
-`--since` 与其他命令同一套窗口写法（`24h`、`90m`、`7d`），默认 24 小时。
-
-### `pp audit [target]`
-
-```bash
-pp audit                            # 最近 30 条改动，最新在最后
-pp audit risk-01                    # 只这一个会话
-pp audit --role dev --since 1d      # 标签是 dev 的所有会话（按名或 tmux 名匹配）
-pp audit --action down --since 12h  # 昨晚谁停了东西
-pp audit --json --limit 200         # 交给 jq 汇总
-pp audit --prune 90d                # 只留一个季度
-```
-
-一行一条：`<多久前> <动作> <目标> [on 机器] — <细节> (结果)`。append-only 写在
-`$XDG_STATE_HOME/pi-plus/audit.log`（超过 2 MB 轮转成 `audit.log.1`）。`actor` 是
-`user@host#pid`，所以定时任务投递和人在终端敲的命令能区分开；`--dry-run` 与只读
-命令（`ls`/`status`/`check`）不写。
-
-| 选项 | 说明 |
-| --- | --- |
-| `--limit N` | 显示最近 N 条（默认 30） |
-| `--action VERB` | `up`/`down`/`restart`/`rm`/`send`/`cron.add`/`cron.rm`/`node.add`/`node.rm` |
-| `--since 2h` | 只看这段时间之后（`30m`、`6h`、`3d`） |
-| `--prune 30d` | 删掉更早的条目并报告留下多少 |
-| `--file PATH` | 读另一份轨迹 |
-| `--json` | 输出对象数组 |
-
 ### `pp up [name|#...]`
 
 后台创建/启动（别名 `start`）。不带名字 = 所有 `restart != no` 的会话。
@@ -227,7 +147,6 @@ $ pp status api
 #  NAME  STATE    IDLE  RESTART  PID     AGENT  CWD       PI SESSION
 1  api   running  12s   always   3798448 pi     /srv/api  api
 
-last start 2m ago by heal (user@ops#1234) — pp audit --action up
 restarted 3× in 20m — heal ×3 — pp logs api
 ```
 
@@ -237,25 +156,6 @@ restarted 3× in 20m — heal ×3 — pp logs api
 
 每个会话保留最近 5 条（`RESTART_KEEP`），来源标在 `why`：`up` / `autostart` / `restart` /
 `heal` / `panel`。`--json` 里是 `restarts: [{ at, why, by }]`。
-
-### `pp audit --action config.changed`：改了什么字段
-
-```bash
-$ pp audit --action config.changed --limit 3
-2m ago   config.changed prod on prod — 1 change: +nodes.prod (changed)
-5m ago   config.changed box on box — 1 change: nodes.box drained: (absent) -> true (changed)
-9m ago   config.changed alpha — 1 change: -sessions.alpha (changed)
-```
-
-审计原本只说"谁执行了 `pp node add`"，而事后真正要回答的是"**它改了什么**"。所以每次写
-`plus.yml` 的工具（`pp node add/rm/drain/undrain`、`pp adopt`、`pp mv`、`pp rm`、`pp new --save`）
-都会在写盘前后各读一遍文件、做字段级 diff，把前 6 条差异写进同一条审计记录：
-
-- 新增/删除：`+nodes.prod`、`-sessions.alpha`
-- 字段改动：`sessions.api cwd: /srv/api -> /srv/api-v2`，删除写成 `-> (removed)`
-- 嵌套映射（`env`、`defaults`）算一个值：`nodes.box defaults: {"restart":"no"} -> {...}`
-
-写盘但内容没变（比如重复执行同样的 `node add`）不产生记录；`--dry-run` 也不产生。
 
 ### `pp status --watch`：变化的记录，而不是重画的表格
 
@@ -307,68 +207,6 @@ drift → logs → stalls（最后这个要人去看，不是一条命令）。
 `--json` 里每个 check 都带 `fix`，并多一个 `failed: ["drift","logs"]`，方便别的系统直接消费。
 一切正常时只输出 `ok 14 checks, nothing to do`（退出码 0）；有问题退出码 1。
 
-### `pp clean`：把 pp 自己写大的日志收回来
-
-```bash
-$ pp clean
-shrank logger  2.9 MB → 64.0 KB  /tmp/logs/app.log
-shrank cron.log  4.8 MB → 1.0 MB  ~/.local/state/pi-plus/cron.log
-
-5.3 MB freed
-$ pp clean --keep 512k --dry-run
-```
-
-每个 `log:` 会话都由 tmux 的 `pipe-pane` 往同一个文件里追加，pp 自己的 `info/cron/audit` 也一样——
-**没人轮转**。忙起来的机器上它们会填满磁盘，而第一个症状是"什么都写不进去"，看起来像 pp 出了故障。
-`pp clean` 把每个文件切成"最后 `--keep` 字节"（默认 2 MB）并告诉你省了多少。
-
-三个刻意的做法：
-
-- **保留尾部**：事故之后要看的是最新的那几百行，所以砍掉的是头部。
-- **从整行开始**：裁切的起点对齐到换行符，不会留下半行（半行日志读起来像损坏）。
-- **原地截断，不写新文件再改名**：`log:` 会话跑的是 `pipe-pane … cat >> file`，那个写入者手里攥着一个
-  append fd；改名会让它继续写进一个已被 unlink 的 inode，新文件永远是空的 —— 日志看着还在，其实已经丢了。
-  同一个 inode 上 `ftruncate` 只是把文件尾往前挪，写入者会接着新尾继续追加（0.51.0 的 e2e 里专门验证了
-  inode 不变、截断后的新输出仍然写进同一个文件）。
-
-`pp doctor` 在任一日志超过 50 MB 时给 `✗ logs <文件> <大小> — shrink: pp clean`。
-远端会话的日志不在这里动：请在那台机器上跑 `pp clean`。
-
-### `pp check --brief`：一行，一个退出码
-
-```bash
-$ pp check --brief
-ok 8 session(s), 6 node(s), 0 problems
-$ pp check --brief; echo "rc=$?"
-1 problem: "gone": cwd does not exist: /srv/gone — pp check
-rc=1
-```
-
-退出码：`0` 干净、`1` 有问题、`2` 用法错 —— 于是发版脚本里可以直接当闸门：
-
-```bash
-pp check --brief || exit 1
-```
-
-`--remote` 的节点检查是**并行**的（一台一次握手，不是串行六次），所以 `pp check --remote --brief`
-在六台机器的配置上也是秒级。
-
-### `pp check --remote`：让远端自己回答"这个路径存在吗"
-
-默认 `pp check` 跳过跑在别的机器上的会话（路径只在那台机器上存在）。`--remote` 会对每台
-节点握手一次，问两件事：
-
-- 会话的 `cwd` 在那台机器上存在吗？
-- `agent` 的第一个词在那台机器的 `PATH` 里吗？
-
-```bash
-$ pp check --remote
-error: "bad": cwd does not exist on t114: /nope/does-not-exist
-error: "bad": agent "definitely-not-installed" not found on t114
-```
-
-节点连不上时会单独报 `node "x" unreachable — …`，并让退出码变成 1，适合放进 CI/发版前检查。
-
 ### `pp status` 的 `CRON` 列
 
 "有几个定时任务正对着这个会话"，`*` 表示有任务会往**每个**在跑的会话投递（例如
@@ -407,14 +245,12 @@ $ pp status round --started
 2  wheel  running  9m    always   123457  2h up
 $ pp status round
 …
-last start 4m ago by heal (ops@dev#4121) — pp audit --action up
 ```
 
 启动方会把自己的身份记进 `state.json` 的 `started` 字段（`why` = `up`/`restart`/`drift`/`autostart`/`heal`/`panel`，
 `by` = `user@host#pid`）。意义在于半夜三点的那个问题：**"它是自己好的，还是有人动过？"** ——
 `heal` 说明它反复在死、`autostart` 说明机器重启过、`up` 说明有人在操作。
 
-`--started` 只是加一列；查单个会话时不加也会在表下多打一行。完整历史仍在 `pp audit --action up`。
 
 ### 排序与 `#` 列
 
@@ -463,7 +299,6 @@ last start 4m ago by heal (ops@dev#4121) — pp audit --action up
 
 ### `pp send --all "…"`
 
-一句话发到所有会话（`--node`/`--tag` 收窄范围）。正在跑的会话会被**跳过**而不是排队 —— 把第二句话塞进
 一个"正在想事"的 agent，是最容易让它丢掉上下文的方式。
 
 ```bash
@@ -493,7 +328,6 @@ $ pp down --force --yes far-x
 "维护窗口里到底谁动了手"：
 
 ```bash
-$ pp audit --action down.forced
 2m ago  down.forced  far-x — 1 stopped, 0 not running (drained machine, --yes given) (force)
 ```
 
@@ -643,23 +477,6 @@ then: pp bind bh-system-01 --id <id>
 | `--id <session-id>` | 钉这个对话，而不是最新的那个 |
 | `--dry-run` | 只打印将要写入的内容 |
 
-### `pp mv <name|#> --node <machine> | --local`
-
-把一条会话挪到另一台机器：在原来的地方停掉、改配置里那一行 `node:`、在新地方起来。
-文件里其它行一个字节都不动。
-
-```bash
-pp mv backend --node prod-01          # 挪过去
-pp mv backend --local                 # 挪回来
-pp mv 3 --node prod-01 --cwd /srv/app # 顺便换目录（会在目标机上检查是否存在）
-```
-
-**挪不动的东西**：pi 的对话记录（jsonl）在旧机器旧目录旁边，新机器上是全新的一轮 ——
-会话名、agent、remote-pi 名都不变，所以除了"历史"以外一切照旧。
-
-拒绝的情况：目标机不可达、目标机已有同名 tmux 会话（`--force` 会替换）、
-`--cwd` 在目标机上不存在。
-
 ### `pp restart [name|#...]`
 
 先 `down` 再 `up`，遵守 `restart` 策略：`restart: no` 的会话不参与裸 `restart`。
@@ -711,35 +528,6 @@ echo "$out" | tail -3
 ```
 
 退出码：会话在等待中退出 → 1（`exited while waiting`）；到 `--timeout`（默认 600 秒）还在跑 → 1（`still working after Ns`，并给出 `pp logs <name> -f`）。
-
-### `pp mesh <ls|resolve|send>`
-
-直连 remote-pi 的本地 broker（`~/.pi/remote/sessions/local/broker.sock`，可用 `$REMOTE_PI_HOME` 改根目录）：
-不启动 pi、不注册常驻 peer，一条命令说完就走。
-
-| 子命令 | 作用 |
-|---|---|
-| `ls` | 列出在线 peer。**只读探测**（`{"type":"list_peers"}`），不会让别人的 peer 列表出现上下线抖动 |
-| `resolve [name\|#...]` | 配置里的会话 → mesh 地址（`<cwd>@<remote_pi_name>`）+ 在线状态；broker 不在也能用 |
-| `send <target...> "文本"` | 以临时身份（默认 `pp-mesh`）注册、投递、等 ACK |
-
-```bash
-pp mesh ls                                   # # ADDRESS PC SESSION
-pp mesh resolve backend risk-01              # backend → /srv/api@backend  online x1
-pp mesh send backend "跑一下 npm test"        # delivered / busy / denied / timeout
-pp mesh send 1 3 "10 分钟后重启"              # 多个目标 = 组播，不等 ACK
-pp mesh send all "standup in 5"              # 广播
-pp mesh send macbook:/Users/me/code/api@api "ping" --wait 2000
-pp mesh send backend "报一下进度" --reply 60000   # 收到回复立刻打印并返回
-pp mesh send api --body-json '{"task":"test","id":42}'   # 结构化消息
-```
-
-- 目标可以是会话名、`#` 序号、完整 mesh 地址（`<cwd>@<name>` 或 `macbook:/path@name`）、`all`/`broadcast`
-- 单播会等 broker 的 ACK：`received` 成功；`busy` 表示对方正在跑一轮，**消息被丢弃**（用 `--no-wait` 或稍后重试）；`denied`；超时（消息可能仍会送达）
-- `--reply <ms>`：ACK 之后继续监听 `re=<本次 id>` 的回信；单播拿到第一条就提前返回，组播/广播会一直收到窗口结束
-- 发送内容默认是字符串（对方看到的就是这句话）；`--body-json` 发送任意 JSON，对方收到的是序列化后的 JSON 文本
-- 地址后缀 `#N` 是 broker 对同 `(cwd, name)` 重复身份的自动去重，`livePeersFor` 会把它一并算作同一个会话
-- 跨机投递走 broker leader 的 relay 桥，发送端不需要做任何配对
 
 ### `pp update [--check]`
 
@@ -816,79 +604,6 @@ saved to /home/user/.pi/plus.yml
 `-C` / `--node` / `--agent` / `--role` 仍然可以覆盖抄来的值。`--dry-run` 只打印将要执行的 tmux 命令，
 并且 `--dry-run --save` **不会**写配置（只提示 `would append … to …`）。
 
-### `pp runbook [场景] [--markdown] [--json]`
-
-这台机群**真的发生过**的事故，按"一个冷静的人会怎么走"的顺序写下来：先一条只读命令，再写清楚"健康的
-答案长什么样"，最后才是那条会改变现状的命令。
-
-```bash
-$ pp runbook
-the incidents this fleet has actually had — pp runbook <scenario>
-
-  nothing-runs         Every session is gone
-                       pp ls says 0/N running, tmux ls says nothing
-  no-delivery          A cron job is not delivering
-  ...
-```
-
-```bash
-$ pp runbook disk-full
-The disk is filling up
-  pp doctor shows ✗ logs, writes start failing
-
-Nothing rotates anything by design: …
-
- 1  pp doctor --brief
-    expect: ✗ logs  cron.log 57.2 MB — shrink: pp clean
- 2  pp clean --dry-run
-    expect: would shrink <file> 57.2 MB → 2.0 MB
- ...
-
-when you are ready to change something: pp clean
-```
-
-场景可以按 id 或标题片段查（`pp runbook quiet`）。`--markdown` 输出整本手册 —— `docs/runbook.md`
-就是它生成的（e2e 里有一条 `diff` 检查，所以文档不可能和代码走散）。pp 不会替你执行任何步骤。
-
-## 输出的语法
-
-一条规则，只用在"这一行是在告诉你要敲什么"的时候：
-
-> **给人看的每一行，如果要指一条命令，就用 ` — ` 引出，且那是一条能直接敲的命令。**
-
-```bash
-"jb": restart: no, so a bare "pp up" skips it — pp up jb
-✗ own files      cron.json 1 of 2 job(s) have no id or schedule — pp doctor --quarantine moves it aside
-t114 has no tmux, so sessions cannot run there — apt install tmux (on t114)
-3 off · 1 unmanaged — pp plan orders them
-```
-
-与之配套的两条：
-
-- **不是每条都加建议。** 事实型的行（`"jb": writes /tmp/.pi/remote-pi/config.json`）说完就停，不要凑一句命令。
-- **能一次说清的一条命令 > 三条建议。** `pp plan` 排序、`pp doctor --brief` 只给前两条，都是这个原则；散文在 3am 读不进去。
-
-`--brief` / `plan` / `start` 是对同一批事实的三种密度：一行结论、按顺序的编号、三行摘要。
-
-## `--json` 的形状是契约
-
-脚本会解析这些输出，所以键名和类型被 `test/json.test.js` 钉住：**多一个键要显式改测试（并在 release notes 里说），少一个键立刻红**。
-测试只钉形状不钉取值。
-
-| 命令 | 顶层 | 备注 |
-| --- | --- | --- |
-| `pp status --json` | `{ sessions: [], drift: {} }` | `drift.down`/`drift.unmanaged` 是**数字**（配 `reasons` 解释），`drift.stray` 是名字列表 |
-| `pp plan --json` | `{ steps: [], facts: {} }` | `steps[].{priority,title,command,why}` |
-| `pp why --json` | `{ name, tmux, node, role, state, verdict, reason, cwd, agent, restart, lastStart, restarts, busy, cron, todos }` | `todos` **是数字**（未完成待办的条数） |
-| `pp doctor --json` | `{ checks: [], failed: [], warnings: [] }` | `checks[].{label,ok,detail,fix}`；`failed` = 非 ok 的 label |
-| `pp check --json` | `{ ok, problems, notes, config }` | |
-| `pp cron ls --json` | 数组 | `cron ls[].{id,schedule,next,nextRun,runs,last}` |
-| `pp node ls --json` | 数组 | `node ls[].{name,host,port,auth,tags}` |
-| `pp audit --json` | 数组 | `audit[].{action,target,actor,result,ts}`，`node`/`detail` 视情况出现 |
-| `pp role --list --json` | 数组 | `role list[].{role,count,sessions}` |
-| `pp todo ls --json` | 数组 | `todo ls[].{id,session,kind,title,state}`（`body` 等视情况出现） |
-| `pp runbook --json` | 数组 | `runbook[].{id,title,symptom,means,steps,fix}` |
-
 ### `pp`（不带参数）
 
 第一屏：三行事实 + 六个习惯。不是 30 条命令的清单（那是 `pp help`）——打开终端想知道"现在怎么样"的人，
@@ -911,54 +626,6 @@ nothing needs you right now
 
 第二行会变成 `3 off · 1 stopped by hand · 1 unmanaged — pp plan orders them` 这样的样子。只查本机（不 ssh），
 所以可以当肌肉记忆用；`--json` 给脚本。
-
-### `pp plan [--json]`
-
-把 `doctor`、`why`、`status` 已经知道的事实汇总成**带顺序**的一串动作：每一步都是可以直接敲的一条命令，
-外加"为什么它排这么靠前"。
-
-```bash
-$ pp plan
-3 steps, in this order:
-
- 1  pp node test t114
-    reach t114 — ssh failed
-    nothing on that machine can be fixed until ssh works
- 2  pp up --drift
-    start 2 session(s) that should be up
-    off on this machine, t118
- 3  pp clean
-    cron.log is 57.2 MB
-    nothing rotates it; a full disk breaks everything
-```
-
-排序是有理由的：连不上的机器会掩盖它上面的一切 → drained 的机器让 `pp up` 变成空操作 → 自启单元坏了
-只影响下次重启 → 卡住的 agent 只影响"现在"。**只读**；`--json` 给脚本（`{ steps: [{priority,title,command,why}] }`）。
-
-### `pp plan --node <机器>`
-
-问的是另一个问题：不是"这台机群怎么了"，而是"**要让那台机器现在能接活，按顺序敲哪几条**"。
-
-```bash
-$ pp plan --node t114
-t114 — what to type, in this order
-
-2 steps, in this order:
-
- 1  pp node undrain t114
-    undrain t114 — 3 session(s) waiting
-    a drained machine ignores pp up
- 2  pp adopt --node t114
-    adopt 2 session(s) that are not in the config
-    running but unwritten: scratch@t114, try@t114
-```
-
-与整机群版的三点不同：
-
-- 只问那台机器（一次 ssh），**不报告本机的事**（自启、扩展、本机日志与它无关）；
-- 命令都带 `--node`，避免在九台机器的集群上敲错目标；
-- "该起没起"用 `pp up --node <机器>`；"没写进配置"用 `pp adopt --node <机器>`；
-- 机器没装 tmux 会说 `apt install tmux (on p202)`，而不是含糊的 "ssh failed"；名字写错会说 `pp node ls`。
 
 ### `pp backup` / `pp restore`
 
@@ -996,135 +663,11 @@ error: plus.yml is 12 B but the manifest says 3.1 KB
 ```
 
 `pp doctor` 的 `backup` 那一项跑的是同一个检查（最新一份）。
-- `pp restore` 先给 diff（就是 `pp audit --action config.changed` 那份），要 `--force` 才真写
 - 覆盖之前会**再备份一次**，所以"恢复错了"本身也能恢复
 - 目录名带毫秒：同一秒内跑两次不会互相覆盖（早期版本会，导致"恢复回来的还是错的"）
 - 恢复只改文件，不动 tmux；配置是问题根源时接着 `pp restart <name>`
 
 pp 不会定时备份。没取的备份等于没有备份 —— 在改动之前跑，不是之后。
-
-### `pp why <会话|机器|标签|任务号> [--json]`
-
-四种对象，同一个问题（"为什么是这样"）：
-
-```bash
-pp why api          # 一个会话
-pp why --node t114  # 一台机器
-pp why --role prod  # 一个标签下面的所有会话
-pp why a59cfc       # 一个定时任务：它为什么没发出来
-```
-
-任务视图：
-
-```
-a59cfc  */10 * * * * · to mango-release-01
-state    waiting: mango-release-01 is working — the next tick will deliver
-target   mango-release-01 — running
-schedule */10 * * * * · catch-up 2h
-next     in 4m (10:40)
-last run 6m ago — deferred
-counts   ran 12× · skipped 0×
-look     pp cron show a59cfc · pp logs mango-release-01
-```
-
-`pp cron ls` 的 TARGET 列同步：远端会话读作 `api @t114`，指向已不存在的目标会带 `!`，
-表下多一行 `N job(s) point at nothing — pp why <id> · pp cron retarget <id> …`。
-
-`target` 那行回答"它现在到底在发给谁"：任务保留写入时的名字，会话一改名，
-调度就会一直报 `delivered` 却无人接收 —— 这时那行会写
-`session "w-old"，which is gone from the config (pp cron retarget a59cfc --session <name>)`。
-`--json` 里对应 `targetDetail`。
-
-它把任务失声的四种方式分开说：**tick 不在 crontab**（`pp install`）、**上次失败**（`pp logs <会话>`）、
-**错过超过 catch-up 窗口**（下一次照常跑）、**目标正在忙**（tick 会排队或跳过）。任务号可以只写前 3 位以上。
-
-
-3am 的那一个问题："它为什么是这个状态？"——把配置、tmux、`state.json`、cron 文件里的既有事实读出来，
-只打印一行结论。
-
-```bash
-$ pp why api
-api  tmux:api · node:t114 · role:pm
-state    off (drain) — machine t114 is drained — pp node undrain t114
-cwd      /srv/api
-agent    pi  pid -
-restart  always
-last start  12m ago by heal (bob@host#8123)
-restarts    3× in 20m — heal
-cron     a59cfc prompt (in 4m (10:41))
-look     pp logs api · pp audit api · pp status api
-```
-
-结论按优先级给：机器不可达 → drained → 手工停过 → 在跑 → `restart: no` → 该在跑却没在跑。
-**只读**，不改任何东西；`--json` 输出同样的事实（含 `reason`、`lastStart`、`restarts`、`cron`、`todos`）。
-
-`--node <机器>` 问的是同一件事，对象是整台机器：能不能 ssh 上去、那边的 tmux 答不答话、这台机器是不是
-在维护（drained）、以及它的每个会话是不是该起来。
-
-```bash
-$ pp why --node t114
-t114  user@192.168.5.114 · tags:test,baohan
-state    reachable — 1 of 2 session(s) down  (358ms)
-machine  Linux 6.8.0-142-generic x86_64 · tmux v3.4 · pi installed
-load     0.58 0.71 0.81 · up 50d
-api      up   2m idle
-web      down  restart: no — pp up web
-look     pp node test t114 · pp status --node t114 · pp node exec t114 -- uptime
-```
-
-结论优先级：ssh 不通 → tmux 不应答 → 机器在维护 → 这台机器上压根没有配置会话 → 全起 → 有 N 个没起。
-
-### `pp role <会话> [角色|-]`
-
-给会话贴一个"它是干什么的"标签。角色是给**人**看的，不参与任何调度决策——`pp up` / `heal` / `--drift`
-对带不带标签的会话处理完全一致（写错标签不会让 3am 的自愈行为变样）。
-
-```bash
-$ pp role risk-01 pm
-risk-01  pm
-next: pp status --role pm
-
-$ pp status --role pm        # 只看 pm（大小写不敏感）
-$ pp role risk-01            # 看当前标签
-$ pp role risk-01 -          # 清除
-
-$ pp role --list             # 我们到底用了哪些词？
-  risk  2  risk-01, risk-02
-  dev   1  web
-2 roles · 1 session without one — pp role <name> <role>
-```
-
-标签是自由文本，所以"同一个东西四种拼法"是必然的失败模式。`pp role` 在你**创建**第二个拼法时
-就会拦住：
-
-```bash
-$ pp role web DEV
-error: there is already "dev" — labels differ by case ("DEV" would be a second one)
-use the one you have: pp role web dev   (or --force to add "DEV")
-
-$ pp role web dve
-error: "dve" is one edit away from "dev" — did you mean it?
-pp role web dev   (or --force to add "dve" as a new label)
-```
-
-`dve` 这种相邻字符颠倒也算一次编辑（Levenshtein 会算成两次，那就漏掉了最常见的输入错误）。
-两个字以上的标签才启用这个近似判断 —— `pm`/`po`、`qa`/`qe` 本来就只差一个字符，拦它们只会烦人。
-`--force` 永远可以真的新建一个标签。
-
-`pp role --list` 是 `--role` 的另一半：它把**实际写过**的标签连同成员一起列出来（按用得多少排序），
-末尾告诉你还有几个会话没标签。`--json` 给机器：`[{ "role": "risk", "sessions": ["risk-01", "risk-02"], "count": 2 }]`。
-
-`--role` 也能收窄任何"批量"动作（过滤发生在 `selectSessions`，与 `--node`/`--tag` 同一个关卡）：
-
-```bash
-$ pp send --role pm "站会十分钟后开始"   # 只发给 pm，忙的会跳过
-$ pp logs --role dev -f                  # 只看开发会话
-$ pp up --role qa                        # 只拉起 qa
-$ pp restart --role ops
-```
-
-任一会话带 role 时 `pp status` 才多出 `ROLE` 列（没有就保持老表格宽度）；`pp tui` 把角色跟在名字后面，
-`/` 过滤也会匹配角色。写入配置文件里的 `role:` 字段，并记进 `pp audit --action config.changed`。
 
 ### `pp node <ls|show|add|rm|test|exec|ssh|drain>`
 
@@ -1141,7 +684,6 @@ pp node rm prod-01          # 还有 session 指着它时拒绝，--force 才硬
 pp node exec prod-01 -- df -h /          # 一条命令，不占会话
 pp node exec --all -- uptime             # 全机群巡检，逐台打印
 pp node ssh prod-01         # 按登记的参数开交互式 ssh
-pp node add prod-01 --base-path /srv/apps --default-restart unless-stopped
 pp new api --node prod-01 -C api --save   # 落到 /srv/apps/api
 ```
 
@@ -1154,16 +696,9 @@ pp new api --node prod-01 -C api --save   # 落到 /srv/apps/api
 | `--password-env <VAR>` | 从环境变量取密码；变量没设置直接报错 |
 | `--from-ssh-config <alias>` | 抄 `~/.ssh/config` 里某个 Host 的 HostName/Port/User/IdentityFile |
 | `--note <text>` | 备注，`pp node ls` 显示 |
-| `--base-path <dir>` | 这台机器的根目录：会话写相对的 `cwd` 时拼在它下面 |
-| `--default-agent <cmd>` | 这台机器上会话的默认 agent（会话自己写的优先） |
-| `--default-restart <策略>` | 默认 restart：`no`/`always`/`on-failure`/`unless-stopped` |
-| `--default-remote-pi-mode <模式>` | 默认 `remote_pi_mode`：`config`/`env`/`off` |
-| `--default-role <label>` | 这台机器上会话的默认角色（远端会话靠它进入 `--role` 的各种扇出） |
 | `--all` | `test`/`exec`：对所有节点 |
-| `--tag <name>` | 给节点打标签（可重复，累加）；`ls`/`test`/`exec`/`up`/`down`/`restart` 用它选机器 |
 | `--timeout <秒>` | `exec`：单机超时（默认 60），超时按失败计 |
 | `--parallel` | `exec`：所有选中机器同时跑（输出仍按顺序打印） |
-| `--guard` / `--no-guard` | 给机器加锁/解锁：加锁后 `pp down`/`pp rm` 跳过它的会话，除非 `--force` |
 | `--force` | `rm`：即使有会话在用它也删（会留下悬空引用） |
 | `--dry-run` | `add`：只打印将写入的 YAML 块 |
 | `--json` | 机器可读输出（`ls`/`show`/`test`/`exec`） |
@@ -1262,10 +797,6 @@ pp todo add "看一下这份迁移方案" --session backend
 pp todo ls --all --json
 ```
 
-### `pp check [name|#...]`
-
-只校验配置，不碰 tmux。失败项进 stderr 并退出 1；`notes` 是提示（`restart: no`、手动停过、共享目录写同名等）。JSON：`{ "ok": true, "problems": [], "notes": [], "config": "..." }`。
-
 ### `pp doctor`（节选）
 
 除了 node / tmux / 配置 / 自启，还会检查 **pi 扩展的版本**：扩展（`/pp-*` 命令）和 CLI 是两份
@@ -1277,13 +808,11 @@ pp todo ls --all --json
 任何一项失败 → 退出 1。JSON：`{ "checks": [{name, ok, detail}], "warnings": [] }`。
 
 `--nodes` 换成给**机群**体检：每台机器一次 ssh（并行发出），给出连通性、tmux 版本、负载、
-uptime、会话数、磁盘、内存，适合"哪台快满了"这种问题。可用 `--node <名>` / `--tag <标签>` 收窄，
 `--json` 里每台机器带完整 `probe`。
 
 ```bash
 pp doctor              # 这台机器
 pp doctor --nodes      # 整个机群
-pp doctor --nodes --tag prod
 ```
 
 ### `pp init`

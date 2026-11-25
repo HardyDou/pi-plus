@@ -66,8 +66,6 @@ function parseArgs(argv) {
           else options.wait = "60";
           break;
         }
-      case "--markdown":
-        options.markdown = true;
         break;
 
       case "--from":
@@ -138,7 +136,6 @@ function parseArgs(argv) {
       case "--follow": options.follow = true; break;
       case "--stamp": options.stamp = true; break;
       case "--interval": options.interval = Number(takeValue(flag, inline)) || 2; break;
-      case "--actor": options.actor = takeValue(flag, inline); break;
         case "--no-enter": options.noEnter = true; break;
         case "--no-config": options.noConfig = true; break;
         case "--at": options.at = takeValue(flag, inline); break;
@@ -194,31 +191,16 @@ function parseArgs(argv) {
         case "--password": options.password = takeValue(flag, inline); break;
         case "--password-env": options.passwordEnv = takeValue(flag, inline); break;
         case "--note": options.note = takeValue(flag, inline); break;
-        case "--base-path": options.basePath = takeValue(flag, inline); break;
-        case "--default-agent": options.defaultAgent = takeValue(flag, inline); break;
-        case "--default-restart": options.defaultRestart = takeValue(flag, inline); break;
-        case "--default-role":
-          options.defaultRole = takeValue("--default-role", inline);
           break;
-        case "--default-remote-pi-mode": options.defaultRemotePiMode = takeValue(flag, inline); break;
         case "--node": options.node = takeValue(flag, inline); break;
         case "--limit": options.lines = Number(takeValue(flag, inline)); break;
-        case "--action": options.action = takeValue(flag, inline); break;
         case "--until-idle":
           options.untilIdle = true;
           break;
         case "--send":
           options.send = takeValue("--send", inline);
           break;
-        case "--since": options.since = takeValue(flag, inline); break;
-        case "--prune": options.prune = takeValue(flag, inline); break;
         case "--file": options.file = takeValue(flag, inline); break;
-        case "--tag": {
-          // repeatable: --tag prod --tag db means "on prod *and* db machines"
-          const value = takeValue(flag, inline);
-          (options.tags ??= []).push(value);
-          break;
-        }
         case "--timeout": {
           // one flag, two readers: `pp send --until-idle` counts seconds, a
           // `pp cron add --command` job keeps the raw text and parses it itself
@@ -228,8 +210,6 @@ function parseArgs(argv) {
           break;
         }
         case "--parallel": options.parallel = true; break;
-        case "--guard": options.guard = true; break;
-        case "--no-guard": options.noGuard = true; break;
         case "--from-ssh-config": options.fromSshConfig = takeValue(flag, inline); break;
         case "--wait": options.wait = Number(takeValue(flag, inline)) || 5000; break;
         case "--no-wait": options.noWait = true; break;

@@ -92,7 +92,6 @@ pp cron set 636b62 --cron "0 9 * * 1,2,3"      # 换成 crontab 表达式
 ```
 
 `none` / `off` / `0` 表示"去掉这一项"。改完会落一条审计（`cron.set`，含 `24 -> 96` 这样的
-前后值），`pp audit --action cron.set` 可以查"谁在什么时候把上限从 24 调到 96"。
 
 ## 先看清楚会推给谁：`dryrun`
 
@@ -231,7 +230,6 @@ pp cron add --heal --every 5m
 - `restart: "no"` 的会话永远不碰。
 
 每次真正拉起会话都会写一条 `heal` 审计，所以"谁把它拉起来的"有据可查：
-`pp audit --action heal`。
 
 ### 它不会无限重启
 
