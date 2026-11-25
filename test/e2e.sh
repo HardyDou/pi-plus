@@ -203,6 +203,10 @@ check "tui --static is accepted"        0 ''          bash -c "$ROOT/bin/pp.js -
 check "the panel has no pane preview"   0 'sessions \(' bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once --left 30 2>&1; $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once --left 30 2>&1 | grep -qv 'preview:'"
 check "--refresh takes seconds"         0 ''          bash -c "$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once --refresh 5 >/dev/null 2>&1"
 check "a trace file gets written"       0 '^[1-9][0-9]*$'    bash -c "rm -f $E2E/trace.log; ( tmux -L $SOCK has-session -t tui-trace 2>/dev/null && tmux -L $SOCK kill-session -t tui-trace ); tmux -L $SOCK new-session -d -s tui-trace -x 100 -y 30 '$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --refresh 1 --trace $E2E/trace.log'; sleep 4; tmux -L $SOCK kill-session -t tui-trace 2>/dev/null; grep -c 'skipped\|took' $E2E/trace.log"
+# The panel must draw while it is on screen. `#{window_visible}` is not a real
+# tmux variable (it expands to ""), and a visibility check built on it made every
+# frame look hidden: the panel froze and every round trip looked like a hang.
+check "the panel draws while it is on screen" 0 '^[1-9][0-9]*$' bash -c "rm -f $E2E/trace2.log; tmux -L $SOCK kill-session -t tui-draw 2>/dev/null; tmux -L $SOCK new-session -d -s tui-draw -x 100 -y 30 '$ROOT/bin/pp.js -c $CFG --socket $SOCK tui --refresh 1 --trace $E2E/trace2.log'; sleep 3; ( script -q -c 'tmux -L $SOCK attach -t tui-draw' /dev/null >/dev/null 2>&1 & ); sleep 4; tmux -L $SOCK kill-session -t tui-draw 2>/dev/null; grep -c 'took' $E2E/trace2.log"
 
 section "stuck in the panel"
 # a busy agent that keeps its spinner but prints nothing new: window_activity

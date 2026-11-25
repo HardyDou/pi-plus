@@ -2530,14 +2530,18 @@ async function cmdTui(config, options, ui) {
         const out = process.env.TMUX_PANE
           ? (() => {
             try {
-              const result = spawnSync("tmux", ["display-message", "-p", "-t", process.env.TMUX_PANE, "#{window_visible}"], { encoding: "utf8" });
+              // `#{window_visible}` does not exist (it expands to an empty
+              // string and every frame was treated as invisible), so ask for
+              // the two things that do: is anyone attached, is this pane the
+              // active one in the active window.
+              const result = spawnSync("tmux", ["display-message", "-p", "-t", process.env.TMUX_PANE, "#{session_attached} #{pane_active}"], { encoding: "utf8" });
               return result.status === 0 ? result.stdout : null;
             } catch {
               return null;
             }
           })()
           : null;
-        const visible = out === null ? true : String(out).trim() === "1";
+        const visible = out === null ? true : String(out).trim().split(/\s+/).every((part) => part === "1");
         visibleCache = { at: Date.now(), visible };
         return visible;
       },
