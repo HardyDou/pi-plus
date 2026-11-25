@@ -1353,7 +1353,7 @@ function printNodes(config, options, ui) {
     ui.info("  pp node test prod-01");
     return;
   }
-  const headers = ["#", "NODE", "TARGET", "PORT", "AUTH", "SESSIONS", "TAGS", "NOTE"];
+  const headers = ["#", "NODE", "TARGET", "PORT", "AUTH", "SESSIONS", "NOTE"];
   const table = nodes.map((node, i) => [
     String(i + 1),
     `${node.guarded ? "!" : ""}${node.drained ? "~" : ""}${node.name}`,
@@ -1361,7 +1361,6 @@ function printNodes(config, options, ui) {
     String(node.port),
     authSummary(node),
     String(counts.get(node.name) ?? 0),
-    (node.tags ?? []).join(","),
     node.note || "",
   ]);
   const widths = headers.map((h, i) => Math.max(h.length, ...table.map((row) => row[i].length)));
@@ -1379,10 +1378,10 @@ function printNodes(config, options, ui) {
   });
   if (!options.quiet) {
     if (nodes.some((node) => node.guarded)) {
-      ui.out(ui.paint("dim", "\n! = guarded: pp down / pp rm skip its sessions unless you pass --force"));
+      ui.out(ui.paint("dim", "\n! = guarded (YAML `guarded: true`): pp down / pp rm skip its sessions unless you pass --force"));
     }
     if (nodes.some((node) => node.drained)) {
-      ui.out(ui.paint("dim", "~ = drained: pp up / pp restart skip its sessions (maintenance) — pp node undrain <name>"));
+      ui.out(ui.paint("dim", "~ = drained (YAML `drained: true`): pp up / pp restart skip its sessions while you patch"));
     }
     ui.out(`\n${nodes.length} node${nodes.length === 1 ? "" : "s"}  ${ui.paint("dim", `config: ${config.path}`)}`);
     const orphan = nodes.length && !counts.size ? "  (no session uses one yet: add `node: <name>` to a session)" : "";
