@@ -2024,7 +2024,10 @@ function cmdStatus(config, options, ui) {
     }
     return tail ? `…/${tail}` : `…${text.slice(-Math.max(1, width - 1))}`;
   };
-  const table = shown.map((r) => [
+  // The number must match the row it sits on: with `sort: name` a config-order
+  // column reads 1,2,3,4,5,8,6,7,9 and looks like broken data.
+  const numbered = shown.map((row, i) => ({ ...row, index: i + 1 }));
+  const table = numbered.map((r) => [
     String(r.index),
     r.name,
     ...(showNode ? [r.node || "-"] : []),
@@ -2087,7 +2090,7 @@ function cmdStatus(config, options, ui) {
   const cell = (value, width) => pad(truncateWidth(value, width), width);
   const at = (name) => headers.indexOf(name);
   ui.out(ui.paint("bold", shownHeaders.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
-  shown.forEach((row, i) => {
+  numbered.forEach((row, i) => {
     const colored = [...table[i]];
     const stateAt = at("STATE");
     colored[0] = ui.paint("dim", colored[0]);
@@ -2122,7 +2125,7 @@ function cmdStatus(config, options, ui) {
     const start = shown[0].lastStart;
     const ago = shortAge(Math.max(0, Math.round((Date.now() - Date.parse(start.at)) / 1000)));
     ui.out(
-      ui.paint("dim", `last start ${ago} ago by ${start.why}${start.by ? ` (${start.by})` : ""} — pp audit --action up`),
+      ui.paint("dim", `last start ${ago} ago by ${start.why}${start.by ? ` (${start.by})` : ""}`),
     );
     // "it keeps coming back" is a different problem from "it is not up"
     const history = shown[0].restarts ?? [];
@@ -2173,7 +2176,7 @@ function cmdStatus(config, options, ui) {
           : "") +
         (showCron ? `  ${ui.paint("dim", "cron: jobs aimed here (* = every session)")}` : "") +
         (sortKey !== "config" && shown.length
-          ? `  ${ui.paint("dim", `rows are sorted by ${sortKey}; # stays the config order (pp attach <name> is unambiguous)`)}`
+          ? `  ${ui.paint("dim", `sorted by ${sortKey}; # is the row number you are looking at`)}`
           : "") +
         (unreachableNodes.length ? `  ${ui.paint("red", `unreachable: ${unreachableNodes.join(", ")}`)}` : "") +
         `  ${ui.paint("dim", `config: ${config.path}`)}`,

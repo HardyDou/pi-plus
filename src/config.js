@@ -682,7 +682,13 @@ export function resolveSessionRef(config, ref) {
   if (exact) return exact;
   if (!/^\d+$/.test(value)) return null;
   const index = Number(value);
-  return index >= 1 && index <= config.sessions.length ? config.sessions[index - 1] : null;
+  // A number has to mean the row you are looking at. `pp ls` prints the list in
+  // `sort:` order, so `pp attach 3` reads the same list the same way; without a
+  // sort it is the config order, which is what the table shows too.
+  const listed = config.sort === "name"
+    ? [...config.sessions].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }))
+    : config.sessions;
+  return index >= 1 && index <= listed.length ? listed[index - 1] : null;
 }
 
 export function shellQuote(value) {
