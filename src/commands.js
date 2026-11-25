@@ -1985,14 +1985,16 @@ async function cmdStatus(config, options, ui) {
         clientCache.set(key, []);
         return;
       }
+      // no tmux, no answer: a machine without tmux is not a machine with
+      // nothing running, but the table still has to come out
       const [sessions, clients] = await Promise.all([
-        handle.listSessionsStrict().catch(() => {
-          // A machine we cannot reach is not "all sessions stopped" — say so.
-          if (nodeName) unreachable.add(nodeName);
-          return null;
-        }),
-        nodeName ? handle.listClientsAsync().catch(() => []) : Promise.resolve(handle.listClients()),
-      ]);
+        Promise.resolve()
+          .then(() => handle.listSessionsStrict())
+          .catch(() => null),
+        Promise.resolve()
+          .then(() => (nodeName ? handle.listClientsAsync() : handle.listClients()))
+          .catch(() => []),
+      ]).catch(() => [null, []]);
       if (sessions === null) {
         if (nodeName) unreachable.add(nodeName);
         // fall back to the last good answer rather than pretending it is empty
