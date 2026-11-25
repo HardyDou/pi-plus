@@ -24,6 +24,9 @@ export PP_AUDIT_FILE=$E2E/state/pi-plus/audit.log   # the suite must not write t
 # ...and it must never touch the real unit: stopping a unit takes its whole
 # cgroup with it, and the real one owns the user's tmux server.
 export PP_UNIT_NAME=pi-plus-e2e
+# the status table caches each machine's session list for a few seconds; the
+# suite asserts live state, so it asks every time
+export PP_NODE_TTL=0
 CFG=$E2E/plus.yml
 PASS=0; FAIL=0; FAILED_NAMES=()
 
@@ -889,6 +892,7 @@ nodes:
     host: 127.0.0.1
     user: nobody
     note: reaches us through the shim
+    group: g1
   - name: dead
     host: 127.0.0.1
     user: dead
@@ -906,6 +910,9 @@ YAML
 tmux -L "$SOCK" new-session -d -s far-x "sleep 7200" 2>/dev/null || true
 
 check "node is listed"                0 'far'                     bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node ls"
+check "node ls prints a group column" 0 'GROUP'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node ls"
+check "node ls says what is live"     0 'LIVE'    bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node ls"
+check "node ls filters by group"      0 'far'     bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node ls --group g1"
 # `pp node 1` is the one-argument form: the number is on screen in `pp node ls`.
 check "node <n> logs in"             0 '-t .*127\.0\.0\.1'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node 1 --dry-run"
 check "node <n> out of range says so" 2 'no node 9'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node 9"

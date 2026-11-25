@@ -875,3 +875,12 @@ d=$(mktemp -d) && pp new trial -C "$d" -a && pp down trial
 
 # 全体通知
 ```
+
+## `pp node ls` 的 LIVE 与 CONFIG
+
+| 列 | 意思 |
+|---|---|
+| `LIVE` | 那台机器上**现在**真在跑的 tmux 会话数（每台问一次，缓存 `PP_NODE_TTL` 秒，默认 15；`--fresh` 立即重问） |
+| `CONFIG` | 配置里有多少会话 `node:` 指向它 |
+
+`LIVE 9 / CONFIG 0` 不是空机器，是**没写下来**的机器：`pp adopt --node work-01`。

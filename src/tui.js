@@ -248,6 +248,20 @@ function listRow(item, width, selected) {
 }
 
 /**
+ * "local 1 · work-01 9" — the machines the list is spread over. Empty when
+ * everything lives on one machine, so a single-machine panel keeps its title.
+ */
+export function machineSummary(rows = []) {
+  const counts = new Map();
+  for (const row of rows) {
+    const machine = row?.node || "local";
+    counts.set(machine, (counts.get(machine) ?? 0) + 1);
+  }
+  if (counts.size < 2) return "";
+  return [...counts.entries()].map(([machine, count]) => `${machine} ${count}`).join(" · ");
+}
+
+/**
  * Build the whole frame as `height` strings of `width` columns. Pure: the same
  * model always renders the same bytes, which is what the tests assert.
  */
@@ -260,7 +274,7 @@ export function renderFrame(state, layout) {
     .slice(Math.max(0, state.todoOffset ?? 0), Math.max(0, state.todoOffset ?? 0) + Math.max(0, layout.todos.h - 2))
     .map((item) => listRow(item, inner(layout.todos), state.focus === "todos" && item.selected));
 
-  const left = boxLines(layout.sessions, `sessions (${state.sessions.length})`, sessionRows, { focus: state.focus === "sessions" });
+  const left = boxLines(layout.sessions, `sessions (${state.sessions.length})${state.machines ? ` · ${state.machines}` : ""}`, sessionRows, { focus: state.focus === "sessions" });
   const rightTop = boxLines(layout.todos, `todo (${state.todos.length})`, todoRows, { focus: state.focus === "todos" });
 
   const out = [];
@@ -471,7 +485,7 @@ export function createTui({
       .slice(Math.max(0, state.sessionOffset ?? 0));
     const visible = state.todos.slice(state.todoOffset, state.todoOffset + 200);
     const todos = visible.map((item, index) => ({ ...item, selected: state.todoOffset + index === state.todoIndex }));
-    return { ...state, sessions, todos };
+    return { ...state, machines: machineSummary(state.sessions), sessions, todos };
   }
 
   /** While the filter box is open every keystroke is text, not a command. */

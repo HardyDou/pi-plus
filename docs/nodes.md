@@ -475,3 +475,26 @@ pp up --node t114          # 立刻拉起来（否则下一次 up / 自启 / tic
 **远端会话能不能也用 `/pp-*` 扩展**
 扩展本身在 pi 里跑，pi 在远端那台机器上——所以远端会话里的 `/pp-ls`、`/pp-sw`
 操作的是**远端**的 tmux，这通常正是你要的。面板（`pp tui`）只存在于跑它的那台机器。
+
+## 一台机器属于哪儿：`group`
+
+一台机器只在一个地方 —— 公司的机柜、你包里那台、家里的 NAS。用 `group:` 标出来，
+`pp node ls` 就会多一列，`pp fleet` 也会带上：
+
+```yaml
+nodes:
+  - name: work-01
+    host: 192.168.1.88
+    group: work
+  - name: nas
+    host: 192.168.31.250
+    group: mine
+```
+
+```bash
+pp node add work-01 --host 192.168.1.88 --group work
+pp node ls --group mine      # 只看自己那几台
+```
+
+一个机器一个标签（不是一堆 tag）：你要回答的是"这台在哪儿"，不是一个形容词列表。
+`--group` 也接受 `(none)`，用来找还没归类的机器。

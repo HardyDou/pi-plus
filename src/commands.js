@@ -106,7 +106,16 @@ import {
   todoRow,
   TodoError,
 } from "./todo.js";
-import { computeLayout, createTui, displayWidth, parseLeftOption, renderFrame, stripAnsi, truncateWidth } from "./tui.js";
+import {
+  computeLayout,
+  createTui,
+  displayWidth,
+  machineSummary,
+  parseLeftOption,
+  renderFrame,
+  stripAnsi,
+  truncateWidth,
+} from "./tui.js";
 import { ageOf, listPiSessions } from "./pi-sessions.js";
 
 const COLORS = {
@@ -1381,9 +1390,20 @@ function nodeOrDie(config, ref, ui) {
   return node;
 }
 
-function printNodes(config, options, ui) {
-  const filtered = Boolean(options.node) || Boolean(options.tags?.length);
-  const nodes = filtered ? taggedNodes(config, options) : (config?.nodes ?? []);
+/** The groups in use, for "no node matches that" to be useful. */
+function groupsInUse(config) {
+  const seen = new Set();
+  for (const node of config?.nodes ?? []) if (node.group) seen.add(node.group);
+  return [...seen].sort().join(", ");
+}
+
+async function printNodes(config, options, ui) {
+  const filtered = Boolean(options.node) || Boolean(options.tags?.length) || Boolean(options.group);
+  let nodes = filtered ? taggedNodes(config, options) : (config?.nodes ?? []);
+  if (options.group) {
+    const wanted = String(options.group).toLowerCase();
+    nodes = nodes.filter((node) => String(node.group ?? "(none)").toLowerCase() === wanted);
+  }
   const counts = new Map();
   for (const session of config?.sessions ?? []) {
     if (session.node) counts.set(session.node, (counts.get(session.node) ?? 0) + 1);
@@ -1402,6 +1422,8 @@ function printNodes(config, options, ui) {
           password_env: node.passwordEnv,
           has_password: Boolean(node.password),
           sessions: counts.get(node.name) ?? 0,
+          live: liveCounts.has(node.name) ? liveCounts.get(node.name) : null,
+          group: node.group ?? null,
           tags: node.tags ?? [],
           guarded: Boolean(node.guarded),
           drained: Boolean(node.drained),
@@ -1414,7 +1436,15 @@ function printNodes(config, options, ui) {
     return;
   }
   if (!nodes.length && filtered) {
-    ui.info(`no node matches ${[options.node ? `--node ${options.node}` : "", options.tags?.length ? `--tag ${options.tags.join(" --tag ")}` : ""].filter(Boolean).join(" ")}`);
+    ui.info(
+      `no node matches ${[
+        options.node ? `--node ${options.node}` : "",
+        options.group ? `--group ${options.group}` : "",
+        options.tags?.length ? `--tag ${options.tags.join(" --tag ")}` : "",
+      ]
+        .filter(Boolean)
+        .join(" ")}  ${ui.paint("dim", `(groups in use: ${groupsInUse(config) || "none"})`)}`,
+    );
     return;
   }
   if (!nodes.length) {
@@ -1423,13 +1453,43 @@ function printNodes(config, options, ui) {
     ui.info("  pp node test prod-01");
     return;
   }
-  const headers = ["#", "NODE", "TARGET", "PORT", "AUTH", "SESSIONS", "NOTE"];
+  const showGroup = nodes.some((node) => node.group);
+  // what is actually running there, not only what is written down: "SESSIONS 0"
+  // for a machine with nine live sessions is a lie of omission
+  const liveCounts = new Map();
+  if (config?.nodes?.length) {
+    const cache = readNodeCache();
+    const ttlMs = NODE_TTL_SECONDS * 1000;
+    await Promise.all(
+      config.nodes.map(async (node) => {
+        const cached = cache[node.name];
+        if (cached && !options.fresh && Date.now() - Number(cached.at ?? 0) < ttlMs) {
+          liveCounts.set(node.name, fromCache(cached.sessions).size);
+          return;
+        }
+        const found = await makeTmux(config, options, { node: node.name })
+          .listSessionsStrict()
+          .catch(() => null);
+        if (found) {
+          cache[node.name] = { at: Date.now(), sessions: asCache(found) };
+          liveCounts.set(node.name, found.size);
+        } else {
+          liveCounts.set(node.name, cached ? fromCache(cached.sessions).size : null);
+        }
+      }),
+    );
+    writeNodeCache(cache);
+  }
+  const headers = ["#", "NODE", ...(showGroup ? ["GROUP"] : []), "TARGET", "PORT", "AUTH", "LIVE", "CONFIG", "NOTE"];
+  const at = (name) => headers.indexOf(name);
   const table = nodes.map((node, i) => [
     String(i + 1),
     `${node.guarded ? "!" : ""}${node.drained ? "~" : ""}${node.name}`,
+    ...(showGroup ? [node.group || "-"] : []),
     nodeTarget(node),
     String(node.port),
     authSummary(node),
+    liveCounts.has(node.name) ? (liveCounts.get(node.name) === null ? "?" : String(liveCounts.get(node.name))) : "-",
     String(counts.get(node.name) ?? 0),
     node.note || "",
   ]);
@@ -1440,10 +1500,12 @@ function printNodes(config, options, ui) {
     const cells = [...row];
     cells[0] = ui.paint("dim", cells[0]);
     cells[1] = ui.paint("cyan", cells[1]);
+    if (showGroup) cells[at("GROUP")] = ui.paint("magenta", cells[at("GROUP")]);
     const auth = nodes[i] && authSummary(nodes[i]);
-    if (auth.endsWith("✗")) cells[4] = ui.paint("red", cells[4]);
-    else if (auth === "agent") cells[4] = ui.paint("dim", cells[4]);
-    cells[5] = ui.paint("dim", cells[5]);
+    if (auth.endsWith("✗")) cells[at("AUTH")] = ui.paint("red", cells[at("AUTH")]);
+    else if (auth === "agent") cells[at("AUTH")] = ui.paint("dim", cells[at("AUTH")]);
+    cells[at("LIVE")] = ui.paint(cells[at("LIVE")] === "0" ? "dim" : "cyan", cells[at("LIVE")]);
+    cells[at("CONFIG")] = ui.paint("dim", cells[at("CONFIG")]);
     ui.out(cells.map((cell, idx) => pad(cell, widths[idx])).join("  ").trimEnd());
   });
   if (!options.quiet) {
@@ -1562,6 +1624,7 @@ async function cmdNodeAdd(config, options, ui) {
   if (options.password) spec.password = options.password;
   if (options.passwordEnv) spec.password_env = options.passwordEnv;
   if (options.note) spec.note = options.note;
+  if (options.group) spec.group = options.group;
   if (options.guard) spec.guarded = true;
   if (options.noGuard) spec.guarded = false;
   if (options.basePath !== undefined) spec.base_path = options.basePath;
@@ -1842,48 +1905,109 @@ export function formatDownReasons(reasons, most = 3) {
   return `${total} down (${shown.join(", ")}${rest > 0 ? `, ${rest} more` : ""})`;
 }
 
-function cmdStatus(config, options, ui) {
+/**
+ * Per-machine session lists, kept for a few seconds. Reaching five machines
+ * costs whatever the slowest ssh costs; the table is asked for far more often
+ * than a machine's session list actually changes.
+ */
+const NODE_TTL_SECONDS = Number(process.env.PP_NODE_TTL ?? 15);
+
+function nodeCachePath() {
+  return join(stateDir(process.env), "node-live.json");
+}
+
+function readNodeCache() {
+  try {
+    const data = JSON.parse(readFileSync(nodeCachePath(), "utf8"));
+    return data && typeof data === "object" ? data : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeNodeCache(data) {
+  try {
+    mkdirSync(dirname(nodeCachePath()), { recursive: true });
+    writeFileSync(nodeCachePath(), `${JSON.stringify(data)}\n`);
+  } catch {
+    // a cache that cannot be written is not worth an error message
+  }
+}
+
+const asCache = (map) => {
+  const out = {};
+  for (const [name, entry] of map) {
+    out[name] = {
+      activity: entry.activity ?? 0,
+      attached: entry.attached ?? 0,
+      panes: (entry.panes ?? []).map((pane) => ({ path: pane.path ?? "", command: pane.command ?? "", dead: Boolean(pane.dead) })),
+    };
+  }
+  return out;
+};
+
+const fromCache = (entry) => {
+  const map = new Map();
+  for (const [name, value] of Object.entries(entry ?? {})) {
+    map.set(name, {
+      name,
+      path: value.panes?.[0]?.path ?? "",
+      activity: value.activity ?? 0,
+      attached: value.attached ?? 0,
+      panes: value.panes ?? [],
+    });
+  }
+  return map;
+};
+
+async function cmdStatus(config, options, ui) {
   if (options.watch !== undefined && !options.json) return cmdStatusWatch(config, options, ui);
   // status lists every configured session, whatever its restart policy.
   const sessions = selectSessions(config, options.names, ui, { all: true, options });
-  if (!sessions.length && options.node) {
-    ui.info(`no sessions on node "${options.node}"`);
-    return;
-  }
+  // `--node work-01` means "what runs on work-01", including the sessions
+  // nobody wrote down: an empty config for that machine is not an empty machine
   // One tmux query per machine, not one per session: a node is expensive to
   // reach and every session on it shares the answer.
+  // One query per machine, all of them at once. Five machines at 300ms each is
+  // 1.5s of wall clock if you take turns, and this table is asked for constantly.
   const liveCache = new Map();
-  const unreachable = new Set();
-  const liveFor = (nodeName) => {
-    const key = nodeName ?? "";
-    if (liveCache.has(key)) return liveCache.get(key);
-    let map = new Map();
-    try {
-      const handle = makeTmux(config, options, { node: nodeName });
-      // A machine we cannot reach is not "all sessions stopped" — say so.
-      if (nodeName && !handle.reachable()) unreachable.add(nodeName);
-      else map = handle.listSessions();
-    } catch {
-      if (nodeName) unreachable.add(nodeName);
-    }
-    liveCache.set(key, map);
-    return map;
-  };
-
-  // who is attached, per machine: fetched once, like the session list
   const clientCache = new Map();
-  const clientsFor = (nodeName) => {
-    const key = nodeName ?? "";
-    if (clientCache.has(key)) return clientCache.get(key);
-    let list = [];
-    try {
-      list = makeTmux(config, options, { node: nodeName }).listClients();
-    } catch {
-      list = [];
-    }
-    clientCache.set(key, list);
-    return list;
-  };
+  const unreachable = new Set();
+  const nodeCache = readNodeCache();
+  const ttlMs = NODE_TTL_SECONDS * 1000;
+  await Promise.all(
+    [null, ...(config.nodes ?? []).map((node) => node.name)].map(async (nodeName) => {
+      const key = nodeName ?? "";
+      const handle = makeTmux(config, options, { node: nodeName });
+      const cached = nodeName ? nodeCache[nodeName] : null;
+      if (nodeName && !options.fresh && cached && Date.now() - Number(cached.at ?? 0) < ttlMs) {
+        liveCache.set(key, fromCache(cached.sessions));
+        clientCache.set(key, []);
+        return;
+      }
+      const [sessions, clients] = await Promise.all([
+        handle.listSessionsStrict().catch(() => {
+          // A machine we cannot reach is not "all sessions stopped" — say so.
+          if (nodeName) unreachable.add(nodeName);
+          return null;
+        }),
+        nodeName ? handle.listClientsAsync().catch(() => []) : Promise.resolve(handle.listClients()),
+      ]);
+      if (sessions === null) {
+        if (nodeName) unreachable.add(nodeName);
+        // fall back to the last good answer rather than pretending it is empty
+        if (cached) liveCache.set(key, fromCache(cached.sessions));
+        else liveCache.set(key, new Map());
+      } else {
+        liveCache.set(key, sessions);
+        if (nodeName) nodeCache[nodeName] = { at: Date.now(), sessions: asCache(sessions) };
+      }
+      clientCache.set(key, clients);
+    }),
+  );
+  writeNodeCache(nodeCache);
+  const liveFor = (nodeName) => liveCache.get(nodeName ?? "") ?? new Map();
+  const clientsFor = (nodeName) => clientCache.get(nodeName ?? "") ?? [];
 
   // scheduled jobs aimed at each session: the answer to "why does this pane
   // keep talking on its own?" without reading cron.json by hand
@@ -2394,7 +2518,7 @@ function shortAge(seconds) {
   return `${Math.round(seconds / 86400)}d`;
 }
 
-export function tuiSessionRows(config, live, { stuck = null } = {}) {
+export function tuiSessionRows(config, live, { stuck = null, owner = null } = {}) {
   const rows = [];
   // a session with unanswered questions looks exactly like an idle one otherwise
   const waiting = (() => {
@@ -2434,6 +2558,7 @@ export function tuiSessionRows(config, live, { stuck = null } = {}) {
       stale,
       idleSeconds: idle === null ? null : Math.round(idle),
       todos: waiting(session.tmuxName),
+      node: session.node ?? owner?.get(session.tmuxName) ?? "",
       label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}${session.node ? ` @${session.node}` : ""}${session.role ? ` ${session.role}` : ""}  ${state}${age ? ` ${age}${stale ? " !" : ""}` : ""}${waiting(session.tmuxName) ? ` ${waiting(session.tmuxName)}?` : ""}`,
       dim: state === "off" || state === "dead",
       warn: stale,
@@ -2446,10 +2571,11 @@ export function tuiSessionRows(config, live, { stuck = null } = {}) {
     const age = entry?.activity ? shortAge(Date.now() / 1000 - entry.activity) : "";
     rows.push({
       name,
+      node: owner?.get(name) ?? "",
       state,
       activity: entry?.activity ?? 0,
       age,
-      label: ` - ${name}  ${state}${age ? ` ${age}` : ""} (not in config)`,
+      label: ` - ${name}${owner?.get(name) ? ` @${owner.get(name)}` : ""}  ${state}${age ? ` ${age}` : ""} (not in config)`,
       dim: true,
       unmanaged: true,
     });
@@ -2557,7 +2683,10 @@ async function cmdTui(config, options, ui) {
     stuckCache = { at: Date.now(), names };
     return names;
   };
-  const nodesInUse = () => nodesToProbe(config);
+  // every configured machine is asked, not only the ones that already have a
+  // session in the config: a session that is running there but not written down
+  // is exactly what the panel should show
+  const nodesInUse = () => (config.nodes ?? []).map((node) => node.name);
   const readLive = ({ fresh = false } = {}) => {
     const live = new Map();
     const owner = new Map();
@@ -2584,7 +2713,7 @@ async function cmdTui(config, options, ui) {
       }
     }
     sessionOwner = owner;
-    return { live, tmuxFor: (name) => makeTmux(config, options, { node: owner.get(name) ?? null }) };
+    return { live, owner, tmuxFor: (name) => makeTmux(config, options, { node: owner.get(name) ?? null }) };
   };
 
   if (once) {
@@ -2594,9 +2723,9 @@ async function cmdTui(config, options, ui) {
     // the layout: the snapshot used to clip the second todo and say nothing
     const onceTodos = tuiTodoRows(filterTodos(readTodos()), Date.now());
     const layout = computeLayout(cols, rows, { leftWidth, todoCount: onceTodos.length });
-    const { live } = readLive();
+    const { live, owner } = readLive();
     const sortKey = options.sort ?? config.sort ?? "config";
-    const sessionRows = ordered(tuiSessionRows(config, live, { stuck: stuckNow() }), sortKey);
+    const sessionRows = ordered(tuiSessionRows(config, live, { stuck: stuckNow(), owner }), sortKey);
     function ordered(rows, key) {
       // --once should show the same order the live panel would
       if (key === "name") return [...rows].sort((a, b) => compareNames(a.name, b.name));
@@ -2622,7 +2751,7 @@ async function cmdTui(config, options, ui) {
     const model = {
       sessions: sessionRows,
       todos: onceTodos,
-      preview: { title: "—", lines: [] },
+      machines: machineSummary(sessionRows),
       focus: "sessions",
       footer: `${onceDrift ? `${onceDrift} · ` : ""}pp tui --once  (--left 30 adjusts the sessions column)`,
     };
@@ -2692,8 +2821,8 @@ async function cmdTui(config, options, ui) {
       size: screenSize,
       onResize: (callback) => process.stdout.on("resize", callback),
       async refresh({ index = 0 } = {}) {
-        const { live } = readLive();
-        const sessions = tuiSessionRows(config, live, { stuck: stuckNow() });
+        const { live, owner } = readLive();
+        const sessions = tuiSessionRows(config, live, { stuck: stuckNow(), owner });
         const todos = tuiTodoRows(filterTodos(readTodos()), Date.now());
         // no pane capture: the panel lists what exists, tmux draws the rest
         return { sessions, todos };
@@ -3517,17 +3646,34 @@ export async function cmdFleet(config, options, ui) {
     else ui.info("no tmux session is running anywhere");
     return;
   }
-  const headers = ["SESSION", "NODE", "IDLE"];
-  const table = rows.map((row) => [row.name, row.node ?? "local", shortAge(row.activity ? Math.max(0, Math.round(Date.now() / 1000) - Number(row.activity)) : null)]);
+  // a machine can belong to one place ("work" vs "mine"); when it does, say so
+  const groupOf = new Map(nodes.map((node) => [node.name, node.group ?? ""]));
+  const showGroup = nodes.some((node) => node.group);
+  const headers = ["SESSION", "NODE", ...(showGroup ? ["GROUP"] : []), "IDLE"];
+  const table = rows.map((row) => [
+    row.name,
+    row.node ?? "local",
+    ...(showGroup ? [groupOf.get(row.node) || "-"] : []),
+    shortAge(row.activity ? Math.max(0, Math.round(Date.now() / 1000) - Number(row.activity)) : null),
+  ]);
   const widths = headers.map((header, index) => Math.max(header.length, ...table.map((row) => displayWidth(row[index]))));
   const pad = (value, width) => value + " ".repeat(Math.max(0, width - displayWidth(value)));
   ui.out(ui.paint("bold", headers.map((header, index) => pad(header, widths[index])).join("  ").trimEnd()));
   table.forEach((row, index) => {
     const cells = [...row];
     cells[1] = ui.paint(cells[1] === "local" ? "dim" : "cyan", cells[1]);
-    cells[2] = ui.paint("dim", cells[2]);
+    if (showGroup) cells[2] = ui.paint("magenta", cells[2]);
+    cells[cells.length - 1] = ui.paint("dim", cells[cells.length - 1]);
     ui.out(cells.map((cell, i) => pad(cell, widths[i])).join("  ").trimEnd());
   });
+  if (showGroup) {
+    const perGroup = new Map();
+    for (const node of nodes) {
+      const key = node.group || "(no group)";
+      perGroup.set(key, (perGroup.get(key) ?? 0) + 1);
+    }
+    ui.out(ui.paint("dim", `${[...perGroup.entries()].map(([key, count]) => `${key} ${count}`).join(" · ")} machines by group`));
+  }
   const unreachable = results.filter((result) => result.error).map((result) => result.label);
   const machines = results.filter((result) => !result.error).length;
   ui.out(

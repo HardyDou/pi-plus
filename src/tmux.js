@@ -1,7 +1,10 @@
-import { spawnSync } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
+import { promisify } from "node:util";
 import { accessSync, constants, statSync } from "node:fs";
 import { delimiter, isAbsolute, join } from "node:path";
 import { shellQuote } from "./config.js";
+
+const execFileAsync = promisify(execFile);
 
 /**
  * tmux has two target syntaxes: `=name` for sessions (exact match) and
@@ -170,6 +173,65 @@ export function resolveExecutable(command, env = process.env) {
   return command;
 }
 
+/** The one list-panes query both the sync and the async reader use. */
+const SESSION_QUERY = [
+  "list-panes",
+  "-a",
+  "-F",
+  [
+    "#{session_name}",
+    "#{pane_id}",
+    "#{pane_pid}",
+    "#{pane_current_command}",
+    "#{pane_dead}",
+    "#{pane_current_path}",
+    "#{session_created}",
+    "#{session_attached}",
+    // window_activity moves when a pane prints; session_activity only moves
+    // on attach/detach, which made "idle 4h" mean "nobody looked at it"
+    "#{window_activity}",
+  ].join(FIELD_SEP),
+];
+
+const CLIENT_QUERY = [
+  "list-clients",
+  "-F",
+  ["#{client_name}", "#{client_session}", "#{client_activity}", "#{client_user}", "#{client_tty}"].join(FIELD_SEP),
+];
+
+function parseClientLines(stdout) {
+  return String(stdout ?? "")
+    .split("\n")
+    .filter((line) => line.trim())
+    .map((line) => {
+      const [name, session, activity, user, tty] = decodeFields(line).split(FIELD_SEP);
+      return { name, session, activity: Number(activity) || 0, user: user || "", tty: tty || "" };
+    });
+}
+
+/** Turn `list-panes` output into the Map every caller expects. */
+function parseSessionLines(stdout) {
+  const sessions = new Map();
+  for (const line of decodeFields(stdout).split("\n")) {
+    if (!line.trim()) continue;
+    const [name, paneId, pid, command, dead, path, created, attached, activity] = line.split(FIELD_SEP);
+    const entry = sessions.get(name) ?? {
+      name,
+      path,
+      created: Number(created) || 0,
+      attached: Number(attached) || 0,
+      activity: Number(activity) || 0,
+      panes: [],
+    };
+    entry.activity = Math.max(entry.activity, Number(activity) || 0);
+    // the path is what "where does this session live" answers, and the only
+    // source for a session that is running but not in the config
+    entry.panes.push({ id: paneId, pid: Number(pid) || 0, command, dead: dead === "1", path });
+    sessions.set(name, entry);
+  }
+  return sessions;
+}
+
 export class Tmux {
   /**
    * `remote` turns this into "tmux on another machine": pass `{ node }` and
@@ -224,6 +286,18 @@ export class Tmux {
    * Run tmux; throws on non-zero unless `allowFailure`. Read-only queries pass
    * `readOnly: true` so `--dry-run` can still report real session state.
    */
+  /** Run one tmux command without blocking; same contract as run(). */
+  async runAsync(args) {
+    const { command, argv, env } = this.spawnFor(args, {});
+    try {
+      const { stdout, stderr } = await execFileAsync(command, argv, { env, maxBuffer: 16 * 1024 * 1024 });
+      return { status: 0, stdout, stderr };
+    } catch (error) {
+      const status = typeof error?.code === "number" ? error.code : 1;
+      return { status, stdout: String(error?.stdout ?? ""), stderr: String(error?.stderr ?? error?.message ?? error) };
+    }
+  }
+
   run(args, { allowFailure = false, capture = true, readOnly = false, stdinInherit = false } = {}) {
     const full = this.args(args);
     const shown = full.join(" ");
@@ -289,69 +363,43 @@ export class Tmux {
 
   /** Map of live tmux sessions → { name, path, created, attached, panes[] }. */
   listSessions() {
-    const res = this.run(
-      [
-        "list-panes",
-        "-a",
-        "-F",
-        [
-          "#{session_name}",
-          "#{pane_id}",
-          "#{pane_pid}",
-          "#{pane_current_command}",
-          "#{pane_dead}",
-          "#{pane_current_path}",
-          "#{session_created}",
-          "#{session_attached}",
-          // window_activity moves when a pane prints; session_activity only moves
-          // on attach/detach, which made "idle 4h" mean "nobody looked at it"
-          "#{window_activity}",
-        ].join(FIELD_SEP),
-      ],
-      { allowFailure: true, readOnly: true },
-    );
-    const sessions = new Map();
-    if (res.status !== 0) return sessions;
-    for (const line of decodeFields(res.stdout).split("\n")) {
-      if (!line.trim()) continue;
-      const [name, paneId, pid, command, dead, path, created, attached, activity] = line.split(FIELD_SEP);
-      const entry = sessions.get(name) ?? {
-        name,
-        path,
-        created: Number(created) || 0,
-        attached: Number(attached) || 0,
-        activity: Number(activity) || 0,
-        panes: [],
-      };
-      entry.activity = Math.max(entry.activity, Number(activity) || 0);
-      // the path is what "where does this session live" answers, and the only
-      // source for a session that is running but not in the config
-      entry.panes.push({ id: paneId, pid: Number(pid) || 0, command, dead: dead === "1", path });
-      sessions.set(name, entry);
-    }
-    return sessions;
+    const res = this.run(SESSION_QUERY, { allowFailure: true, readOnly: true });
+    return res.status === 0 ? parseSessionLines(res.stdout) : new Map();
   }
 
-  /** Map of attached clients: [{ name, session, activity }]. */
+  /**
+   * The same answer without blocking the event loop — five machines at 300ms
+   * each is 1.5s of a status table that could take 300ms.
+   */
+  async listSessionsAsync() {
+    const res = await this.runAsync(SESSION_QUERY);
+    return res.status === 0 ? parseSessionLines(res.stdout) : new Map();
+  }
+
+  /**
+   * The same query, but "I could not ask" is null instead of an empty map:
+   * an unreachable machine and an idle one must not look alike.
+   */
+  async listSessionsStrict() {
+    const res = await this.runAsync(SESSION_QUERY);
+    return res.status === 0 ? parseSessionLines(res.stdout) : null;
+  }
+
+  /** Map of attached clients: [{ name, session, activity, user, tty }]. */
   listClients() {
     const res = this.run(
       // who is attached matters before killing anything: tty plus the user
       // that owns it is what "someone else is looking at this" looks like
-      [
-        "list-clients",
-        "-F",
-        ["#{client_name}", "#{client_session}", "#{client_activity}", "#{client_user}", "#{client_tty}"].join(FIELD_SEP),
-      ],
+      CLIENT_QUERY,
       { allowFailure: true, readOnly: true },
     );
-    if (res.status !== 0) return [];
-    return res.stdout
-      .split("\n")
-      .filter((line) => line.trim())
-      .map((line) => {
-        const [name, session, activity, user, tty] = decodeFields(line).split(FIELD_SEP);
-        return { name, session, activity: Number(activity) || 0, user: user || "", tty: tty || "" };
-      });
+    return res.status === 0 ? parseClientLines(res.stdout) : [];
+  }
+
+  /** Same, without blocking — status asks every machine at once. */
+  async listClientsAsync() {
+    const res = await this.runAsync(CLIENT_QUERY);
+    return res.status === 0 ? parseClientLines(res.stdout) : [];
   }
 
   create(session, { argv, env = {} }) {

@@ -21,6 +21,7 @@ export const NODE_KEYS = new Set([
   "password",
   "password_env",
   "note",
+  "group",
   "tags",
   "guarded",
   "drained",
@@ -108,6 +109,20 @@ export function normalizeNode(raw, index, configPath = "<config>", warnings = []
     // but it hides which one actually authenticated, so say something.
     warnings.push(`${configPath}: node "${name}": both identity and password are set; ssh will try the key first`);
   }
+
+  // A machine belongs to one place: `group: work` is the company box,
+  // `group: mine` is the one under the desk. One bucket, not a bag of tags.
+  const group = (() => {
+    if (raw.group == null) return null;
+    const label = String(raw.group).trim();
+    if (!label) return null;
+    const where = `${configPath}: node "${raw.name ?? index}"`;
+    if (label.length > 20) throw new NodeError(`${where}: group must be 20 characters or fewer`);
+    if (!/^[A-Za-z0-9][A-Za-z0-9 ._-]*$/.test(label)) {
+      throw new NodeError(`${where}: group "${label}" must be a short label (letters, digits, space, . _ -)`);
+    }
+    return label;
+  })();
 
   // Tags are how a fleet stays searchable: `tags: [prod, db]` lets
   // `pp up --tag db` touch exactly the database machines.
@@ -204,6 +219,7 @@ export function normalizeNode(raw, index, configPath = "<config>", warnings = []
 
   return {
     name,
+    group,
     tags,
     guarded,
     drained,
@@ -449,6 +465,7 @@ export function renderNodeBlock(node) {
   if (node.password) lines.push(`    password: ${yamlScalar(node.password)}`);
   if (node.passwordEnv) lines.push(`    password_env: ${yamlScalar(node.passwordEnv)}`);
   if (node.note) lines.push(`    note: ${yamlScalar(node.note)}`);
+  if (node.group) lines.push(`    group: ${yamlScalar(node.group)}`);
   if (node.tags?.length) lines.push(`    tags: [${node.tags.join(", ")}]`);
   if (node.guarded) lines.push(`    guarded: true`);
   if (node.drained) lines.push(`    drained: true`);

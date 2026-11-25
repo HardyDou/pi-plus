@@ -374,3 +374,25 @@ test("a machine can carry a default role for its sessions", () => {
   assert.throws(() => normalizeNode({ name: "b", host: "h", defaults: { role: "has/slash" } }, 0, "c.yml", []),
     /defaults\.role .* must be a short label/);
 });
+
+test("a node can carry the place it belongs to", () => {
+  const node = normalizeNode({ name: "w1", host: "h", group: "work" }, 0, "t.yml");
+  assert.equal(node.group, "work");
+  assert.equal(normalizeNode({ name: "w2", host: "h", group: "  " }, 1, "t.yml").group, null);
+  assert.equal(normalizeNode({ name: "w3", host: "h" }, 2, "t.yml").group, null);
+  assert.match(renderNodeBlock(node), /^    group: work$/m);
+  assert.doesNotMatch(renderNodeBlock(normalizeNode({ name: "w4", host: "h" }, 3, "t.yml")), /group:/);
+  assert.throws(() => normalizeNode({ name: "w5", host: "h", group: "x".repeat(21) }, 4, "t.yml"), /group must be 20 characters/);
+  assert.throws(() => normalizeNode({ name: "w6", host: "h", group: "a/b" }, 5, "t.yml"), /must be a short label/);
+});
+
+test("a group survives the round trip through the file", () => {
+  const text = renderNodeBlock(normalizeNode({ name: "w1", host: "h", group: "mine" }, 0, "t.yml"));
+  // undo the list indentation so the yaml subset can read the block on its own
+  const body = text
+    .split("\n")
+    .map((line, index) => (index === 0 ? line.replace(/^\s*- /, "") : line.trim()))
+    .join("\n");
+  const parsed = parseYaml(body);
+  assert.equal(normalizeNode(parsed, 0, "t.yml").group, "mine");
+});

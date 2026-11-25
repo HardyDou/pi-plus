@@ -120,6 +120,7 @@ function parseArgs(argv) {
         options.wide = true;
         break;
       case "--started": options.started = true; break;
+        case "--fresh": options.fresh = true; break;
         case "--brief": options.brief = true; break;
         case "--quarantine": options.quarantine = true; break;
         case "--keep": options.keep = takeValue(flag, inline); break;
@@ -194,6 +195,7 @@ function parseArgs(argv) {
         case "--password": options.password = takeValue(flag, inline); break;
         case "--password-env": options.passwordEnv = takeValue(flag, inline); break;
         case "--note": options.note = takeValue(flag, inline); break;
+        case "--group": options.group = takeValue(flag, inline); break;
           break;
         case "--node": options.node = takeValue(flag, inline); break;
         case "--limit": options.lines = Number(takeValue(flag, inline)); break;
