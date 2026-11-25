@@ -198,8 +198,26 @@ export function autostartState(kind = autostartKind()) {
     const unitName = serviceName();
     const servicePath = join(systemdUserDir(), `${unitName}.service`);
     const unit = `${unitName}.service`;
+    const timerName = `${unitName}.timer`;
+    const timerPath = join(systemdUserDir(), timerName);
+    const timerInstalled = existsSync(timerPath);
+    const timerEnabled = timerInstalled
+      ? run("systemctl", ["--user", "is-enabled", timerName], { allowFailure: true }).stdout.trim() === "enabled"
+      : false;
     if (!existsSync(servicePath)) {
-      return { kind, installed: false, enabled: false, active: null, result: null, path: servicePath };
+      return {
+        kind,
+        installed: false,
+        enabled: false,
+        active: null,
+        result: null,
+        path: servicePath,
+        timerPath,
+        timerInstalled,
+        timerEnabled,
+        timerActive: false,
+        timerInterval: null,
+      };
     }
     const enabled = run("systemctl", ["--user", "is-enabled", unit], { allowFailure: true });
     const show = run("systemctl", ["--user", "show", unit, "-p", "ActiveState", "-p", "Result"], {
@@ -216,6 +234,17 @@ export function autostartState(kind = autostartKind()) {
     } catch {
       health = { ok: false, problems: [`cannot read ${servicePath}`] };
     }
+    // A service alone only fires at boot/login. The timer is what makes the
+    // machine heal itself, and "installed" without it used to read as healthy.
+    let timerInterval = null;
+    if (timerInstalled) {
+      try {
+        const match = /OnUnitActiveSec=(\d+)s/.exec(readFileSync(timerPath, "utf8"));
+        if (match) timerInterval = Number(match[1]);
+      } catch {
+        timerInterval = null;
+      }
+    }
     return {
       kind,
       installed: true,
@@ -224,6 +253,11 @@ export function autostartState(kind = autostartKind()) {
       result: props.Result ?? null,
       path: servicePath,
       health,
+      timerPath,
+      timerInstalled,
+      timerEnabled,
+      timerActive: timerInstalled ? run("systemctl", ["--user", "is-active", timerName], { allowFailure: true }).stdout.trim() === "active" : false,
+      timerInterval,
     };
   }
   if (kind === "launchd") {
@@ -240,6 +274,10 @@ export function describeAutostart(state) {
   const rel = state.path ? state.path.replace(homedir(), "~") : null;
   if (!state.installed) return `${state.kind} (not installed${rel ? `: ${rel}` : ""})`;
   const bits = [state.kind, state.enabled ? "enabled" : "disabled"];
+  if (state.kind === "systemd") {
+    if (state.timerEnabled && state.timerInterval) bits.push(`timer every ${state.timerInterval}s`);
+    else bits.push("no timer: it only runs at boot — pp install --watch 300");
+  }
   if (state.active) {
     const failed = state.result && state.result !== "success";
     bits.push(`last run ${failed ? state.result : "ok"}`);

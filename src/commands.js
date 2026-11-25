@@ -1495,8 +1495,9 @@ function printNodes(config, options, ui) {
     ui.info("  pp node test prod-01");
     return;
   }
-  const headers = ["NODE", "TARGET", "PORT", "AUTH", "SESSIONS", "TAGS", "NOTE"];
-  const table = nodes.map((node) => [
+  const headers = ["#", "NODE", "TARGET", "PORT", "AUTH", "SESSIONS", "TAGS", "NOTE"];
+  const table = nodes.map((node, i) => [
+    String(i + 1),
     `${node.guarded ? "!" : ""}${node.drained ? "~" : ""}${node.name}`,
     nodeTarget(node),
     String(node.port),
@@ -1510,11 +1511,12 @@ function printNodes(config, options, ui) {
   ui.out(ui.paint("bold", headers.map((h, i) => pad(h, widths[i])).join("  ").trimEnd()));
   table.forEach((row, i) => {
     const cells = [...row];
-    cells[0] = ui.paint("cyan", cells[0]);
+    cells[0] = ui.paint("dim", cells[0]);
+    cells[1] = ui.paint("cyan", cells[1]);
     const auth = nodes[i] && authSummary(nodes[i]);
-    if (auth.endsWith("✗")) cells[3] = ui.paint("red", cells[3]);
-    else if (auth === "agent") cells[3] = ui.paint("dim", cells[3]);
-    cells[4] = ui.paint("dim", cells[4]);
+    if (auth.endsWith("✗")) cells[4] = ui.paint("red", cells[4]);
+    else if (auth === "agent") cells[4] = ui.paint("dim", cells[4]);
+    cells[5] = ui.paint("dim", cells[5]);
     ui.out(cells.map((cell, idx) => pad(cell, widths[idx])).join("  ").trimEnd());
   });
   if (!options.quiet) {
@@ -1808,8 +1810,7 @@ function cmdNodeTest(config, options, ui) {
   if (failed) process.exitCode = 1;
 }
 
-function cmdNodeSsh(config, options, ui) {
-  const node = nodeOrDie(config, options.names[1], ui);
+function sshToNode(node, options, ui) {
   const inv = sshInvocation(node, [], { tty: true, batch: false });
   if (options.dryRun) {
     ui.info(`[dry-run] ${inv.command} ${inv.argv.join(" ")}`);
@@ -1943,6 +1944,27 @@ function cmdNodeDrain(config, options, ui, { drained = true } = {}) {
   }
 }
 
+function cmdNodeSsh(config, options, ui) {
+  return sshToNode(nodeOrDie(config, options.names[1], ui), options, ui);
+}
+
+/**
+ * `pp node 1` and `pp node prod-01` mean "go there", the same way `pp attach 3`
+ * means "go to the third session". One argument, one ssh.
+ */
+export function resolveNodeRef(config, ref) {
+  const nodes = config?.nodes ?? [];
+  const text = String(ref ?? "").trim();
+  if (!text) return null;
+  const exact = nodes.find((node) => node.name === text);
+  if (exact) return exact;
+  if (/^\d+$/.test(text)) {
+    const index = Number(text);
+    if (index >= 1 && index <= nodes.length) return nodes[index - 1];
+  }
+  return null;
+}
+
 async function cmdNode(config, options, ui) {
   const sub = (options.names[0] ?? "ls").toLowerCase();
   if (["ls", "list", "status"].includes(sub)) {
@@ -1957,10 +1979,17 @@ async function cmdNode(config, options, ui) {
   if (["rm", "remove", "delete"].includes(sub)) return cmdNodeRm(config, options, ui);
   if (["test", "ping", "probe", "check"].includes(sub)) return cmdNodeTest(config, options, ui);
   if (["ssh", "shell", "connect"].includes(sub)) return cmdNodeSsh(config, options, ui);
+  // `pp node 1` / `pp node prod-01`: the whole point is to stop typing "ssh"
+  const byRef = resolveNodeRef(config, options.names[0]);
+  if (byRef) return sshToNode(byRef, options, ui);
+  if (config?.nodes?.length && /^\d+$/.test(sub)) {
+    ui.error(`no node ${sub} — there ${config.nodes.length === 1 ? "is 1 node" : `are ${config.nodes.length} nodes`}: pp node ls`);
+    process.exit(2);
+  }
   if (["exec", "run", "sh"].includes(sub)) return cmdNodeExec(config, options, ui);
   if (["drain", "maintenance"].includes(sub)) return cmdNodeDrain(config, options, ui, { drained: true });
   if (["undrain", "resume", "unmaintenance"].includes(sub)) return cmdNodeDrain(config, options, ui, { drained: false });
-  ui.error(`unknown node command "${sub}" — try: pp node ls | show | add | rm | test | exec | ssh | drain`);
+  ui.error(`unknown node "${sub}" — try: pp node ls  (then pp node <1|name> to log in)`);
   process.exit(2);
 }
 

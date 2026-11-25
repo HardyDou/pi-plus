@@ -1104,6 +1104,9 @@ check "node shows its auth"           0 'agent'                   bash -c "cd $E
 check "busy says which machine is unreachable" 0 'unreachable'    bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK busy 2>&1"
 check "node show lists its sessions"  0 'far-x'                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node show far"
 check "node show hides passwords"     0 'password +-'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node show far"
+# `pp node 1` is the one-argument form: the number is on screen in `pp node ls`.
+check "node <n> logs in"             0 '-t .*127\.0\.0\.1'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node 1 --dry-run"
+check "node <n> out of range says so" 2 'no node 9'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node 9"
 check "remote session is seen running" 0 'running'                bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls far-x"
 check "the NODE column names the machine" 0 'far'                 bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls far-x"
 check "why --node says the machine state" 0 'reachable'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK why --node far 2>&1"
@@ -1313,7 +1316,7 @@ check "ls --node hides other nodes"  0 '^$'                     bash -c "cd $E2E
 check "ls --node rejects an unknown node" 2 'no node'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls --node nope"
 check "node add stores a tag"        0 ''          bash -c "cd $E2E && printf 'version: 1\nnodes:\n  - name: far\n    host: 127.0.0.1\n    user: nobody\nsessions:\n  - name: far-x\n    node: far\n    cwd: /tmp\n' > $E2E/tag.yml && $ROOT/bin/pp.js -c $E2E/tag.yml node add far --host 127.0.0.1 --user nobody --tag prod >/dev/null && grep -q 'tags: \[prod\]' $E2E/tag.yml"
 check "node add --tag accumulates"   0 ''      bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/tag.yml node add far --host 127.0.0.1 --user nobody --tag db >/dev/null && grep -q 'tags: \[prod, db\]' $E2E/tag.yml"
-check "node ls --tag filters"        0 '^far '                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/tag.yml node ls --tag db | grep -E '^far '"
+check "node ls --tag filters"        0 ' far '                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/tag.yml node ls --tag db | grep -E ' far '"
 check "node ls --tag with no match says so" 0 'no node matches'  bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/tag.yml node ls --tag ghost"
 check "node exec --tag picks machines" 0 'tag-marker'            bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $E2E/tag.yml node exec --tag prod -- 'echo tag-marker'"
 check "ls --tag rejects an unknown tag" 2 'tagged'               bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/tag.yml --socket $SOCK ls --tag ghost"
@@ -1331,7 +1334,7 @@ check "new --save fills an empty sessions list" 0 'name: e2e-empty' bash -c "cd 
 # guarded machines: stopping something must be deliberate
 GUARDCFG="$E2E/guard.yml"
 sed 's/    note: reaches us through the shim/    note: reaches us through the shim\n    guarded: true/' "$NODECFG" > "$GUARDCFG"
-check "node ls marks a guarded machine" 0 '!far '            bash -c "cd $E2E && $ROOT/bin/pp.js -c $GUARDCFG node ls | grep -E '^!'"
+check "node ls marks a guarded machine" 0 '!far '            bash -c "cd $E2E && $ROOT/bin/pp.js -c $GUARDCFG node ls | grep -E '!far'"
 check "a guard is visible in node show" 0 'need --force'     bash -c "cd $E2E && $ROOT/bin/pp.js -c $GUARDCFG node show far"
 check "down skips a guarded session"   0 'guarded machine'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $GUARDCFG --socket $SOCK down far-x"
 check "the guarded session survived"   0 'far-x'             bash -c "tmux -L $SOCK list-sessions -F '#{session_name}'"

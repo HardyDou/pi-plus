@@ -75,13 +75,28 @@ test("isWsl detects WSL from the environment", () => {
 
 test("describeAutostart summarises install/enable/last-run state", () => {
   assert.equal(describeAutostart({ kind: "systemd", installed: false, enabled: false, active: null, result: null }), "systemd (not installed)");
+  // A service without a timer only fires at boot, and saying just "enabled"
+  // made the two cases indistinguishable -- that was the false green.
   assert.equal(
     describeAutostart({ kind: "systemd", installed: true, enabled: true, active: "active", result: "success" }),
-    "systemd, enabled, last run ok",
+    "systemd, enabled, no timer: it only runs at boot — pp install --watch 300, last run ok",
+  );
+  assert.equal(
+    describeAutostart({
+      kind: "systemd",
+      installed: true,
+      enabled: true,
+      active: "active",
+      result: "success",
+      timerInstalled: true,
+      timerEnabled: true,
+      timerInterval: 300,
+    }),
+    "systemd, enabled, timer every 300s, last run ok",
   );
   assert.match(
     describeAutostart({ kind: "systemd", installed: true, enabled: false, active: "failed", result: "exit-code" }),
-    /systemd, disabled, last run exit-code/,
+    /systemd, disabled, .*last run exit-code/,
   );
   assert.equal(describeAutostart({ kind: null }), "unsupported platform");
 });
