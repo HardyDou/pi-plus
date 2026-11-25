@@ -149,14 +149,6 @@ export function pickClient(clients, session) {
 }
 
 /** `12:34:56` from a unix timestamp in seconds. */
-export function clockTime(seconds) {
-  const value = Number(seconds);
-  if (!Number.isFinite(value) || value <= 0) return "";
-  const date = new Date(value * 1000);
-  const hh = String(date.getHours()).padStart(2, "0");
-  const mm = String(date.getMinutes()).padStart(2, "0");
-  return `${hh}:${mm}`;
-}
 
 /** Build the `/pp-status` report lines (label + value pairs). */
 export function formatStatusLines(info) {

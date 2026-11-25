@@ -583,13 +583,6 @@ export function appendSessionBlock(text, entry) {
 }
 
 /** Append a session to a config file on disk. */
-export function appendSessionToFile(configPath, entry) {
-  const path = expandPath(configPath);
-  const next = appendSessionBlock(readFileSync(path, "utf8"), entry);
-  if (next === null) return false;
-  writeFileSync(path, next);
-  return true;
-}
 
 /** Rewrite one field of one session on disk. Returns true when it changed. */
 export function setSessionFieldInFile(configPath, name, key, value) {

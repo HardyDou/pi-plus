@@ -822,7 +822,3 @@ export function createTui({
 }
 
 /** Hand the terminal to tmux, then come back. */
-export function attachInTerminal(tmuxArgs, { spawn = spawnSync } = {}) {
-  const result = spawn("tmux", tmuxArgs, { stdio: "inherit" });
-  return result?.status ?? 0;
-}
