@@ -4946,9 +4946,17 @@ async function cmdUpdate(options, ui) {
   });
 
   if (options.json) {
+    const ext = installedExtension(process.env);
     ui.out(
       JSON.stringify(
-        { current, latest, upToDate: !behind, installKind: info.kind, command: plan ? [plan.command, ...plan.args] : null },
+        {
+          current,
+          latest,
+          upToDate: !behind,
+          installKind: info.kind,
+          command: plan ? [plan.command, ...plan.args] : null,
+          extension: ext ? { path: ext.dir, version: ext.version, upToDate: compareVersions(latest, ext.version) <= 0 } : null,
+        },
         null,
         2,
       ),
@@ -4957,8 +4965,38 @@ async function cmdUpdate(options, ui) {
     return;
   }
 
+  // The cli and the pi extension are two installs. "The cli is up to date" is
+  // not the same as "everything is up to date": a stale extension is what makes
+  // /pp-* commands look missing while the version on screen says otherwise.
+  const extension = installedExtension(process.env);
+  const extensionBehind = Boolean(extension) && compareVersions(latest, extension.version) > 0;
+  const extensionLine = extension ? extensionUpgradeHint(extension, latest) : null;
+
   if (!behind) {
+    if (!extensionBehind) {
+      ui.info(`pi-farm ${current} is up to date (latest ${latest})`);
+      return;
+    }
+    ui.warn(`the pi extension is still ${extension.version} — /pp-* commands come from it, not from the cli`);
     ui.info(`pi-farm ${current} is up to date (latest ${latest})`);
+    if (options.check) {
+      ui.info(ui.paint("dim", `would run: ${extensionLine}`));
+      process.exitCode = 1;
+      return;
+    }
+    if (options.dryRun) {
+      ui.info(`[dry-run] ${extensionLine}`);
+      return;
+    }
+    ui.info(ui.paint("dim", `$ ${extensionLine}`));
+    const fixed = spawnSync("npm", extensionLine.replace(/^npm /, "").split(" "), { stdio: "inherit" });
+    if (fixed.status === 0) {
+      const after = installedExtension(process.env);
+      ui.info(`extension now ${after?.version ?? "?"} — /reload inside pi to pick it up`);
+      return;
+    }
+    ui.error("updating the extension failed; run the command above by hand");
+    process.exitCode = fixed.status ?? 1;
     return;
   }
   ui.info(`update available: ${current} → ${latest}  (${info.kind} install)`);
@@ -4996,13 +5034,13 @@ async function cmdUpdate(options, ui) {
   // the /pp-* commands live in the pi extension, which npm does not touch:
   // upgrading the cli alone leaves a stale extension behind (it has bitten us
   // twice — a command that "does not exist" although the version looked right)
-  const extension = installedExtension(process.env);
-  const hint = extensionUpgradeHint(extension, after);
-  if (extension && hint) {
+  const nowExtension = installedExtension(process.env);
+  const hint = extensionUpgradeHint(nowExtension, after);
+  if (nowExtension && hint) {
+    const extension = nowExtension;
     ui.warn(`the pi extension is still ${extension.version} — /pp-* commands come from it, not from the cli`);
     ui.info(ui.paint("dim", `${hint}  (then /reload inside pi)`));
-  }
-  else if (result.status === 0) {
+  } else if (result.status === 0) {
     ui.error(`npm finished but this copy is still ${after} (another pi-farm may shadow it: type -a pp)`);
     process.exitCode = 1;
   } else {
