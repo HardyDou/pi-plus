@@ -4,7 +4,7 @@ import { COMMANDS, commandNames, findCommand, renderCommandHelp, renderOverview,
 
 const CANONICAL = ["new", "node", "audit", "up", "down", "rm", "restart",
   "adopt",
-  "bind", "role", "plan", "runbook", "handover",
+  "bind", "rename", "fleet", "role", "plan", "runbook", "handover",
   "snapshot", "backup", "restore",
   "why", "mv", "status", "busy", "attach", "logs", "send", "mesh", "cron", "todo", "tui", "back", "check", "clean", "doctor", "init", "install", "uninstall", "alias", "update", "version", "help"];
 

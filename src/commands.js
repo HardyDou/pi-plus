@@ -18,6 +18,7 @@ import {
   RESTART_POLICIES,
   renderSessionEntry,
   shellQuote,
+  renameSessionInFile,
 } from "./config.js";
 import { agoText, auditActor, auditPath, formatAuditEntry, pruneAudit, readAudit, recordAudit, stateDir } from "./audit.js";
 import { BACKUP_KEEP, backupDir, backupPlan, describeBackup, listBackups, pruneBackups, restorePlan, verifyBackup, writeBackup } from "./backup.js";
@@ -4128,6 +4129,178 @@ async function cmdHandover(config, options, ui) {
   }
   note("handover", target.name, { detail: `last ${span}` });
   ui.info(`handed the page to ${target.name} — pp logs ${target.name} to watch it read`);
+}
+
+/**
+ * `pp fleet` -- one table for every machine, asked live.
+ *
+ * Nothing is cached and nothing is written: the point is "what is running right
+ * now", and a stale copy of that answer is worse than no answer.
+ */
+export async function cmdFleet(config, options, ui) {
+  const nodes = config?.nodes ?? [];
+  const targets = [
+    { label: "local", node: null, tmux: makeTmux(config, options) },
+    // `{ node: name }`, not `{ node }`: nodeForSession looks the name up in
+    // config.nodes, and an unknown shape quietly degrades to "local" -- which
+    // is how a broken ssh once produced a fleet table identical to the local one.
+    ...nodes.map((node) => ({ label: node.name, node, tmux: makeTmux(config, options, { node: node.name }) })),
+  ];
+  const results = await Promise.all(
+    targets.map(async (entry) => {
+      try {
+        // listSessions is allowFailure: it answers "no session" both for an
+        // empty machine and for an ssh that never connected. Ask separately,
+        // otherwise an unreachable node silently shows up as an empty one.
+        if (entry.node && !entry.tmux.reachable()) {
+          return { ...entry, live: null, error: `cannot ssh to ${entry.label}` };
+        }
+        return { ...entry, live: entry.tmux.listSessions(), error: null };
+      } catch (error) {
+        return { ...entry, live: null, error: String(error.message ?? error) };
+      }
+    }),
+  );
+  const rows = [];
+  for (const result of results) {
+    if (!result.live) continue;
+    for (const [name, info] of result.live) {
+      rows.push({ name, node: result.node ? result.node.name : null, activity: info.activity ?? null });
+    }
+  }
+  rows.sort((a, b) => compareNames(a.node ?? "", b.node ?? "") || compareNames(a.name, b.name));
+  if (ui.json) {
+    ui.out(
+      JSON.stringify(
+        {
+          machines: results.map((result) => ({
+            node: result.node ? result.node.name : null,
+            reachable: !result.error,
+            error: result.error,
+            sessions: result.live ? [...result.live.keys()] : [],
+          })),
+          sessions: rows,
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+  if (!rows.length) {
+    const broken = results.filter((result) => result.error);
+    if (broken.length) ui.warn(`no session could be listed — ${broken.map((r) => `${r.label}: ${r.error.split("\n")[0]}`).join("; ")}`);
+    else ui.info("no tmux session is running anywhere");
+    return;
+  }
+  const headers = ["SESSION", "NODE", "IDLE"];
+  const table = rows.map((row) => [row.name, row.node ?? "local", shortAge(row.activity ? Math.max(0, Math.round(Date.now() / 1000) - Number(row.activity)) : null)]);
+  const widths = headers.map((header, index) => Math.max(header.length, ...table.map((row) => displayWidth(row[index]))));
+  const pad = (value, width) => value + " ".repeat(Math.max(0, width - displayWidth(value)));
+  ui.out(ui.paint("bold", headers.map((header, index) => pad(header, widths[index])).join("  ").trimEnd()));
+  table.forEach((row, index) => {
+    const cells = [...row];
+    cells[1] = ui.paint(cells[1] === "local" ? "dim" : "cyan", cells[1]);
+    cells[2] = ui.paint("dim", cells[2]);
+    ui.out(cells.map((cell, i) => pad(cell, widths[i])).join("  ").trimEnd());
+  });
+  const unreachable = results.filter((result) => result.error).map((result) => result.label);
+  const machines = results.filter((result) => !result.error).length;
+  ui.out(
+    `\n${rows.length} session${rows.length === 1 ? "" : "s"} on ${machines} machine${machines === 1 ? "" : "s"}` +
+      (unreachable.length ? ui.paint("red", `  · unreachable: ${unreachable.join(", ")}`) : ""),
+  );
+}
+
+/**
+ * `pp rename old new` -- one name change, done everywhere it is written down.
+ *
+ * The tmux session and the config entry have to move together: renaming only
+ * one of them leaves a session that pp can see but not find. On a node the
+ * rename is done *there* (its pp owns that config), with a plain tmux rename as
+ * the fallback for a node that has an older pp or none at all.
+ */
+export async function cmdRename(config, options, ui) {
+  const [oldRef, newName] = options.names;
+  if (!oldRef || !newName) {
+    ui.error("usage: pp rename <name|#> <new-name>");
+    process.exit(2);
+  }
+  if (!NAME_RE.test(newName)) {
+    ui.error(`"${newName}" is not a usable session name (letters, digits, - and _)`);
+    process.exit(2);
+  }
+  const session = resolveSessionRef(config, oldRef);
+  if (!session) {
+    ui.error(`no session "${oldRef}" — see pp status`);
+    process.exit(2);
+  }
+  if (newName === session.name) {
+    ui.error(`${session.name} is already called that`);
+    process.exit(2);
+  }
+  const taken = config.sessions.some((entry) => entry.name === newName || entry.tmuxName === newName);
+  if (taken) {
+    ui.error(`"${newName}" is taken — pick another name`);
+    process.exit(2);
+  }
+  const handle = makeTmux(config, options, session);
+  const node = nodeForSession(config, session);
+  const target = `=${session.tmuxName}`;
+  if (options.dryRun) {
+    const where = node ? `ssh ${node.name} ` : "";
+    ui.info(`[dry-run] ${where}tmux rename-session -t ${target} ${newName}`);
+    ui.info(`[dry-run] ${config.path}: name ${session.name} -> ${newName}`);
+    return;
+  }
+
+  let renamed = false;
+  if (node) {
+    // The node's own pp knows where its config lives; ask it first.
+    const attempt = spawnSync("ssh", sshInvocation(node, ["pp", "rename", session.tmuxName, newName], { batch: true }).argv.slice(1), {
+      encoding: "utf8",
+    });
+    renamed = attempt.status === 0;
+    if (!renamed && options.verbose) ui.info(`node pp could not rename it (${(attempt.stderr || "").trim().split("\n")[0] || `exit ${attempt.status}`}) — renaming the tmux session only`);
+  }
+  if (!renamed) {
+    try {
+      handle.run(["rename-session", "-t", target, newName]);
+      renamed = true;
+    } catch (error) {
+      if (!/can't find session|no such session/i.test(String(error.message))) throw error;
+    }
+  }
+
+  const file = renameSessionInFile(config.path, session.name, newName);
+  const todos = readTodos();
+  let movedTodos = 0;
+  for (const todo of todos) {
+    if (todo.session === session.tmuxName || todo.session === session.name) {
+      todo.session = newName;
+      movedTodos += 1;
+    }
+  }
+  if (movedTodos) writeTodos(todos);
+
+  const jobs = readJobs();
+  let movedJobs = 0;
+  for (const job of jobs) {
+    if (job.session === session.tmuxName || job.session === session.name) {
+      job.session = newName;
+      movedJobs += 1;
+    }
+  }
+  if (movedJobs) writeJobs(jobs);
+
+  note("rename", newName, { detail: `${session.name} -> ${newName}${file ? "" : " (no config entry)"}` });
+  ui.info(`renamed ${session.name} → ${newName}${node ? ` on ${node.name}` : ""}`);
+  if (!renamed) ui.warn(`${session.tmuxName} was not running — only the config was renamed`);
+  if (file) ui.info(ui.paint("dim", `config: name${file.changed > 1 ? ", tmux_name" : ""} updated`));
+  if (movedTodos) ui.info(ui.paint("dim", `${movedTodos} todo(s) now point at ${newName}`));
+  if (movedJobs) ui.info(ui.paint("dim", `${movedJobs} cron job(s) now point at ${newName}`));
+  if (session.piSession) ui.info(ui.paint("dim", `the conversation is unchanged: ${session.piSession}`));
+  else ui.info(ui.paint("dim", `tip: pp bind ${newName} to pin its conversation`));
 }
 
 async function cmdRunbook(config, options, ui) {
@@ -8557,6 +8730,12 @@ export async function runCommand(command, options) {
       if (options.firstScreen) return cmdStart(options, ui);
       const config = requireConfig(options, ui);
       return cmdUp(config, options, ui);
+    }
+    case "fleet": case "all":
+      return cmdFleet(tryLoadConfig(options), options, ui);
+    case "rename": case "ren": case "mv-name": {
+      const config = requireConfig(options, ui);
+      return cmdRename(config, options, ui);
     }
     case "adopt": {
       const config = requireConfig(options, ui);

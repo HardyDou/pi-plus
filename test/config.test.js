@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { homedir } from "node:os";
+import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   buildSessionArgv,
@@ -12,6 +13,7 @@ import {
   splitCommand,
   appendSessionBlock,
   renderSessionEntry,
+  renameSessionInFile,
 } from "../src/config.js";
 import { parseYaml } from "../src/yaml.js";
 
@@ -338,4 +340,34 @@ test("a bad sort key or role is refused with the reason", () => {
     () => normalizeConfig(parseYaml("sessions:\n  - name: a\n    cwd: /tmp\n    role: '!!'\n"), { configPath: "t.yml" }),
     /role "!!" must be a short label/,
   );
+});
+
+test("renameSessionInFile moves the name and the copies of it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "pp-rename-"));
+  const file = join(dir, "plus.yml");
+  writeFileSync(
+    file,
+    [
+      "version: 1",
+      "sessions:",
+      "  - name: api",
+      "    cwd: /srv/api",
+      "    tmux_name: api",
+      "    pi_session_name: api",
+      "    pi_session: 01a1e833-6bdc-7139-abc2-bdb6706d849d",
+      "  - name: api-old",
+      "    cwd: /tmp",
+      "",
+    ].join("\n"),
+  );
+  assert.deepEqual(renameSessionInFile(file, "api", "api-v2"), { changed: 3 });
+  const text = readFileSync(file, "utf8");
+  assert.match(text, /- name: api-v2/);
+  assert.match(text, /tmux_name: api-v2/);
+  assert.match(text, /pi_session_name: api-v2/);
+  // the conversation is not renamed: it is keyed by id, not by name
+  assert.match(text, /pi_session: 01a1e833-6bdc-7139-abc2-bdb6706d849d/);
+  // a neighbour whose name merely starts with it is untouched
+  assert.match(text, /- name: api-old/);
+  assert.equal(renameSessionInFile(file, "nope", "x"), null);
 });

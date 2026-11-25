@@ -587,6 +587,34 @@ pp tui --refresh 5         # 每 5 秒一帧
 pp tui --once              # 打印一帧就退出
 ```
 
+### `pp rename <会话> <新名字>`
+
+把一个会话改名 —— tmux 与 `plus.yml` 一起改。
+
+```bash
+$ pp rename risk-01 risk-1
+renamed risk-01 → risk-1
+config: name, tmux_name updated
+1 todo(s) now point at risk-1
+```
+
+远端会话在节点上执行（`ssh <node> pp rename …`），节点没有 `pp` 时退回 `tmux rename-session` 并明说。`tmux_name`、`pi_session_name`、待办、cron 任务里指向旧名的地方一起迁移；`pi_session` 不变，对话还是同一个。
+
+### `pp fleet [--json]`
+
+一台机器一条 `tmux list-sessions`，现场合并成一张表 —— 不缓存、不落盘。
+
+```bash
+$ pp fleet
+SESSION           NODE     IDLE
+bh-system-01      local    5m
+api               n188     12s
+
+2 sessions on 2 machines
+```
+
+连不上的机器显示 `unreachable: <名>`，而不是"没有会话"。
+
 ### `pp bind <会话> [--id <session-id>]`
 
 把会话钉在**一个** pi 对话上。`pi --name` 只是给对话起名，不负责重开；没有 `--session-id` 时每次启动都是新对话、只是名字一样 —— 所以一个目录会堆一串 session 文件，重启看起来像失忆。

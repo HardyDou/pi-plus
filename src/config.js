@@ -458,6 +458,32 @@ export function normalizeConfig(raw, { configPath = "<config>" } = {}) {
  * `end` is either the next item's line or the first line after the section —
  * never `lines.length`, which used to make every caller truncate the file.
  */
+/**
+ * Rename an entry in the file: `name`, and `tmux_name` / `pi_session_name` when
+ * they were just copies of the old name. Renaming only the tmux session would
+ * leave the config pointing at something that no longer exists.
+ */
+export function renameSessionInFile(configPath, oldName, newName) {
+  const text = readFileSync(configPath, "utf8");
+  const { lines, blocks } = findSessionBlocks(text);
+  const block = blocks.find((entry) => entry.name === oldName);
+  if (!block) return null;
+  const wanted = new Set(["name", "tmux_name", "pi_session_name"]);
+  let changed = 0;
+  for (let i = block.start; i < block.end; i += 1) {
+    const match = /^(\s*(?:-\s+)?)(name|tmux_name|pi_session_name):\s*(.+?)\s*$/.exec(lines[i]);
+    if (!match || !wanted.has(match[2])) continue;
+    const value = match[3].replace(/^["']|["']$/g, "");
+    if (value !== oldName) continue;
+    lines[i] = `${match[1]}${match[2]}: ${newName}`;
+    changed += 1;
+  }
+  if (!changed) return null;
+  const trailing = text.endsWith("\n") ? "\n" : "";
+  writeFileSync(configPath, `${lines.join("\n").replace(/\n+$/, "")}${trailing}`, "utf8");
+  return { changed };
+}
+
 export function findSessionBlocks(text) {
   const lines = String(text).split("\n");
   const sectionStart = lines.findIndex((line) => /^sessions\s*:/.test(line));

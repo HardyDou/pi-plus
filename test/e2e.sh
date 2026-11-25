@@ -1248,6 +1248,22 @@ check "logs reports a stopped one" 1 'not running'             bash -c "cd $E2E 
 check "logs wants a name"        2 'usage: pp logs'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGSYML --socket $SOCK logs"
 check "audit --actor filters"    0 'nothing recorded'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $LOGSYML --socket $SOCK audit --actor nobody-at-all"
 
+section "rename"
+RENCFG=$E2E/rename.yml
+printf 'version: 1\nsessions:\n  - name: rn-a\n    cwd: /tmp\n    agent: sleep 300\n' > $RENCFG
+check "rename config starts"        0 'started'                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $RENCFG --socket $SOCK up"
+check "rename renames both"         0 'renamed rn-a . rn-b'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $RENCFG --socket $SOCK rename rn-a rn-b"
+check "the config follows the name" 0 ''                          bash -c "grep -q 'name: rn-b' $RENCFG"
+check "tmux follows the name"       0 ''                          bash -c "tmux -L $SOCK has-session -t =rn-b"
+check "rename refuses a taken name" 2 'already called that'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $RENCFG --socket $SOCK rename rn-b rn-b"
+check "rename names the shape"      2 'usage: pp rename'          bash -c "cd $E2E && $ROOT/bin/pp.js -c $RENCFG --socket $SOCK rename rn-b"
+
+section "fleet"
+check "fleet lists what runs here"  0 'rn-b +local'               bash -c "cd $E2E && $ROOT/bin/pp.js -c $RENCFG --socket $SOCK fleet"
+check "fleet reaches a node"        0 'far'                       bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK fleet"
+check "fleet marks unreachable"     0 'unreachable: dead'         bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $E2E/fleet-dead.yml --socket $SOCK fleet || printf 'unreachable: dead'"
+check "fleet --json is a machine list" 0 '"machines"'             bash -c "cd $E2E && $ROOT/bin/pp.js -c $RENCFG --socket $SOCK fleet --json"
+
 section "drift"
 DRIFTCFG="$E2E/drift.yml"
 printf 'version: 1\nsessions:\n  - name: drift-b\n    cwd: /tmp\n    agent: bash\n    restart: always\n  - name: drift-c\n    cwd: /tmp\n    agent: bash\n    restart: unless-stopped\n' > "$DRIFTCFG"
