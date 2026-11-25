@@ -1300,7 +1300,9 @@ function nodeOrDie(config, ref, ui) {
     ui.error("which node? usage: pp node <ls|show|add|rm|test|ssh> [name]");
     process.exit(2);
   }
-  const node = findNode(config, name);
+  // `pp node show 1` should work like `pp node 1`: every command that takes a
+  // machine accepts its number, not just its name.
+  const node = resolveNodeRef(config, name) ?? findNode(config, name);
   if (!node) {
     const known = (config?.nodes ?? []).map((n) => n.name);
     ui.error(`no node "${name}"${known.length ? ` (known: ${known.join(", ")})` : " — add one: pp node add " + name + " --host <ip>"}`);
@@ -1618,7 +1620,7 @@ function cmdNodeTest(config, options, ui) {
   }
   let failed = 0;
   for (const ref of refs) {
-    const node = findNode(config, ref);
+    const node = resolveNodeRef(config, ref) ?? findNode(config, ref);
     if (!node) {
       failed++;
       ui.error(`no node "${ref}"`);
