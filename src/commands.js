@@ -2531,10 +2531,14 @@ async function cmdTui(config, options, ui) {
           ? (() => {
             try {
               // `#{window_visible}` does not exist (it expands to an empty
-              // string and every frame was treated as invisible), so ask for
-              // the two things that do: is anyone attached, is this pane the
-              // active one in the active window.
-              const result = spawnSync("tmux", ["display-message", "-p", "-t", process.env.TMUX_PANE, "#{session_attached} #{pane_active}"], { encoding: "utf8" });
+              // string and every frame was treated as invisible), so ask for the
+              // thing that does: is anyone attached at all. Deliberately not
+              // `pane_active`/`window_active`: a panel pane that shares a window
+              // with session panes, or a window that is not the front one, is
+              // still a pane someone will come back to — skipping its drawing
+              // made /pp-back look like a freeze. Our frames never scroll (no
+              // wrap, absolute addressing), so drawing costs CPU, not correctness.
+              const result = spawnSync("tmux", ["display-message", "-p", "-t", process.env.TMUX_PANE, "#{session_attached}"], { encoding: "utf8" });
               return result.status === 0 ? result.stdout : null;
             } catch {
               return null;

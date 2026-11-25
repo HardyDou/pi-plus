@@ -574,6 +574,12 @@ export function createTui({
   }
 
   function enterScreen() {
+    // Taking the screen back also means taking the keyboard back: cleanup()
+    // turns raw mode off before handing the terminal to tmux, and without this
+    // the panel looks alive (the timer keeps repainting) with a dead keyboard --
+    // exactly the "it froze after /pp-back" report.
+    io.input.setRawMode?.(true);
+    io.input.resume?.();
     // clear exactly once, when taking over the screen. Repainting must not clear:
     // a terminal that keeps an alternate-screen scrollback (iTerm2 can) saves one
     // frame per ED, which is what makes the panel look like it is appending.
