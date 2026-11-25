@@ -125,7 +125,7 @@ rewritten, so the diff stays small.
 
 | 说法 | 意思 | 下一步 |
 | --- | --- | --- |
-| `cwd is gone` | 本地工作目录不存在 | `pp check`，改 `cwd` 或建目录 |
+| `cwd is gone` | 本地工作目录不存在 | `pp doctor --brief`，改 `cwd` 或建目录 |
 | `machine unreachable` | 那台机器 ssh 不上 | `pp node test <name>` |
 | `agent exited` | pane 还在、agent 退出了 | `pp logs <name>` |
 | `on a drained machine` | 维护窗口里被有意按住 | `pp node undrain <name>` |
@@ -133,7 +133,7 @@ rewritten, so the diff stays small.
 | `not started` | 该在但没人起过 | `pp up` 或 `pp up --drift` |
 
 `--json` 里同一份信息是 `drift.reasons: [{ why, count }]`，顺序同上；远程会话的 `cwd` 不在这里判断
-（只在那台机器上存在），归到 `not started`，要看真因用 `pp check --remote`。
+（只在那台机器上存在），归到 `not started`，要看真因用 `pp doctor --brief --remote`。
 
 ### `pp doctor --nodes` 的 `CONFIG` 列
 
@@ -195,17 +195,17 @@ moved cron.json → /home/u/.local/state/pi-plus/cron.json.broken-2026-11-21T13-
 
 ```bash
 $ pp doctor --brief
-first: pp up --drift — drift: off: parked, other — pp up
-then:  pp clean — logs: cron.log 57.2 MB — shrink: pp clean
-2 of 13 checks need attention — pp doctor
+first: pp install — autostart: systemd, not enabled — pp install
+then:  pp up --drift — drift: off: parked, other — pp up
+2 of 18 checks need attention — pp doctor
 ```
 
 3am 的时候，"哪里不对"不如"**现在敲哪一条**"。所以每个检查都带着能修好它的命令，
-`--brief` 按"解开多少东西"排序后只报前两条：配置 → node/tmux/pi → 命令名/扩展 → 自启 → cron →
-drift → logs → stalls（最后这个要人去看，不是一条命令）。
+`--brief` 按"解开多少东西"排序后只报前两条：配置 → disk → node/tmux/pi → 命令名/扩展 →
+自启 → cron → drift → pipes → logs → stalls（最后这个要人去看，不是一条命令）。
 
 `--json` 里每个 check 都带 `fix`，并多一个 `failed: ["drift","logs"]`，方便别的系统直接消费。
-一切正常时只输出 `ok 14 checks, nothing to do`（退出码 0）；有问题退出码 1。
+一切正常时只输出 `ok 18 checks, nothing to do`（退出码 0）；有问题退出码 1。
 
 ### `pp status` 的 `CRON` 列
 
@@ -262,8 +262,6 @@ $ pp status round
 
 ### `--json` 的形状是契约
 
-`pp status`、`pp cron ls/dryrun/show`、`pp why <会话|任务|--role>`、`pp node ls`、`pp audit`、
-`pp handover`、`pp role --list`、`pp todo ls`、`pp snapshot` 的 `--json` 键名与类型由
 `test/json.test.js` 钉住：多一个键要改契约测试（并写进 release notes），少一个键直接红。
 `pp cron dryrun --json` 是数组，每项 `{ id, target, plan | verdict }` —— 有 `plan` 的是一次
 调度的完整判定（`targets[]` + `note`），没有 `plan` 的是"这一刻不做/不能做"的原因。
@@ -295,7 +293,7 @@ $ pp status round
   nothing was typed; drop --dry-run to send
 ```
 
-`busy` 的时长来自 `stallWatch`，与 `pp busy` / `pp doctor` 同一套读数。
+`busy` 的时长来自 `stallWatch`，与 `pp status` / `pp doctor` 同一套读数。
 
 ### `pp send --all "…"`
 
@@ -617,14 +615,13 @@ nothing needs you right now
 
   pp tui         the panel: what is running, enter a session, come back
   pp status      the table (--json for scripts, --watch to watch it)
-  pp plan        what to do next, in the order that unblocks the most
+  pp doctor --brief        what to do next, in the order that unblocks the most
   pp send        put one line in front of an agent
   pp logs -f     watch a session's output
-  pp runbook     an incident happened: work it in order
   pp help        every command
 ```
 
-第二行会变成 `3 off · 1 stopped by hand · 1 unmanaged — pp plan orders them` 这样的样子。只查本机（不 ssh），
+第二行会变成 `3 off · 1 stopped by hand · 1 unmanaged — pp doctor --brief orders them` 这样的样子。只查本机（不 ssh），
 所以可以当肌肉记忆用；`--json` 给脚本。
 
 ### `pp backup` / `pp restore`
@@ -858,13 +855,12 @@ pp new api --node t114 -C /srv/api --save   # 开到别的机器上（-C 是那�
 | `XDG_STATE_HOME` | 手动停止记录的位置（默认 `~/.local/state`） |
 | `XDG_CONFIG_HOME` | 配置搜索路径之一（默认 `~/.config`） |
 | `REMOTE_PI_DIRECT_CONFIG` | 由 `pp` 在 `remote_pi_mode: env` 时注入，不用手动设 |
-| `REMOTE_PI_HOME` | remote-pi 的状态根目录（默认 `~/.pi`），`pp mesh` 用它定位 broker socket |
 
 ## 常见组合
 
 ```bash
 # 每天看一眼
-pp doctor && pp check && pp ls
+pp doctor && pp doctor --brief && pp ls
 
 # 只重启崩溃的那几个
 pp ls --json | jq -r '.[] | select(.state=="dead") | .name' | xargs -r pp up
@@ -876,8 +872,6 @@ pp send risk "把这周的日志异常整理成表格"
 d=$(mktemp -d) && pp new trial -C "$d" -a && pp down trial
 
 # 让 risk-01 汇报，并把回复收进文件（最多等 2 分钟）
-pp mesh send risk-01 "把今天的异常日志总结成 5 条" --reply 120000 > risk-report.txt
 
 # 全体通知
-pp mesh send all "我要重启这台机器，5 分钟后回来"
 ```

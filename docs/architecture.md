@@ -35,13 +35,10 @@ extensions/pp-tmux.js  pi 扩展入口：/pp-ls /pp-sw /pp-quit /pp-status /pp-p
 
 `src/help.js` 的 `COMMANDS` 是命令表的唯一来源：总览、单命令帮助、别名解析和拼写建议都由它生成，测试会断言「每个规范命令都有完整帮助页」，所以加命令时不会出现文档漂移。
 
-## mesh 客户端（`pp mesh`）
 
 `src/mesh.js` 直接说 broker 的换行分隔 JSON 协议（UNIX socket），不依赖 remote-pi 的代码，也不启动 pi：
 
 ```
-pp mesh ls       → {"type":"list_peers"}             → body.peers 里的地址数组（只读，不注册）
-pp mesh send     → {"type":"register",name,cwd}      → register_ack.address_assigned
                  → {from,to,id,re:null,body}         → {re:<id>, body:{type:"ack",status:"received|busy|denied"}}
                  ← 对方回信 {re:<id>, from, body}     ← --reply 期间打印并提前返回
 ```
@@ -53,7 +50,6 @@ pp mesh send     → {"type":"register",name,cwd}      → register_ack.address_
 - **ACK 语义**：单播等 ACK，`busy` 意味着对方正在跑一轮、消息被丢弃（不是排队），所以 `pp` 直接报错让你重试；组播/广播没有逐条 ACK。
 - **临时身份**：注册名默认 `pp-mesh`，`--as` 可改；进程退出即注销，别人看到的只是一条上下线。
 - **回复**：`--reply <ms>` 在同一连接上继续等 `re === 本次 id` 的信封；单播拿到第一条就提前返回，组播/广播会一直收到窗口结束。
-- **跨机**：地址前缀 `<pc>:` 由 broker leader 的 relay 桥完成，发送端无需配对；`pp mesh ls` 会显示 `PC` 列。
 
 ## 启动链路（`pp up`）
 

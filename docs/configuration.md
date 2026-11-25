@@ -1,6 +1,6 @@
 # 配置参考
 
-一份 YAML 描述「要跑哪些 agent、在哪里跑、叫什么名字、崩了怎么办」。默认位置 `~/.pi/plus.yml`，`pp check` 会把解析结果和警告全打出来。
+一份 YAML 描述「要跑哪些 agent、在哪里跑、叫什么名字、崩了怎么办」。默认位置 `~/.pi/plus.yml`，`pp doctor --brief` 会把解析结果和警告全打出来。
 
 ## 配置文件在哪
 
@@ -63,7 +63,7 @@ sessions:                  # 必填，非空列表
 | 字段 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `name` | string | **必填** | 会话名，也是另外两个名字的默认值。只能用字母、数字、`-`、`_`；`tmux_name` 全局唯一 |
-| `cwd` | string | 当前目录 | 工作目录。支持 `~` 和 `$VAR`，必须是存在的目录（`pp check` 会验证） |
+| `cwd` | string | 当前目录 | 工作目录。支持 `~` 和 `$VAR`，必须是存在的目录（`pp doctor --brief` 会验证） |
 | `agent` | string 或列表 | `pi` | 启动命令。字符串按 shell 规则切分（支持引号），列表原样使用。`basename` 是 `pi` 时会自动加 pi 的参数 |
 | `pi` | bool | 按 `agent` 推断 | 强制/禁止加 pi 参数（`--name` / `--session-id` 等） |
 | `pi_session` | string | 无 | 续接哪段对话：`.jsonl` 路径（`/`、`~/`、`./`、`../`、`*.jsonl`）走 `--session`，否则当 session id 走 `--session-id`。id 规则：首字符是字母或数字，末字符也是字母或数字，中间允许字母、数字、`.`、`_`、`-` |
@@ -107,7 +107,7 @@ remote-pi 的身份是 `<cwd>@<名字>`，名字存在**每个目录**的 `<cwd>
 | `env` | 不写文件，注入 `REMOTE_PI_DIRECT_CONFIG=<JSON>`（remote-pi 优先级高于文件） | 同一目录多个会话、临时会话（`pp new` 默认） |
 | `off` | 什么都不做 | 不想进 mesh |
 
-`config` 模式下，同一 `cwd` 的两个会话如果要求不同名字，`pp check` 会警告「last write wins」并建议改 `env`——因为文件只有一个 `agent_name`。
+`config` 模式下，同一 `cwd` 的两个会话如果要求不同名字，`pp doctor --brief` 会警告「last write wins」并建议改 `env`——因为文件只有一个 `agent_name`。
 
 ## 完整示例
 
@@ -172,7 +172,7 @@ name: backend
 
 ## 校验规则汇总
 
-`pp check` 会报出（并且 `pp up` 会拒绝启动）的情况：
+`pp doctor --brief` 会报出（并且 `pp up` 会拒绝启动）的情况：
 
 - `name` 为空、含 `.`/`:`/空格等非 tmux 安全字符
 - `tmux_name` 重复

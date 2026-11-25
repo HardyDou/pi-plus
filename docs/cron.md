@@ -41,7 +41,7 @@ pp cron add --all --every 10m --idle-after 10m "忽略我的心跳检测，请�
 - 判断是"安静"而不是"忙"：`isAgentBusy` 只看 spinner，安静几小时的会话也可能正停在等你确认
 - 一行都不发时日志写 `deferred: every session moved within 10m — nothing to nudge yet`
 - 部分跳过时写 `to 3/9, 4 busy, 2 busy lately`——"busy lately" = 刚有输出、被 `--idle-after` 放过
-- `pp cron ls` 的 SCHEDULE 列会显示 `every 10m · idle 10m`，`pp why <id>` 的 `schedule` 行也会注明
+- `pp cron ls` 的 SCHEDULE 列会显示 `every 10m · idle 10m`，`pp cron show <id>` 的 `schedule` 行也会注明
 
 ## 硬上限：`--max-per-day`
 
@@ -55,7 +55,7 @@ pp cron add --all --every 10m --idle-after 10m --max-per-day 24 "…"
 - 按**本地日**切（零点归零），计数存在 job 的 `day`/`dayRuns` 上
 - `pp cron run <id>` 也计数 —— 手动补一次不能悄悄把上限改掉
 - 跳过时日志与 `cron ls` 都写 `daily cap reached (24)`，`dryrun` 也这么说而不是许诺投递
-- `pp why <id>` 的 `counts` 行会显示 `today 3 of 24`
+- `pp cron show <id>` 的 `counts` 行会显示 `today 3 of 24`
 
 ### 改已有的任务：`pp cron set`
 
@@ -84,7 +84,7 @@ pp cron set 636b62 --cron "0 9 * * 1,2,3"      # 换成 crontab 表达式
 
 `deferred` 不是失败：目标在忙，下一拍再试。但如果它一直是 deferred，`cron ls` 的 NEXT
 列会写 `waiting since 02:40 (3h)`——**从这一轮开始等的时间**，不是上一次尝试的时间。
-超过 2 小时后 `pp plan` 会把它变成一步：
+超过 2 小时后 `pp doctor --brief` 会把它变成一步：
 
 ```
  6  a59cfc has been waiting on mango-release-01 for 3h
@@ -106,10 +106,10 @@ pp cron set 636b62 --cron "0 9 * * 1,2,3"      # 换成 crontab 表达式
 每个被跳过的会话都会说原因：`moved recently`（`--idle-after` 放过）、`busy — skipped`
 （正在跑一轮）、`not running`、`drained machine`。命令类任务显示 `would run $ …`。`--json` 出原样结构。
 
-`pp why <id>` 的 `now` 行用的是同一份 `deliveryPlan`，所以两边永远一致：
+`pp cron show <id>` 的 `now` 行用的是同一份 `deliveryPlan`，所以两边永远一致：
 
 ```
-$ pp why 636b62
+$ pp cron show 636b62
 state    healthy — next in 9m (20:55)
 target   every session — 9 in the config
 now      would reach 2 of 9 — the rest moved recently
@@ -125,7 +125,7 @@ pp cron add --all --every 10m --idle-after 10m --window 23:00-08:00 "忽略我�
 - `--window` 与 `--heal/--sweep` 互斥
 - 窗口内 tick 跳过并记 `quiet hours`，**任务保持到期**：窗口一结束那拍就发（会带 `late by …`）
 - `pp cron run <id>` 忽略窗口 —— 手动跑就是"我现在就要"
-- `pp cron ls` 显示 `· quiet 23:00-08:00`，`pp why <id>` 的 `schedule` 与 `now` 两行都会说明
+- `pp cron ls` 显示 `· quiet 23:00-08:00`，`pp cron show <id>` 的 `schedule` 与 `now` 两行都会说明
 
 ## 静音而不删除：`pause` / `resume`
 
@@ -159,7 +159,6 @@ its schedule and history are kept — pp cron ls
 
 - 一个作业只有一个目标：`--session` / `--role` / `--all` 三选一，另一个字段会被清掉
 - `--session` 接受名字或 `#序号`（与 `pp up` 一致）
-- 角色目标要求该标签确实有人带（`pp role --list` 能看），否则 `no session has role "x"`
 - 内置作业（`--heal`、`--sweep`、`--command`）没有目标可搬，会被拒绝
 
 ## 成本的两种说法
@@ -175,10 +174,10 @@ its schedule and history are kept — pp cron ls
 
 一行可能很长（`deferred: every session moved within 10m — nothing to nudge yet`），
 表格里只留判定词：`deferred …`、`failed …`、`delivered`、`skipped …`，整句在
-`pp why <id>` 与 `--json` 里。表下会补一句人话：
+`pp cron show <id>` 与 `--json` 里。表下会补一句人话：
 
 ```
-1 deferred — the target was busy, the next tick retries: pp why a59cfc
+1 deferred — the target was busy, the next tick retries: pp cron show a59cfc
 ```
 
 `NEXT` 列同理：deferred 的任务保持原到期时刻（下一拍会重试），所以显示
@@ -241,7 +240,7 @@ $ pp cron run 40d876
 deferred: hx keep dying (3 restarts in an hour) — someone should look
 ```
 
-这时候该看的是 `pp logs <name>` 和 `pp check --remote`。修好之后要立刻重试一次可以用
+这时候该看的是 `pp logs <name>` 和 `pp doctor --brief --remote`。修好之后要立刻重试一次可以用
 `pp cron run <id> --force`（`--force` 只跳过这个上限，不改其它行为）。
 
 ## 按角色下发：`--role`
@@ -253,8 +252,6 @@ pp cron add --role dev --every 30m "报告一下你手上的进度"
 pp cron ls                     # TARGET 列显示 role dev
 ```
 
-- 对象是**带这个标签的会话**（与 `pp status --role dev` 同一批，见 `pp role --list`）
-- 标签写错了当场报错：`no session has role "dve" — roles in use: dev (pp role --list)`，不会静默建一个空任务
 - 里面没在跑的会话记成 `not running`，不算失败（标签会随人/机器变动，一半没起来是常态）
 - 正在思考的 agent 依旧跳过（`deferred:`），下次 tick 再送
 
@@ -314,7 +311,7 @@ pi 在忙的时候只会把输入寄放在编辑框里、不会自己发出去�
 ## 谁来叫 tick
 
 > 任务在、tick 不在，是最安静的一种故障：每件事都显示"按计划"，却一件都不跑。
-> `pp plan` 会把它排在"某条任务迟了"之前，`pp doctor` 的 `cron` 行也会说 tick 没装。
+> `pp doctor --brief` 会把它排在"某条任务迟了"之前，`pp doctor` 的 `cron` 行也会说 tick 没装。
 
 ### crond（默认，也是唯一后端）
 
@@ -445,7 +442,7 @@ tick 的锁，**所有别的任务都会悄悄停摆**。所以命令型任务�
 `--command` 任务失败时，`exit 3` 本身不告诉你任何事。最近一次运行的**最后 8 行**（stderr 优先，其次 stdout）会存进任务的 `lastOutput`：
 
 ```bash
-pp why cad1fe
+pp cron show cad1fe
 ```
 ```
 state    the last run failed: exit 3 — boom-boom — pp cron run cad1fe to try it again
@@ -453,4 +450,4 @@ target   $ echo boom-boom >&2; exit 3 (on this machine, killed after 5s)
 output   boom-boom
 ```
 
-`pp cron ls` 的 `LAST` 列只显示判定词（`failed …`），整句在哪看是 `pp why <id>` 的事 —— 表格要能一眼读完，细节进详情页。成功投递会清掉旧输出，免得一次旧失败永远挂在那里。
+`pp cron ls` 的 `LAST` 列只显示判定词（`failed …`），整句在哪看是 `pp cron show <id>` 的事 —— 表格要能一眼读完，细节进详情页。成功投递会清掉旧输出，免得一次旧失败永远挂在那里。

@@ -161,7 +161,6 @@ sessions:
     role: report         # 会话写的赢
 ```
 
-`pp role --list` 会把继承来的标签一起算在内（它看的是解析后的配置，不是文件原文），
 所以列出来的就是 `--role` 真正能筛到的词。
 
 命令行等价物：
@@ -361,7 +360,6 @@ $ pp adopt --all --node prod-01 --dry-run
 ### 把会话挪到另一台机器
 
 ```bash
-$ pp mv backend --node prod-01
 stopped backend @dev-01
 started backend → tmux:backend  cwd:/data/app
 moved backend: dev-01 -> prod-01
@@ -409,7 +407,7 @@ MACHINE    TARGET              PING   TMUX  LOAD  UP  SESSIONS  DISK  MEM
 
 ```bash
 pp node test t114      # 先确认它回来了：reachable — tmux 3.4 · pi installed (350ms)
-pp why --node t114     # 每台机器、每个会话的结论（down 的行会写上原因）
+pp cron show --node t114     # 每台机器、每个会话的结论（down 的行会写上原因）
 pp up --drift          # 只起"该起没起"的，已经跑着的不动
 ```
 

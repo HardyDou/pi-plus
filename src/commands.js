@@ -1720,6 +1720,7 @@ async function cmdNode(config, options, ui) {
   if (["rm", "remove", "delete"].includes(sub)) return cmdNodeRm(config, options, ui);
   if (["test", "ping", "probe", "check"].includes(sub)) return cmdNodeTest(config, options, ui);
   if (["ssh", "shell", "connect"].includes(sub)) return cmdNodeSsh(config, options, ui);
+  if (["show", "info", "describe"].includes(sub)) return showNode(config, options, ui);
   // `pp node 1` / `pp node prod-01`: the whole point is to stop typing "ssh"
   const byRef = resolveNodeRef(config, options.names[0]);
   if (byRef) return sshToNode(byRef, options, ui);

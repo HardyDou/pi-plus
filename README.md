@@ -27,12 +27,10 @@ pi-plus.yml ──► tmux new-session -d -s backend -c ~/code/backend -- pi --n
 - **零依赖**：单文件 Node CLI，自带 YAML 子集解析器，不装 `js-yaml`、不需要 Python。
 - **可脚本化**：`--json`、`--dry-run`、`--quiet`，退出码可用（`up` 有失败即 1）。
 - **安全默认**：不经过 shell 拼接命令；tmux 名做白名单校验；重建前先 `check`。
-- **直接跟别的 agent 说话**：`pp mesh ls/send` 直连 remote-pi 的本地 broker，按会话名或跨机地址发消息、拿 ACK、等回复。
 - **定时任务**：`pp cron add` 按「一次 / 每 N 分钟 / crontab 表达式」把 prompt 打进会话，或跑一条命令；装一个 crontab 行就管所有任务，重启后能补跑。
 - **谁在等我**：`pp todo` 列出「哪个会话卡在问题上」，`pp todo attach 2` 直接进去；pi 弹提示或跑完停在问句时自动登记。
 - **多机器一张表**：`pp node add` 登记一台 ssh 能到的机器，会话写 `node: prod-01` 就跑到那台机器上——远端不用装 pp，`pp ls`/`tui`/`cron`/`todo` 一视同仁；机器的 `base_path`/`defaults` 让会话条目只剩两行。
 - **机群体检**：`pp doctor --nodes` 并行 ssh 一遍，每台一行给出连通性、负载、uptime、会话数、磁盘、内存。
-- **会话可搬家**：`pp mv <会话> --node <机器>` 停掉、改一行 `node:`、在新机器起来；`--local` 挪回来。
 - **能收编**：`pp adopt --all` 把机器上已在跑、但没人写进配置的 tmux 会话登记进来（带 `--node` 收编别的机器上的）。
 
 ## 安装
@@ -145,8 +143,6 @@ pp n api --save               # 同时写进配置文件，重启后自动拉起
 - 加 `--reply <ms>` 会在 ACK 之后继续监听，把对方的回复打印出来（单播收到第一条就返回）
 - 跨机地址形如 `macbook:/Users/me/code/api@api`；本机注册名默认 `pp-mesh`，用 `--as` 改
 - 与 `pp send` 的区别：`pp send` 是往 tmux pane 里打字（对方当成"用户输入"），
-  `pp mesh send` 是走 agent 之间的消息通道（对方收到 `[agent-network] message from …` 信封）
-- broker 没起来时会明确报 `no mesh broker at …`；`pp mesh ls/resolve` 可离线用来看地址
 
 ## 别的机器上的会话（`pp node`）
 
@@ -482,7 +478,7 @@ sessions:
 > remote-pi 的 `agent_name` 是**按目录**存的。同一 `cwd` 下多个 session 配不同
 > `remote_pi_name`（且用默认的 `remote_pi_mode: config`）会互相覆盖，`pi-plus` 会给出
 > warning；想让同目录多个 agent 各自有名字，用 `remote_pi_mode: env`（每个进程独立
-> 环境变量），这样 `pp check` 不再告警。
+> 环境变量），这样 `pp doctor --brief` 不再告警。
 
 > 小提示：`remote_pi_mode: config` 会在项目里生成 `.pi/remote-pi/config.json`，
 > 建议加到全局 gitignore：`echo '.pi/remote-pi/' >> ~/.config/git/ignore`。
@@ -724,7 +720,6 @@ remote-pi mode: `config` (default, writes `<cwd>/.pi/remote-pi/config.json`),
 | something on a schedule | `pp cron add --all --every 10m "…"` (`--heal`, `--sweep`) |
 | sessions on other machines | `pp node add/test/exec/ssh/drain` |
 
-Tag any session with a `role` (`pp role api dev`) and every verb that takes
 `--role` will fan out over it: `pp up --role dev`, `pp logs --role dev -f`,
 `pp send --role pm "standup"`, `pp cron add --role qa --every 1h "…"`.
 

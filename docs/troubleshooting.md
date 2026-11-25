@@ -119,7 +119,7 @@ pp tui --diag
 | `node "x": ssh to user@host timed out` | 端口/防火墙/`ConnectTimeout=10` 之内没握手成功；先用 `pp node ssh x` 手试。 |
 | `pp ls` 整台机器显示 `unreachable` | ssh 层就不通（密钥、端口、`sshd`、`sshpass`）。`pp node test x` 会给一句人话。 |
 | `pp up` 说已启动但状态 `off` | 远端没装 tmux（`pp node test` 会写 `tmux missing`），或 `tmux.socket` 名字在远端没有对应 server。 |
-| `session "x": node "y" is not defined under "nodes"` | `sessions[].node` 写错或 `nodes:` 里删掉了它。`pp check` 会指出具体会话。 |
+| `session "x": node "y" is not defined under "nodes"` | `sessions[].node` 写错或 `nodes:` 里删掉了它。`pp doctor --brief` 会指出具体会话。 |
 | `1 session still run on "far"` | `pp node rm` 的保护：有会话还在用它。先改 `node:` 或删掉会话，确实要删加 `--force`。 |
 | 远端会话的 `cwd` 明明存在却说 `cwd does not exist` | 远端会话的路径是**远端**的路径，不是本机的。 |
 
@@ -181,7 +181,7 @@ error: session "backend" exited immediately
 
 ```bash
 pp up backend -v --dry-run      # ① 打印真实 argv，确认 agent/参数/目录
-pp check backend                # ② cwd 是否存在、agent 是否在 PATH
+pp doctor --brief backend                # ② cwd 是否存在、agent 是否在 PATH
 ```
 
 - **agent 不在 PATH 上**：systemd/非交互 shell 的 PATH 很短。用绝对路径：`agent: /home/you/.nvm/versions/node/v26.13.1/bin/pi`
@@ -247,7 +247,7 @@ pp up backend            # 重建（restart: no 的会话必须点名）
 3. broker 侧同名冲突会临时显示 `name#2`，不会写回配置
 
 ```bash
-pp check        # 共享 cwd + config 模式会给出警告
+pp doctor --brief        # 共享 cwd + config 模式会给出警告
 ```
 
 ### 想彻底不进 mesh
@@ -344,7 +344,6 @@ socket 上，`tmux -L other list-sessions` 才看得到。
 | 到点没动静 | `pp cron status` → crond 块在不在；`pp cron tick` 手工跑一遍看输出；`pp cron logs -n 40` |
 | `crontab is not installed on this machine` | 装 cron（Debian/Ubuntu `sudo apt install cron`）；macOS 自带 |
 | `pp cron install` 后 `crontab -l` 没有块 | 某些环境 `crontab` 要交互/权限；用 `crontab -l` 确认，或换成 `pp cron tick` 塞进你自己的调度器 |
-| `cron` 那行说 `targets role "pm" — nothing carries it` | 任务的标签在建立之后被改名/清空了，于是它每拍都"投递成功"却谁都收不到 | `pp role web pm` 重新打上标签，或 `pp cron rm <id>` 删掉这个任务（`pp plan` 会把它排在第一位） |
 | `pp doctor` 说 `the unit runs /…/pp.js, which is gone` 或 `the unit's PATH has no node` | nvm 升级后自启单元里的 `ExecStart`/`Environment=PATH` 指向旧路径：单元 `enabled`、`last run ok`（升级前的），但每次开机什么都没起 | `pp install` 重写单元（`pp doctor` 现在会读单元里的两个绝对路径并逐个确认） |
 | `pp doctor` 说 `the tick cannot run — node /… is gone` | nvm 升级/仓库搬家后，crontab 里那条 tick 仍指向旧的 `node` 或 `pp.js` 绝对路径；块在、路径亡，任务看起来准时而一个都不跑 | `pp install` 重写这一块（`pp cron install` 只改 crontab，不改 systemd） |
 | `cannot tell which session` / `which session?` | `cron add` 不在 tmux 里也没给 `--session`；补 `--session <name|#>` |
@@ -408,23 +407,21 @@ which -a pp            # 可能还有旧的 ~/.local/bin/pp 符号链接
 npm ls -g --depth=0 | grep pi-farm
 ```
 
-## 审计类（`pp audit`）
 
 | 现象 | 原因与处理 |
 | --- | --- |
-| `pp audit` 说 `nothing recorded` | 只记录"改动"：`up`/`down`/`restart`/`rm`/`send`/`cron add|rm`/`node add|rm`。`--dry-run`、`status`、`ls`、`check` 都不会写。文件默认 `$XDG_STATE_HOME/pi-plus/audit.log`，可用 `--file` 指定别的。 |
 | 想知道那条命令为什么失败 | 失败时命令自己会非零退出并报错，审计只记"做了什么"，不记 stderr —— 失败细节看终端输出或 `pp logs`。 |
 
 ## 配置类
 
 ### `unknown key "pi_sesion" (ignored)` 之类的警告
 
-拼写错误被忽略而不是报错（故意这么设计，免得升级时新增字段导致旧配置无法解析）。`pp check` 会列出所有警告。
+拼写错误被忽略而不是报错（故意这么设计，免得升级时新增字段导致旧配置无法解析）。`pp doctor --brief` 会列出所有警告。
 
 ### `config file not found`
 
 ```bash
-pp check                           # 会打印实际搜索过的路径
+pp doctor --brief                           # 会打印实际搜索过的路径
 PI_PLUS_CONFIG=/path/to/plus.yml pp ls
 pp init                            # 写一份模板到 ~/.pi/plus.yml
 ```
@@ -432,7 +429,7 @@ pp init                            # 写一份模板到 ~/.pi/plus.yml
 ### 想确认某个字段到底被解析成了什么
 
 ```bash
-pp check --json | jq '.sessions[]? // .'      # 或
+pp doctor --brief --json | jq '.sessions[]? // .'      # 或
 pp up backend --dry-run -v                    # 打印最终 argv + env
 ```
 
@@ -481,7 +478,7 @@ pp 自己的文件在 `~/.local/state/pi-plus/`：`state.json`（谁被手工停
 
 ```bash
 pp doctor --json | jq
-pp check --json | jq
+pp doctor --brief --json | jq
 pp up <name> -v --dry-run
 ```
 
@@ -489,15 +486,14 @@ pp up <name> -v --dry-run
 
 ### 定时任务类
 
-> 任务"该跑却没跑"时，先看它是不是在**等目标**：`pp why <会话>` 的 `cron` 行会写
-> `a59cfc prompt (waiting on it 37s ago)`，`pp why <任务号>` 的 `state` 行是同一件事的详细版。
+> 任务"该跑却没跑"时，先看它是不是在**等目标**：`pp cron show <会话>` 的 `cron` 行会写
+> `a59cfc prompt (waiting on it 37s ago)`，`pp cron show <id>` 的 `state` 行是同一件事的详细版。
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
 | `pp doctor` 说 `0eed5f is 15m late — pp cron run 0eed5f` | tick 在跑但这条任务卡住（目标会话不存在、投递一直失败） | `pp cron log` 看它每次的结果；`pp cron run <id>` 手动跑一次；不再需要就 `pp cron rm <id>` |
 | 所有任务一起 late | tick 本身没跑：crontab 被清、机器刚醒 | `pp install`（或 `pp cron install`）重装 tick |
 | `last` 一直是 `deferred: … is working` | 目标会话的 agent 长期在 Working，pp 故意不打断 | `pp logs <会话>` 看那轮卡在哪；必要时在会话里 `Ctrl+C` |
-| `pp doctor` 说 `aaaaaa targets session "旧名" — nothing carries it` | 会话改了名或从配置里删了，任务还在往旧名字投 | `pp cron ls` 看详情；`pp cron rm <id>` 再按新名字 `add`（标签任务同理，改 `pp role`） |
 
 ### 跑完 `./test/e2e.sh` 之后会话全没了 / 自启失效？
 
@@ -510,7 +506,6 @@ e2e 会真的安装并卸载一个 systemd 用户单元来验证自启，因此�
 
 **为什么以前更危险**：0.62.x 及更早的 e2e 直接安装/卸载 `pi-plus.service`。`systemctl --user stop`
 在 `KillMode` 不是 `none` 时会连带杀掉单元 cgroup 里的所有进程——tmux server 若属于该单元，一次
-`stop` 就会让全部会话消失（而且 `pp audit` 里没有任何记录，因为它不是 `pp down` 干的）。
 0.63.0 起 e2e 用自己的单元名，这类事故从构造上不可能再发生。
 
 ## 日志：`log:` 的管道死了
@@ -549,7 +544,6 @@ pp backup --list  ·  pp restore <another>  ·  pp restore 2026-11-20T09-12-08-4
 
 ## 改配置改坏了：`pp` 自己会回滚
 
-`pp role` / `pp mv` / `pp rm` / `pp adopt` / `pp node add` 这些会写 `plus.yml` 的命令，
 在写完之后都会把文件**读回来解析一次**。解析不通过就立刻把刚才那份写回去：
 
 ```
