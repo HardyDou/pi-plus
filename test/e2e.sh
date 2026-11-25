@@ -914,6 +914,14 @@ check "node test takes the number too"  0 'far'            bash -c "cd $E2E && P
 check "remote session is seen running" 0 'running'                bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls far-x"
 check "the NODE column names the machine" 0 'far'                 bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls far-x"
 check "a dead node is unreachable, not stopped" 0 'unreachable'    bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls dead-x"
+# Sessions running on a machine but missing from the config used to be invisible:
+# `pp ls` on a laptop with one local session could not see the nine on its node.
+tmux -L "$SOCK" new-session -d -s far-stray "sleep 7200" 2>/dev/null || true
+check "a session on a node shows up in pp ls"  0 '^1$'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls | grep -c far-stray"
+check "and it is marked unmanaged"             0 'unmanaged'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls | grep -i unmanaged"
+check "attach works on such a session"         0 'attach-session' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach far-stray --dry-run"
+check "logs works on such a session"           0 ''            bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK logs far-stray -n 2"
+tmux -L "$SOCK" kill-session -t far-stray 2>/dev/null || true
 check "node test runs the probe"     0 'host +[A-Za-z0-9]'       bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG node test far"
 # maintenance: drain stops an accidental start, undrain gives the machine back
 check "--force still starts it"       0 '1 would start'            bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK --dry-run --force up far-x 2>&1"

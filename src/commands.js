@@ -193,6 +193,45 @@ function taggedNodes(config, options = {}) {
   return nodes;
 }
 
+/**
+ * A session that is running on a machine but not in the config. `pp ls` lists
+ * those rows, so `pp attach <that row>` has to work: without this the list
+ * would advertise things you cannot touch. Read-only by nature -- `up` finds it
+ * running and says so, and `pp adopt --node <machine>` writes it down for real.
+ */
+function liveStraySession(config, options, name) {
+  const machines = [{ name: null }, ...(config.nodes ?? [])];
+  for (const node of machines) {
+    try {
+      const handle = makeTmux(config, options ?? {}, { node: node.name });
+      const entry = handle.listSessions().get(name);
+      if (!entry) continue;
+      return {
+        name,
+        tmuxName: name,
+        cwd: entry.panes?.[0]?.path ?? "/",
+        agent: ["pi"],
+        pi: true,
+        piSession: null,
+        piSessionDir: null,
+        piSessionName: name,
+        remotePiName: name,
+        remotePiMode: "env",
+        env: {},
+        args: [],
+        log: null,
+        remainOnExit: false,
+        restart: "no",
+        node: node.name,
+        stray: true,
+      };
+    } catch {
+      // an unreachable machine cannot host the session we are looking for
+    }
+  }
+  return null;
+}
+
 function selectSessions(config, names, ui, { all = false, options = null, respectDrain = false } = {}) {
   // `--node <name>` narrows any batch command to one machine, so a broken host
   // can be restarted without touching the other 40 sessions.
@@ -255,7 +294,7 @@ function selectSessions(config, names, ui, { all = false, options = null, respec
   }
   const picked = [];
   for (const name of names) {
-    const session = resolveSessionRef(config, name);
+    const session = resolveSessionRef(config, name) ?? liveStraySession(config, options, name);
     if (!session) {
       const hint = `${config.sessions.length} session(s) configured; see pp ls`;
       ui.error(`unknown session "${name}" (${hint})`);
@@ -1939,6 +1978,55 @@ function cmdStatus(config, options, ui) {
     };
   });
 
+  // Sessions that are running on one of the configured machines but are not
+  // written down. Without them `pp ls` on a Mac with one local session cannot
+  // see the nine running on its node -- which is exactly the question it is
+  // supposed to answer. They are read-only rows: attach and logs work, `up`
+  // does not (there is nothing to start), `pp adopt` writes them down.
+  const configuredKeys = new Set(config.sessions.map((session) => `${session.node ?? ""}:${session.tmuxName}`));
+  const addStray = (nodeName, tmuxName, entry) => {
+    const pane = entry?.panes?.[0] ?? null;
+    const activity = entry?.activity ?? 0;
+    const idleSeconds = activity ? Math.max(0, Math.round(Date.now() / 1000 - activity)) : null;
+    rows.push({
+      index: rows.length + 1,
+      name: tmuxName,
+      role: null,
+      node: nodeName ?? "",
+      tmux: tmuxName,
+      todos: todoFor(tmuxName),
+      state: pane?.dead ? "dead" : entry?.attached > 0 ? "attached" : "running",
+      reason: "",
+      restart: "-",
+      pid: String(pane?.pid ?? ""),
+      command: pane?.command ?? "",
+      cwd: pane?.path ?? "",
+      pi: false,
+      piSession: "",
+      piSessionName: "",
+      activity,
+      idleSeconds,
+      idle: idleSeconds === null ? "" : shortAge(idleSeconds),
+      remotePiName: "",
+      cron: "",
+      cwdMissing: false,
+      lastStart: null,
+      restarts: [],
+      client: "",
+      unmanaged: true,
+    });
+  };
+  // Local unmanaged sessions stay in the footer only: they were always
+  // discoverable with `pp adopt`, and promoting them to rows would renumber
+  // every table on a busy machine. The rows are for *other* machines, which
+  // had no way to be seen at all.
+  for (const node of config.nodes ?? []) {
+    for (const [tmuxName, entry] of liveFor(node.name)) {
+      if (configuredKeys.has(`${node.name}:${tmuxName}`)) continue;
+      addStray(node.name, tmuxName, entry);
+    }
+  }
+
   let shown = rows;
   if (idleOver !== null) {
     shown = rows.filter((row) => row.idleSeconds !== null && row.idleSeconds >= idleOver);
@@ -1971,12 +2059,7 @@ function cmdStatus(config, options, ui) {
     // the same two counts the footer shows, so a script does not have to
     // re-derive "is this machine still what the config says" from row states
     const jsonDown = rows.filter((r) => r.state === "off" || r.state === "stopped" || r.state === "dead").length;
-    const jsonConfigured = new Set(config.sessions.map((session) => `${session.node ?? ""}:${session.tmuxName}`));
-    const jsonStrays = [];
-    for (const [key, map] of liveCache ?? []) {
-      const nodeName = key === "local" ? "" : key;
-      for (const name of map.keys()) if (!jsonConfigured.has(`${nodeName}:${name}`)) jsonStrays.push(name);
-    }
+    const jsonStrays = rows.filter((r) => r.unmanaged).map((r) => r.name);
     ui.out(
       JSON.stringify(
         {
@@ -1990,6 +2073,7 @@ function cmdStatus(config, options, ui) {
     return;
   }
 
+  const configuredSet = new Set(config.sessions.map((session) => `${session.node ?? ""}:${session.tmuxName}`));
   const showNode = (config.nodes?.length ?? 0) > 0;
   // the CLIENT column only earns its width when somebody is actually attached
   const showClient = rows.some((row) => row.client);
@@ -2162,11 +2246,12 @@ function cmdStatus(config, options, ui) {
     // The two numbers an operator looks for: what should be up and is not, and
     // what is up and nobody wrote down.
     const down = rows.filter((r) => r.state === "off" || r.state === "stopped" || r.state === "dead").length;
-    const configured = new Set(config.sessions.map((session) => `${session.node ?? ""}:${session.tmuxName}`));
     const unmanaged = [];
     for (const [key, map] of liveCache) {
       const nodeName = key === "local" ? "" : key;
-      for (const name of map.keys()) if (!configured.has(`${nodeName}:${name}`)) unmanaged.push(name);
+      for (const name of map.keys()) {
+        if (!configuredSet.has(`${nodeName}:${name}`)) unmanaged.push(nodeName ? `${name}@${nodeName}` : name);
+      }
     }
     const width = process.stdout.columns && !options.wide ? Math.max(40, process.stdout.columns - 1) : Infinity;
     const short = (text) => (width === Infinity ? text : truncateWidth(text, width));
@@ -2860,7 +2945,7 @@ async function cmdAttach(config, options, ui) {
     ui.error("usage: pp attach <name>");
     process.exit(2);
   }
-  const [session] = selectSessions(config, [name], ui);
+  const [session] = selectSessions(config, [name], ui, { options });
   const tmux = makeTmux(config, options, session);
   if (options.dryRun) {
     ui.info(`[dry-run] ${tmux.args(["attach-session", "-t", `=${session.tmuxName}`]).join(" ")}`);
@@ -3535,7 +3620,7 @@ function cmdLogs(config, options, ui) {
   // "do not touch" — reading a pane is not touching it
   const sessions = options.all || (!names.length && options.role)
     ? selectSessions(config, [], ui, { all: true, options })
-    : names.flatMap((name) => selectSessions(config, [name], ui));
+    : names.flatMap((name) => selectSessions(config, [name], ui, { options }));
   if (sessions.length === 0) {
     ui.error("nothing to show");
     process.exit(1);
