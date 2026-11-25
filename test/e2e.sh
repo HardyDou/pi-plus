@@ -909,6 +909,8 @@ check "node is listed"                0 'far'                     bash -c "cd $E
 # `pp node 1` is the one-argument form: the number is on screen in `pp node ls`.
 check "node <n> logs in"             0 '-t .*127\.0\.0\.1'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node 1 --dry-run"
 check "node <n> out of range says so" 2 'no node 9'              bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node 9"
+check "node show takes the number too"  0 '127\.0\.0\.1'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG node show 1"
+check "node test takes the number too"  0 'far'            bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG node test 1"
 check "remote session is seen running" 0 'running'                bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls far-x"
 check "the NODE column names the machine" 0 'far'                 bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls far-x"
 check "a dead node is unreachable, not stopped" 0 'unreachable'    bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls dead-x"
