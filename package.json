@@ -1,6 +1,6 @@
 {
   "name": "pi-farm",
-  "version": "0.80.6",
+  "version": "0.80.7",
   "description": "tmux session manager for pi agents — YAML config, reboot autostart, cron, todo panel, and sessions on other machines over ssh",
   "type": "module",
   "bin": {
