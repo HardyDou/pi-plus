@@ -731,3 +731,20 @@ test("the keys a laptop actually has", async () => {
   assert.deepEqual(parseKeys("\u001b[D"), ["prevPanel"], "left arrow: previous column");
   assert.deepEqual(parseKeys("\u001b[A"), ["up"], "up arrow: previous row");
 });
+
+test("the / box searches the machine and todo lists too", async () => {
+  const { renderFrame, computeLayout } = await import("../src/tui.js");
+  const model = {
+    nodes: [
+      { name: "", label: "local", index: 0 },
+      { name: "work-01", label: "work-01 192.168.1.88", index: 1 },
+    ],
+    sessions: [{ label: " 1 api  running" }],
+    todos: [{ label: "1. api — review the plan (2m, manual)" }],
+    focus: "nodes",
+  };
+  const layout = computeLayout(120, 12, { nodes: 2, todoCount: 1 });
+  const text = renderFrame(model, layout).join("\n");
+  assert.match(text, /work-01/);
+  assert.match(text, /review the plan/);
+});

@@ -471,10 +471,37 @@ export function createTui({
    * the cursor under the user's hands.
    */
   /** Rows that pass the substring filter (`/risk`), by index into state.sessions. */
+  /** The needle `/` typed, or "" — shared by all three lists. */
+  function needleNow() {
+    return String((state.typing ? state.input : state.filter) ?? "").trim().toLowerCase();
+  }
+
+  /** Machine rows that match the needle: name, address, or "local". */
+  function nodeOrder() {
+    const needle = needleNow();
+    const indices = (state.nodes ?? []).map((_, i) => i);
+    if (!needle) return indices;
+    return indices.filter((index) => {
+      const row = state.nodes[index] ?? {};
+      return `${row.name || "local"} ${row.label ?? ""}`.toLowerCase().includes(needle);
+    });
+  }
+
+  /** Todo rows that match: the sentence, the session it belongs to, its kind. */
+  function todoOrder() {
+    const needle = needleNow();
+    const indices = state.todos.map((_, i) => i);
+    if (!needle) return indices;
+    return indices.filter((index) => {
+      const row = state.todos[index] ?? {};
+      return `${row.label ?? ""} ${row.session ?? row.name ?? ""} ${row.kind ?? ""}`.toLowerCase().includes(needle);
+    });
+  }
+
   function filteredIndices() {
     // while the box is open the list narrows as you type, so you see the match
     // count next to what you are typing instead of after pressing Enter
-    const needle = String((state.typing ? state.input : state.filter) ?? "").trim().toLowerCase();
+    const needle = needleNow();
     const indices = state.sessions.map((_, i) => i);
     if (!needle) return indices;
     return indices.filter((index) => {
@@ -532,9 +559,14 @@ export function createTui({
     const sessions = order
       .map((index) => ({ ...state.sessions[index], selected: index === state.sessionIndex }))
       .slice(Math.max(0, state.sessionOffset ?? 0));
-    const nodes = (state.nodes ?? []).map((item) => ({ ...item, selected: item.index === (state.nodeIndex ?? 0) }));
-    const visible = state.todos.slice(state.todoOffset, state.todoOffset + 200);
-    const todos = visible.map((item, index) => ({ ...item, selected: state.todoOffset + index === state.todoIndex }));
+    const nodes = nodeOrder().map((index) => ({
+      ...state.nodes[index],
+      selected: index === (state.nodeIndex ?? 0),
+    }));
+    const todos = todoOrder().map((index) => ({
+      ...state.todos[index],
+      selected: index === state.todoIndex,
+    }));
     return { ...state, machines: machineSummary(state.sessions), nodes, sessions, todos };
   }
 
@@ -745,9 +777,9 @@ export function createTui({
     }
     if (key === "up" || key === "down") {
       const delta = key === "up" ? -1 : 1;
-      if (state.focus === "nodes") state.nodeIndex = moveSelection(state.nodeIndex ?? 0, (state.nodes ?? []).length, delta);
+      if (state.focus === "nodes") state.nodeIndex = moveSelection(state.nodeIndex ?? 0, nodeOrder().length, delta);
       else if (state.focus === "sessions") state.sessionIndex = sessionAt(sessionPos() + delta);
-      else state.todoIndex = moveSelection(state.todoIndex, state.todos.length, delta);
+      else state.todoIndex = moveSelection(state.todoIndex, todoOrder().length, delta);
       keepVisible();
       await refresh();
       return;
@@ -755,16 +787,16 @@ export function createTui({
     if (key === "pageup" || key === "pagedown") {
       const step = Math.max(1, panelHeight(state.focus) - 1);
       const delta = key === "pageup" ? -step : step;
-      if (state.focus === "nodes") state.nodeIndex = moveSelection(state.nodeIndex ?? 0, (state.nodes ?? []).length, delta);
+      if (state.focus === "nodes") state.nodeIndex = moveSelection(state.nodeIndex ?? 0, nodeOrder().length, delta);
       else if (state.focus === "sessions") state.sessionIndex = moveSelection(state.sessionIndex, state.sessions.length, delta);
-      else state.todoIndex = moveSelection(state.todoIndex, state.todos.length, delta);
+      else state.todoIndex = moveSelection(state.todoIndex, todoOrder().length, delta);
       keepVisible();
       await refresh();
       return;
     }
     if (key === "top" || key === "bottom") {
       if (state.focus === "sessions") state.sessionIndex = sessionAt(key === "top" ? 0 : Math.max(0, state.sessions.length - 1));
-      else state.todoIndex = key === "top" ? 0 : Math.max(0, state.todos.length - 1);
+      else state.todoIndex = key === "top" ? 0 : Math.max(0, todoOrder().length - 1);
       keepVisible();
       await refresh();
       return;
@@ -785,7 +817,8 @@ export function createTui({
       return;
     }
     if (key === "done") {
-      const todo = state.todos[state.todoIndex];
+      const todoPos = todoOrder()[state.todoIndex];
+      const todo = todoPos === undefined ? undefined : state.todos[todoPos];
       if (!todo) return;
       await io.closeTodo?.(todo);
       await refresh(`closed todo: ${todo.title ?? ""}`);
@@ -795,7 +828,8 @@ export function createTui({
       if (state.focus === "nodes") {
         // a machine row: hand the terminal to ssh, then take it back
         cleanup();
-        const said = await io.enterNode?.(state.nodes?.[state.nodeIndex ?? 0]?.name ?? "");
+        const picked = nodeOrder()[state.nodeIndex ?? 0];
+        const said = await io.enterNode?.(picked === undefined ? "" : state.nodes[picked]?.name ?? "");
         if (!finished) {
           running = true;
           enterScreen();
@@ -804,7 +838,8 @@ export function createTui({
         }
         return;
       }
-      const todo = state.todos[state.todoIndex];
+      const todoPos = todoOrder()[state.todoIndex];
+      const todo = todoPos === undefined ? undefined : state.todos[todoPos];
       // todo rows carry the session as `name` (from tuiTodoRows); read both so a row shape change cannot
       // silently hand `undefined` to attach — that used to look like "it goes in and comes straight back out"
       const session = state.focus === "todos" && todo ? { name: todo.session ?? todo.name } : state.sessions[state.sessionIndex];
