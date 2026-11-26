@@ -209,7 +209,27 @@ function taggedNodes(config, options = {}) {
  * running and says so, and `pp adopt --node <machine>` writes it down for real.
  */
 function liveStraySession(config, options, name) {
-  const machines = [{ name: null }, ...(config.nodes ?? [])];
+  // `pp sync` already asked every machine; asking again here is what made
+  // `pp attach 10` take seconds. Cache first, this machine second.
+  const pulled = readNodeCache();
+  for (const node of config.nodes ?? []) {
+    const cached = pulled[node.name];
+    if (!cached || cached.tmux === false) continue;
+    const entry = fromCache(cached.sessions).get(name);
+    if (entry) {
+      return {
+        name,
+        tmuxName: name,
+        cwd: entry.panes?.[0]?.path ?? "/",
+        agent: ["pi"],
+        pi: true,
+        restart: "no",
+        node: node.name,
+        stray: true,
+      };
+    }
+  }
+  const machines = [{ name: null }];
   for (const node of machines) {
     try {
       const handle = makeTmux(config, options ?? {}, { node: node.name });
@@ -251,15 +271,16 @@ function numberFromTable(config, options, ref) {
   if (!/^\d+$/.test(String(ref))) return null;
   const index = Number(ref);
   const entries = config.sessions.map((session) => ({ name: session.name, session }));
+  // The number is a row number of the table `pp ls` printed, and that table is
+  // built from the sync cache. Asking the machines again here would give the
+  // same answer (or a different one on a bad day) and cost seconds.
+  const cache = readNodeCache();
   for (const node of config.nodes ?? []) {
-    try {
-      const live = makeTmux(config, options ?? {}, { node: node.name }).listSessions();
-      for (const name of live.keys()) {
-        if (entries.some((entry) => entry.name === name && entry.session?.node === node.name)) continue;
-        entries.push({ name, stray: { name, node: node.name } });
-      }
-    } catch {
-      // an unreachable machine contributes no rows, so it contributes no numbers
+    const cached = cache[node.name];
+    if (!cached || cached.tmux === false) continue;
+    for (const name of fromCache(cached.sessions).keys()) {
+      if (entries.some((entry) => entry.name === name && entry.session?.node === node.name)) continue;
+      entries.push({ name, stray: { name, node: node.name } });
     }
   }
   const sortKey = options?.sort ?? config.sort ?? "config";
@@ -1463,8 +1484,12 @@ async function printNodes(config, options, ui) {
     await Promise.all(
       config.nodes.map(async (node) => {
         const cached = cache[node.name];
-        if (cached && !options.fresh && Date.now() - Number(cached.at ?? 0) < ttlMs) {
-          liveCounts.set(node.name, cached.tmux === false ? "no tmux" : fromCache(cached.sessions).size);
+        // A table of counts is not worth an ssh round trip per machine:
+        // `pp sync` keeps it fresh, and `--fresh` is how you insist.
+        if (cached && !options.fresh) {
+          const stale = Date.now() - Number(cached.at ?? 0) >= ttlMs;
+          const value = cached.tmux === false ? "no tmux" : fromCache(cached.sessions).size;
+          liveCounts.set(node.name, stale ? `${value}?` : value);
           return;
         }
         const found = await makeTmux(config, options, { node: node.name })
