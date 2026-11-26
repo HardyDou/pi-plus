@@ -2530,6 +2530,15 @@ async function cmdStatus(config, options, ui) {
     if (rows.some((r) => r.reason === "hand")) notes.push("(hand) = stopped on purpose; pp up <name> brings it back");
     if (rows.some((r) => r.reason === "drain")) notes.push("(drain) = machine under maintenance; pp node undrain <name> lets it start");
     if (showCron) notes.push("cron: jobs aimed here (* = every session)");
+    // Unmanaged rows have no config entry, so RESTART and PI SESSION are "-":
+    // say what "-" means once, with the one command that fills them in.
+    const unmanagedRows = rows.filter((row) => row.unmanaged);
+    if (unmanagedRows.length) {
+      const nodes = [...new Set(unmanagedRows.map((row) => row.node).filter(Boolean))];
+      notes.push(
+        `- in RESTART / PI SESSION means "not written down": these ${unmanagedRows.length} run on ${nodes.join(", ") || "another machine"} but are not in ${config.path} yet — pp adopt${nodes.length === 1 ? ` --node ${nodes[0]}` : ""}`,
+      );
+    }
     // asked about, but nothing written down for it
     const idleNodes = (config.nodes ?? [])
       .filter((node) => !askedNot.includes(node.name) && !shown.some((row) => row.node === node.name))
