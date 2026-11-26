@@ -264,6 +264,19 @@ export function authSummary(node, env = process.env) {
   return "agent";
 }
 
+/**
+ * Ask a machine for its own pp config, so `pp ls` can show its sessions with the
+ * rules that machine already wrote down (restart, pi session, role) instead of
+ * calling them unmanaged.
+ */
+export const CONFIG_DUMP = [
+  'cfg="$PP_PLUS_CONFIG"',
+  'if [ -z "$cfg" ]; then cfg="$HOME/.pi/plus.yml"; fi',
+  'if [ ! -f "$cfg" ]; then cfg="$HOME/.pi/plug.yml"; fi',
+  'if [ ! -f "$cfg" ]; then cfg="$HOME/.pi/plus.yaml"; fi',
+  'if [ -f "$cfg" ]; then echo "path=$cfg"; base64 -w0 < "$cfg" 2>/dev/null || base64 < "$cfg"; else echo "path="; fi',
+].join("; ");
+
 export function nodeTarget(node) {
   return node.user ? `${node.user}@${node.host}` : node.host;
 }

@@ -36,7 +36,7 @@ import {
   removeAlias,
 } from "./aliases.js";
 import { contentSignature, hasEditor, isRule, lastActionLine, looksBusy, parseSessionLines, resolveExecutable, SESSION_QUERY, Tmux } from "./tmux.js";
-import { authSummary, nodeTarget, normalizeNode, NodeError, parseProbe, parseSshConfig, PROBE_SCRIPT, removeNodeFromFile, renderNodeBlock, runOnNode, runOnNodeAsync, sshInvocation, tightenConfigMode, upsertNodeInFile } from "./nodes.js";
+import { authSummary, CONFIG_DUMP, nodeTarget, normalizeNode, NodeError, parseProbe, parseSshConfig, PROBE_SCRIPT, removeNodeFromFile, renderNodeBlock, runOnNode, runOnNodeAsync, sshInvocation, tightenConfigMode, upsertNodeInFile } from "./nodes.js";
 import { installAutostart, uninstallAutostart, autostartState, describeAutostart, isWsl, launchAgentPath, systemdUserDir } from "./autostart.js";
 import { describeStateFiles, inspectStateFiles, quarantineStateFile } from "./selfcheck.js";
 import {
@@ -117,6 +117,7 @@ import {
   truncateWidth,
 } from "./tui.js";
 import { ageOf, listPiSessions } from "./pi-sessions.js";
+import { parseYaml } from "./yaml.js";
 
 const COLORS = {
   reset: "\u001b[0m",
@@ -2234,6 +2235,8 @@ async function cmdStatus(config, options, ui) {
   const configuredKeys = new Set(config.sessions.map((session) => `${session.node ?? ""}:${session.tmuxName}`));
   const addStray = (nodeName, tmuxName, entry) => {
     const pane = entry?.panes?.[0] ?? null;
+    // what the machine itself says about this session, if it keeps a pp config
+    const declared = readNodeCache()[nodeName]?.config?.sessions?.[tmuxName] ?? null;
     const activity = entry?.activity ?? 0;
     const idleSeconds = activity ? Math.max(0, Math.round(Date.now() / 1000 - activity)) : null;
     rows.push({
@@ -2245,13 +2248,13 @@ async function cmdStatus(config, options, ui) {
       todos: todoFor(tmuxName),
       state: pane?.dead ? "dead" : entry?.attached > 0 ? "attached" : "running",
       reason: "",
-      restart: "-",
+      restart: declared?.restart ?? "-",
       pid: String(pane?.pid ?? ""),
       command: pane?.command ?? "",
       cwd: pane?.path ?? "",
-      pi: false,
-      piSession: "",
-      piSessionName: "",
+      pi: declared ? Boolean(declared.pi) : false,
+      piSession: declared?.piSession ?? "",
+      piSessionName: declared?.piSessionName ?? "",
       activity,
       idleSeconds,
       idle: idleSeconds === null ? "" : shortAge(idleSeconds),
@@ -2261,7 +2264,10 @@ async function cmdStatus(config, options, ui) {
       lastStart: null,
       restarts: [],
       client: "",
-      unmanaged: true,
+      // "unmanaged" is about *this* config: when the machine declares the
+      // session itself, it is managed — just not here
+      unmanaged: !declared,
+      declaredOn: declared ? nodeName : "",
     });
   };
   // Local unmanaged sessions stay in the footer only: they were always
@@ -3814,7 +3820,45 @@ async function cmdStart(options, ui) {
  * Nothing is cached and nothing is written: the point is "what is running right
  * now", and a stale copy of that answer is worse than no answer.
  */
-export /**
+/**
+ * The sessions a remote config declares, keyed by tmux name — the point is to
+ * stop calling a session "unmanaged" when the machine it runs on already has a
+ * rule for it.
+ */
+export function remoteSessionIndex(dump) {
+  const text = String(dump ?? "");
+  const path = (/^path=(.*)$/m.exec(text)?.[1] ?? "").trim();
+  const base64 = text
+    .split("\n")
+    .filter((line) => !line.startsWith("path="))
+    .join("")
+    .trim();
+  if (!base64) return { path, sessions: new Map() };
+  let parsed;
+  try {
+    parsed = parseYaml(Buffer.from(base64, "base64").toString("utf8"));
+  } catch {
+    return { path, sessions: new Map() };
+  }
+  const sessions = new Map();
+  for (const raw of Array.isArray(parsed?.sessions) ? parsed.sessions : []) {
+    if (!raw || typeof raw !== "object") continue;
+    const name = String(raw.name ?? "");
+    if (!name) continue;
+    sessions.set(String(raw.tmux_name ?? name), {
+      name,
+      role: raw.role ?? null,
+      restart: raw.restart ?? null,
+      piSession: raw.pi_session ?? null,
+      piSessionName: raw.pi_session_name ?? null,
+      pi: raw.pi !== undefined ? Boolean(raw.pi) : true,
+      cwd: raw.cwd ?? null,
+    });
+  }
+  return { path, sessions };
+}
+
+/**
  * Pull what every machine is running, and keep it in the cache `pp ls` reads.
  *
  * Pull, not push: the machines do not know each other and most of them have no
@@ -3843,7 +3887,11 @@ async function cmdSync(config, options, ui) {
       const remote = ["tmux", ...(options.socket ? ["-L", String(options.socket)] : []), ...SESSION_QUERY]
         .map(shellQuote)
         .join(" ");
-      const result = await runOnNodeAsync(node, [remote], { timeout: 15000 });
+      const dumpCommand = CONFIG_DUMP;
+      const [result, dump] = await Promise.all([
+        runOnNodeAsync(node, [remote], { timeout: 15000 }),
+        runOnNodeAsync(node, [dumpCommand], { timeout: 15000 }).catch(() => null),
+      ]);
       const ms = Date.now() - at;
       if (result.error) return { node: node.name, ok: false, ms, error: result.error.message ?? "ssh failed", why: "unreachable" };
       const sessions = parseSessionLines(result.stdout);
@@ -3856,12 +3904,25 @@ async function cmdSync(config, options, ui) {
       const noTmux = /tmux: (command )?not found|tmux.*未找到命令|tmux: not found/i.test(first);
       // A machine without tmux is not broken: it simply does not run sessions.
       // Only machines that host sessions need tmux at all.
-      if (noTmux) return { node: node.name, ok: true, ms, sessions: new Map(), tmux: false, error: null, why: null };
+      const declared = dump && !dump.error ? remoteSessionIndex(dump.stdout) : { path: "", sessions: new Map() };
+      if (noTmux) {
+        return {
+          node: node.name,
+          ok: true,
+          ms,
+          sessions: new Map(),
+          tmux: false,
+          declared,
+          error: null,
+          why: null,
+        };
+      }
       return {
         node: node.name,
         ok,
         ms,
         sessions,
+        declared,
         tmux: true,
         error: ok ? null : first,
         why: ok ? null : "unreachable",
@@ -3875,6 +3936,11 @@ async function cmdSync(config, options, ui) {
       at: new Date().toISOString(),
       tmux: row.tmux !== false,
       sessions: row.tmux === false ? {} : asCache(row.sessions),
+      // the machine's own rules, so `pp ls` can stop calling its sessions
+      // unmanaged just because *this* config says nothing about them
+      config: row.declared
+        ? { path: row.declared.path, sessions: Object.fromEntries(row.declared.sessions) }
+        : undefined,
     };
   }
   writeNodeCache(cache);
