@@ -196,7 +196,7 @@ pi -e npm:pi-farm          # 只想这次带着它
 | --- | --- | --- |
 | `/pp-ls` | `Ctrl-b s` | 列出所有会话，上下选择、回车切换 |
 | `/pp-sw <会话>` | `Ctrl-b s` + 回车 | 直接切，支持唯一前缀与参数补全 |
-| `/pp-quit` | `Ctrl-b d` | 断开当前终端，会话和 pi 继续跑 |
+| `/pp-quit` | `Ctrl-b d` | 离开这个会话：面板还在就回面板，否则断开终端（会话和 pi 继续跑） |
 | `/pp-status` | — | 当前会话/窗口/pane/cwd/pi 会话 id/remote-pi 名字/pp 版本 |
 | `/pp-peek [会话] [-n N]` | — | 看另一个会话最近 N 行输出，不切换 |
 

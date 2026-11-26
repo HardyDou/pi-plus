@@ -319,10 +319,28 @@ export default function ppTmux(pi) {
   });
 
   command("pp-quit", {
-    description: "Detach this client from tmux — the session and pi keep running (Ctrl-b d)",
+    description: "Leave this session: back to the pp tui panel if there is one, else detach (Ctrl-b d)",
     handler: async (_args, ctx) => {
       const info = tmuxContext();
       const session = await currentSession();
+      // If a panel is still running, "quit" means "leave this session", not
+      // "throw the whole client away": detaching from inside a panel leaves the
+      // terminal showing the panel's half-erased screen one line above the shell.
+      const panel = loadPanel();
+      if (panel && !panel.outside && panelAlive(panel)) {
+        const panes = await tmux(["list-panes", "-a", "-F", "#{pane_id} #{session_name} #{window_index}"]).catch(
+          () => "",
+        );
+        const found = findPanelPane(panes, panel);
+        if (found) {
+          await switchClient(ctx, found.session);
+          await tmux(["select-window", "-t", `=${found.session}:${found.window}`]).catch(() => "");
+          if (found.pane) await tmux(["select-pane", "-t", found.pane]).catch(() => "");
+          pi.appendEntry("pp-quit", { at: new Date().toISOString(), session, back: found.session });
+          if (ctx.hasUI) ctx.ui.notify(`back at the panel — ${found.session}:${found.window}`, "info");
+          return;
+        }
+      }
       const clients = await readClients().catch(() => []);
       const client = pickClient(clients, session);
       if (client) await tmux(["detach-client", "-t", client]);

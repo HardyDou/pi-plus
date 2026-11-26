@@ -667,7 +667,7 @@ export function createTui({
     try {
       // leaving the alternate screen restores whatever was behind it; wipe that
       // too, so a client that detaches later does not land under a stale frame
-      io.output.write(`${SHOW_CURSOR}${WRAP_ON}${MAIN_SCREEN}${CLEAR}`);
+      io.output.write(`${SHOW_CURSOR}${WRAP_ON}${MAIN_SCREEN}${CLEAR}\u001b[3J`);
       io.input.setRawMode?.(false);
     } catch {
       // the tty may already be gone; nothing useful to do
