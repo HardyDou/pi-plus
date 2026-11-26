@@ -2101,6 +2101,10 @@ async function cmdStatus(config, options, ui) {
   // Whose sessions? By default this machine's: an operator looking at their own
   // box should not wait for six ssh round trips. `--node x` is one machine,
   // `--all` (or `--live`) is every machine that is written down.
+  // Default scope: this machine, plus every machine `pp sync` already pulled.
+  // Reading a cache costs nothing, so the table can be complete without ever
+  // waiting on an ssh connection.
+  const pulled = Object.keys(readNodeCache());
   let scope = options.all || options.live ? null : "";
   if (options.node) {
     // `--node 1` works like `pp node 1`: the number is on screen in `pp node ls`
@@ -2114,8 +2118,16 @@ async function cmdStatus(config, options, ui) {
     options = { ...options, node: picked.name };
   }
   const inScope = (session) => (scope === null ? true : (session.node ?? "") === scope);
-  const scopeNodes = scope === null ? (config.nodes ?? []).map((node) => node.name) : scope ? [scope] : [];
-  const sessions = selectSessions(config, options.names, ui, { all: true, options }).filter(inScope);
+  const scopeNodes =
+    scope === null
+      ? (config.nodes ?? []).map((node) => node.name)
+      : scope
+        ? [scope]
+        : pulled.filter((name) => (config.nodes ?? []).some((node) => node.name === name));
+  const localOnly = scope === "";
+  const sessions = selectSessions(config, options.names, ui, { all: true, options }).filter((session) =>
+    localOnly ? !session.node || scopeNodes.includes(session.node) : inScope(session),
+  );
   const rows = sessions.map((session) => {
     const entry = liveFor(session.node).get(session.tmuxName);
     const pane = entry?.panes[0];
@@ -2451,7 +2463,9 @@ async function cmdStatus(config, options, ui) {
     for (const [key, map] of liveCache) {
       const nodeName = key === "local" ? "" : key;
       for (const name of map.keys()) {
-        if (!configuredSet.has(`${nodeName}:${name}`)) unmanaged.push(nodeName ? `${name}@${nodeName}` : name);
+        // rows already carry the other machines' strays: only the local ones
+        // (which stay in the footer) are collected here
+        if (!nodeName && !configuredSet.has(`:${name}`)) unmanaged.push(name);
       }
     }
     const width = process.stdout.columns && !options.wide ? Math.max(40, process.stdout.columns - 1) : Infinity;
@@ -2459,14 +2473,20 @@ async function cmdStatus(config, options, ui) {
     const notes = [];
     const downText = down ? `  ${ui.paint("yellow", formatDownReasons(downReasons(rows)))}` : "";
     const extras = [];
-    if (unmanaged.length) {
-      extras.push(ui.paint("yellow", `${unmanaged.length} unmanaged`));
-      notes.push(`${unmanaged.length} unmanaged session(s) are in tmux but not in the config: ${unmanaged.slice(0, 3).join(", ")}${unmanaged.length > 3 ? ", …" : ""} — pp adopt`);
+    const rowStrays = rows.filter((row) => row.unmanaged).map((row) => `${row.name}@${row.node}`);
+    const allStrays = [...rowStrays, ...unmanaged];
+    if (allStrays.length) {
+      extras.push(ui.paint("yellow", `${allStrays.length} unmanaged`));
+      notes.push(
+        `${allStrays.length} unmanaged session(s) are in tmux but not in the config: ${allStrays.slice(0, 3).join(", ")}${allStrays.length > 3 ? ", …" : ""} — pp adopt${rowStrays.length ? ` (the @one ones are on another machine: pp adopt --node ${rowStrays[0].split("@")[1]})` : ""}`,
+      );
     }
     if (config.nodes?.length) {
       const asked = config.nodes.length - askedNot.length - cachedNodes.size;
-      const cached = cachedNodes.size ? `, ${cachedNodes.size} from cache` : "";
-      extras.push(ui.paint("dim", `${asked}/${config.nodes.length} asked${cached}`));
+      const parts = [`${asked} asked`];
+      if (cachedNodes.size) parts.push(`${cachedNodes.size} cached`);
+      if (askedNot.length) parts.push(`${askedNot.length} not asked`);
+      extras.push(ui.paint("dim", `${shown.filter((row) => row.node).length} on ${new Set(shown.filter((row) => row.node).map((row) => row.node)).size} other machine(s) · ${parts.join(", ")}`));
     }
     if (unreachableNodes.length) extras.push(ui.paint("red", `unreachable: ${unreachableNodes.join(", ")}`));
     ui.out(short(`\n${running}/${shown.length} running${downText}${extras.length ? `  ${extras.join("  ")}` : ""}  ${ui.paint("dim", `config: ${config.path}`)}`));
@@ -3726,12 +3746,23 @@ async function cmdSync(config, options, ui) {
         .join(" ");
       const result = await runOnNodeAsync(node, [remote], { timeout: 15000 });
       const ms = Date.now() - at;
-      if (result.error) return { node: node.name, ok: false, ms, error: result.error.message ?? "ssh failed" };
+      if (result.error) return { node: node.name, ok: false, ms, error: result.error.message ?? "ssh failed", why: "unreachable" };
       const sessions = parseSessionLines(result.stdout);
       // tmux exits 1 for "no server" as well as for real trouble; the message is
       // the only difference, and a machine with no tmux running is an empty one
       const ok = result.status === 0 || /no server running|no sessions|error connecting to/i.test(String(result.stderr));
-      return { node: node.name, ok, ms, sessions, error: ok ? null : String(result.stderr ?? "").trim().split("\n")[0] || `exit ${result.status}` };
+      const first = String(result.stderr ?? "").trim().split("\n")[0] || `exit ${result.status}`;
+      // a machine without tmux answered us perfectly well — it just cannot
+      // list sessions, and that is worth saying in those words
+      const noTmux = /tmux: (command )?not found|tmux.*未找到命令|tmux: not found/i.test(first);
+      return {
+        node: node.name,
+        ok,
+        ms,
+        sessions,
+        error: ok ? null : noTmux ? `no tmux on that machine (${first})` : first,
+        why: noTmux ? "no tmux" : ok ? null : "unreachable",
+      };
     }),
   );
   const cache = readNodeCache();
@@ -3748,7 +3779,14 @@ async function cmdSync(config, options, ui) {
       ui.out(row.ok ? `  ${label}${String(row.sessions.size).padStart(3)} session(s)  ${row.ms}ms` : ui.paint("red", `  ${label}unreachable — ${row.error}`));
     }
     const bad = rows.filter((row) => !row.ok).length;
-    ui.out(`\n${rows.length - bad}/${rows.length} machine(s) synced in ${Date.now() - started}ms${bad ? ` · ${bad} unreachable (their last answer is kept)` : ""}`);
+    const missing = rows.filter((row) => !row.ok && row.why !== "unreachable").length;
+    const gone = bad - missing;
+    const parts = [];
+    if (gone) parts.push(`${gone} unreachable`);
+    if (missing) parts.push(`${missing} without tmux`);
+    ui.out(
+      `\n${rows.length - bad}/${rows.length} machine(s) synced in ${Date.now() - started}ms${parts.length ? ` · ${parts.join(" · ")} (their last answer is kept)` : ""}`,
+    );
   }
   if (rows.some((row) => !row.ok)) process.exitCode = 1;
 }
