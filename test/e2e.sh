@@ -884,6 +884,25 @@ exec sh -c "$*"
 SHIMSH
 chmod +x "$SHIM/ssh"
 
+# a machine that answers but has no tmux: that is not a failure, it is a
+# machine that does not run sessions
+SHIM_NOTMUX="$E2E/shim-notmux"
+mkdir -p "$SHIM_NOTMUX"
+cat > "$SHIM_NOTMUX/ssh" <<'NOTMUXSH'
+#!/bin/sh
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -p|-i|-o) shift 2 ;;
+    -t|-v) shift ;;
+    *) break ;;
+  esac
+done
+shift
+echo "bash: line 1: tmux: command not found" >&2
+exit 127
+NOTMUXSH
+chmod +x "$SHIM_NOTMUX/ssh"
+
 SCOPECFG="$E2E/scope.yml"
 cat > "$SCOPECFG" <<'YAML'
 version: 1
@@ -942,10 +961,11 @@ check "--all asks every machine"                 0 '1 asked'   bash -c "cd $E2E 
 check "--node asks just that one"                0 '1 asked'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --node far2 --fresh"
 check "--node takes the number too"              0 '1 asked'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --node 1 --fresh"
 check "--node rejects an unknown machine"        2 'no node "99"'     bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --node 99"
-check "sync pulls every machine"                 1 'machine\(s\) synced'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK sync"
+check "sync pulls every machine"                 1 'machine\(s\) asked'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK sync"
 check "and the table then reads the cache"       0 '1 cached'             bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls"
 check "the panel reads the same cache"           0 'sessions'               bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK tui --once | head -1"
 check "a machine that will not answer is named"  1 'unreachable'            bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK sync --node dead"
+check "a machine without tmux is not an error"   0 'without tmux'           bash -c "cd $E2E && PATH=$SHIM_NOTMUX:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK sync --node far2"
 check "a session on a node shows up in pp ls"  0 '^1$'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls --all | grep -c far-stray"
 check "and it is marked unmanaged"             0 'unmanaged'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls | grep -i unmanaged"
 check "attach works on such a session"         0 'attach-session' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach far-stray --dry-run"

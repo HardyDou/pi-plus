@@ -3,6 +3,12 @@
 pp 只在**你敲命令的那台机器**上跑；节点上什么都不用装，它用 `ssh <node> tmux …` 现场操作。
 所以 Mac 上装一个 pp，配一份只含 `nodes:` 的配置，就能直接进到节点里的会话。
 
+## 哪些机器需要 tmux：只有跑会话的那些
+
+`blog`、`nas-public` 这类机器只是"你能 ssh 过去的地方"，不需要 tmux，也不需要 pp。
+`pp sync` 会写一句 `no tmux — nothing to list here` 然后继续（退出码 0），`pp node ls` 的 `LIVE`
+列显示 `no tmux` 而不是 `0` —— 两者是不同的事实。
+
 ## 1. 装
 
 ```bash

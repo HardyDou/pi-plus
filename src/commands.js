@@ -1464,17 +1464,17 @@ async function printNodes(config, options, ui) {
       config.nodes.map(async (node) => {
         const cached = cache[node.name];
         if (cached && !options.fresh && Date.now() - Number(cached.at ?? 0) < ttlMs) {
-          liveCounts.set(node.name, fromCache(cached.sessions).size);
+          liveCounts.set(node.name, cached.tmux === false ? "no tmux" : fromCache(cached.sessions).size);
           return;
         }
         const found = await makeTmux(config, options, { node: node.name })
           .listSessionsStrict()
           .catch(() => null);
         if (found) {
-          cache[node.name] = { at: Date.now(), sessions: asCache(found) };
+          cache[node.name] = { at: Date.now(), tmux: true, sessions: asCache(found) };
           liveCounts.set(node.name, found.size);
         } else {
-          liveCounts.set(node.name, cached ? fromCache(cached.sessions).size : null);
+          liveCounts.set(node.name, cached ? (cached.tmux === false ? "no tmux" : fromCache(cached.sessions).size) : null);
         }
       }),
     );
@@ -3755,20 +3755,28 @@ async function cmdSync(config, options, ui) {
       // a machine without tmux answered us perfectly well — it just cannot
       // list sessions, and that is worth saying in those words
       const noTmux = /tmux: (command )?not found|tmux.*未找到命令|tmux: not found/i.test(first);
+      // A machine without tmux is not broken: it simply does not run sessions.
+      // Only machines that host sessions need tmux at all.
+      if (noTmux) return { node: node.name, ok: true, ms, sessions: new Map(), tmux: false, error: null, why: null };
       return {
         node: node.name,
         ok,
         ms,
         sessions,
-        error: ok ? null : noTmux ? `no tmux on that machine (${first})` : first,
-        why: noTmux ? "no tmux" : ok ? null : "unreachable",
+        tmux: true,
+        error: ok ? null : first,
+        why: ok ? null : "unreachable",
       };
     }),
   );
   const cache = readNodeCache();
   for (const row of rows) {
     if (!row.ok) continue;
-    cache[row.node] = { at: new Date().toISOString(), sessions: asCache(row.sessions) };
+    cache[row.node] = {
+      at: new Date().toISOString(),
+      tmux: row.tmux !== false,
+      sessions: row.tmux === false ? {} : asCache(row.sessions),
+    };
   }
   writeNodeCache(cache);
   if (options.json) {
@@ -3776,16 +3784,17 @@ async function cmdSync(config, options, ui) {
   } else if (!options.quiet) {
     for (const row of rows) {
       const label = row.node.padEnd(Math.min(16, Math.max(...rows.map((entry) => entry.node.length)) + 1));
-      ui.out(row.ok ? `  ${label}${String(row.sessions.size).padStart(3)} session(s)  ${row.ms}ms` : ui.paint("red", `  ${label}unreachable — ${row.error}`));
+      if (!row.ok) ui.out(ui.paint("red", `  ${label}unreachable — ${row.error}`));
+      else if (row.tmux === false) ui.out(ui.paint("dim", `  ${label}no tmux — nothing to list here`));
+      else ui.out(`  ${label}${String(row.sessions.size).padStart(3)} session(s)  ${row.ms}ms`);
     }
     const bad = rows.filter((row) => !row.ok).length;
-    const missing = rows.filter((row) => !row.ok && row.why !== "unreachable").length;
-    const gone = bad - missing;
+    const missing = rows.filter((row) => row.tmux === false).length;
     const parts = [];
-    if (gone) parts.push(`${gone} unreachable`);
-    if (missing) parts.push(`${missing} without tmux`);
+    if (bad) parts.push(`${bad} unreachable (their last answer is kept)`);
+    if (missing) parts.push(`${missing} without tmux (they do not run sessions)`);
     ui.out(
-      `\n${rows.length - bad}/${rows.length} machine(s) synced in ${Date.now() - started}ms${parts.length ? ` · ${parts.join(" · ")} (their last answer is kept)` : ""}`,
+      `\n${rows.length}/${rows.length} machine(s) asked in ${Date.now() - started}ms${parts.length ? ` · ${parts.join(" · ")}` : ""}`,
     );
   }
   if (rows.some((row) => !row.ok)) process.exitCode = 1;
