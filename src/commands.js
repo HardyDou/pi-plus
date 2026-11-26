@@ -1492,6 +1492,13 @@ async function printNodes(config, options, ui) {
           liveCounts.set(node.name, stale ? `${value}?` : value);
           return;
         }
+        // Not in the cache and no --fresh: say "unknown" instead of opening an
+        // ssh connection. `pp node ls` answering in 4s because six machines each
+        // took a timeout is exactly the complaint this avoids.
+        if (!options.fresh) {
+          liveCounts.set(node.name, cached ? "?" : "-");
+          return;
+        }
         const found = await makeTmux(config, options, { node: node.name })
           .listSessionsStrict()
           .catch(() => null);
@@ -1543,6 +1550,9 @@ async function printNodes(config, options, ui) {
     ui.out(`\n${nodes.length} node${nodes.length === 1 ? "" : "s"}  ${ui.paint("dim", `config: ${config.path}`)}`);
     const orphan = nodes.length && !counts.size ? "  (no session uses one yet: add `node: <name>` to a session)" : "";
     if (orphan) ui.out(ui.paint("dim", orphan.trim()));
+    const never = readNodeCache();
+    const unseen = nodes.filter((node) => !never[node.name]).length;
+    if (unseen) ui.out(ui.paint("dim", `${unseen} machine(s) never synced — pp sync fills LIVE (or: pp node ls --fresh)`));
   }
 }
 
