@@ -3841,6 +3841,9 @@ export function remoteSessionIndex(dump) {
     return { path, sessions: new Map() };
   }
   const sessions = new Map();
+  // the machine's `defaults:` are rules too: a session without its own
+  // `restart:` still restarts, because the config says so further up
+  const defaults = parsed?.defaults && typeof parsed.defaults === "object" ? parsed.defaults : {};
   for (const raw of Array.isArray(parsed?.sessions) ? parsed.sessions : []) {
     if (!raw || typeof raw !== "object") continue;
     const name = String(raw.name ?? "");
@@ -3848,10 +3851,10 @@ export function remoteSessionIndex(dump) {
     sessions.set(String(raw.tmux_name ?? name), {
       name,
       role: raw.role ?? null,
-      restart: raw.restart ?? null,
+      restart: raw.restart ?? defaults.restart ?? null,
       piSession: raw.pi_session ?? null,
       piSessionName: raw.pi_session_name ?? null,
-      pi: raw.pi !== undefined ? Boolean(raw.pi) : true,
+      pi: raw.pi !== undefined ? Boolean(raw.pi) : defaults.pi !== undefined ? Boolean(defaults.pi) : true,
       cwd: raw.cwd ?? null,
     });
   }
