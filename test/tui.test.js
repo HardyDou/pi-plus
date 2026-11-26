@@ -94,9 +94,11 @@ test("renderFrame fills the screen exactly and shows both panels", () => {
 });
 
 test("the sessions column can be set, clamped and parsed", () => {
-  assert.equal(computeLayout(100, 26).sessions.w, 34, "default is a third of the width");
+  assert.equal(computeLayout(100, 26).sessions.w, 34, "two columns: a third of the width, as before");
+  assert.ok(computeLayout(100, 26, { nodes: 3 }).sessions.w > 34, "three columns: sessions get more than a third");
   assert.equal(computeLayout(100, 26, { leftWidth: 24 }).sessions.w, 24);
   assert.equal(computeLayout(100, 26, { leftWidth: 400 }).sessions.w, 73, "never eats the todo column");
+  assert.equal(computeLayout(100, 26, { nodes: 3, leftWidth: 400 }).sessions.h, 25, "and the machines column costs width, not height");
   assert.equal(clampLeftWidth(5, 100), 18, "floor");
   assert.equal(clampLeftWidth(30, 100), 30);
   assert.equal(parseLeftOption("30", 100), 30);

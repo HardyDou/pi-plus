@@ -2498,6 +2498,7 @@ async function cmdStatus(config, options, ui) {
     const notes = [];
     const downText = down ? `  ${ui.paint("yellow", formatDownReasons(downReasons(rows)))}` : "";
     const extras = [];
+    const compact = [];
     const rowStrays = rows.filter((row) => row.unmanaged).map((row) => `${row.name}@${row.node}`);
     const allStrays = [...rowStrays, ...unmanaged];
     if (allStrays.length) {
@@ -2524,6 +2525,7 @@ async function cmdStatus(config, options, ui) {
       .filter((node) => !askedNot.includes(node.name) && !shown.some((row) => row.node === node.name))
       .map((node) => node.name);
     if (idleNodes.length) {
+      compact.push(`${idleNodes.length} idle machine(s)`);
       notes.push(`no session on ${idleNodes.join(", ")} yet — pp new --node ${idleNodes[0]} -C <dir> --save   (pp fleet shows what runs there)`);
     }
     if (staleNodes.length) {
@@ -2531,15 +2533,24 @@ async function cmdStatus(config, options, ui) {
         .map((name) => `${name} ${cachedAt.get(name)?.age ? shortAge(Math.round((cachedAt.get(name).age ?? 0) / 1000)) : "?"}`)
         .slice(0, 4)
         .join(", ");
+      compact.push(`cached ${worst.split(",")[0].trim()}`);
       notes.push(`cached: ${worst}${staleNodes.length > 4 ? ", …" : ""} — pp sync refreshes it (pp ls --live asks now)`);
     }
     // not asked this time: say so, and say how to ask
     if (askedNot.length) {
+      compact.push(`${askedNot.length} not asked`);
       notes.push(
         `${askedNot.length} machine(s) not asked: ${askedNot.slice(0, 3).join(", ")}${askedNot.length > 3 ? ", …" : ""} — pp ls --node <name|#> for one, --live for all`,
       );
     }
-    for (const note of notes) ui.info(ui.paint("dim", short(note)));
+    // One line by default: the counts are the news, the prose is homework.
+    // `pp ls -v` prints the sentences that say what to type.
+    if (allStrays.length) compact.unshift(`${allStrays.length} unmanaged`);
+    if (options.verbose) {
+      for (const note of notes) ui.info(ui.paint("dim", short(note)));
+    } else if (compact.length) {
+      ui.info(ui.paint("dim", short(`${compact.join(" · ")}  — pp ls -v for what to do`)));
+    }
   }
 }
 
@@ -2846,12 +2857,17 @@ async function cmdTui(config, options, ui) {
     // the todo box grows with its content, so its size has to be known before
     // the layout: the snapshot used to clip the second todo and say nothing
     const onceTodos = tuiTodoRows(filterTodos(readTodos()), Date.now());
-    const layout = computeLayout(cols, rows, { leftWidth, todoCount: onceTodos.length });
     const { live, owner } = readLive();
     const sortKey = options.sort ?? config.sort ?? "config";
-    const sessionRows = ordered(tuiSessionRows(config, live, { stuck: stuckNow(), owner }), sortKey).filter(
-      (row) => (row.node ?? "") === scope(),
-    );
+    const sessionRows = ordered(tuiSessionRows(config, live, { stuck: stuckNow(), owner }), sortKey);
+    const onceCounts = new Map();
+    for (const row of sessionRows) onceCounts.set(row.node ?? "", (onceCounts.get(row.node ?? "") ?? 0) + 1);
+    const onceNodes = ["", ...(config.nodes ?? []).map((node) => node.name)].map((name, index) => ({
+      name,
+      index,
+      label: `${truncateWidth(name || "local", 15 - String(onceCounts.get(name) ?? 0).length)} ${onceCounts.get(name) ?? 0}`,
+    }));
+    const layout = computeLayout(cols, rows, { leftWidth, todoCount: onceTodos.length, nodes: onceNodes.length });
     function ordered(rows, key) {
       // --once should show the same order the live panel would
       if (key === "name") return [...rows].sort((a, b) => compareNames(a.name, b.name));
@@ -2875,6 +2891,7 @@ async function cmdTui(config, options, ui) {
     const onceStrays = sessionRows.filter((row) => row.unmanaged).length;
     const onceDrift = [onceOff ? `${onceOff} off` : null, onceStrays ? `${onceStrays} unmanaged` : null].filter(Boolean).join(" · ");
     const model = {
+      nodes: onceNodes,
       sessions: sessionRows,
       todos: onceTodos,
       machines: machineSummary(sessionRows),
@@ -2957,8 +2974,8 @@ async function cmdTui(config, options, ui) {
         return scope() || "local";
       },
       /** Enter on a machine row: log into it, the same way `pp node <n>` does. */
-      async enterNode() {
-        const name = scope();
+      async enterNode(picked = "") {
+        const name = picked ?? "";
         if (!name) return "this machine is the one you are on";
         const node = (config.nodes ?? []).find((entry) => entry.name === name);
         if (!node) return `no node "${name}" — see pp node ls`;
@@ -2969,13 +2986,19 @@ async function cmdTui(config, options, ui) {
       },
       async refresh({ index = 0 } = {}) {
         const { live, owner } = readLive();
-        const wanted = scope();
-        const sessions = tuiSessionRows(config, live, { stuck: stuckNow(), owner }).filter(
-          (row) => (row.node ?? "") === wanted,
-        );
+        // Every session, from every machine: the machines column is a shortcut
+        // to a shell there, not a filter on the list beside it.
+        const sessions = tuiSessionRows(config, live, { stuck: stuckNow(), owner });
+        const counts = new Map();
+        for (const row of sessions) counts.set(row.node ?? "", (counts.get(row.node ?? "") ?? 0) + 1);
+        const nodes = ["", ...(config.nodes ?? []).map((node) => node.name)].map((name, index) => ({
+          name,
+          index,
+          label: `${truncateWidth(name || "local", 15 - String(counts.get(name) ?? 0).length)} ${counts.get(name) ?? 0}`,
+        }));
         const todos = tuiTodoRows(filterTodos(readTodos()), Date.now());
         // no pane capture: the panel lists what exists, tmux draws the rest
-        return { sessions, todos };
+        return { sessions, todos, nodes };
       },
       /**
        * Is this pane on screen right now? After `attach` the client is looking at
@@ -3122,10 +3145,12 @@ async function cmdTuiDiag(config, options, ui) {
   const screen = pane
     ? { cols: Math.min(tty.cols || pane.visibleCols, pane.visibleCols), rows: Math.min(tty.rows || pane.visibleRows, pane.visibleRows) }
     : { cols: tty.cols || 100, rows: tty.rows || 30 };
-  const layout = computeLayout(screen.cols, screen.rows, {
+  const diagLayout = computeLayout(screen.cols, screen.rows, {
     leftWidth: options.left === undefined ? 0 : parseLeftOption(options.left, screen.cols),
     todoCount: readTodos().length,
+    nodes: (config.nodes ?? []).length + 1,
   });
+  const layout = diagLayout;
 
   ui.out(`pp ${options.version ?? ""} — pp tui --diag`);
   ui.out("");

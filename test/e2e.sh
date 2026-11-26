@@ -956,7 +956,7 @@ check "a dead node is unreachable, not stopped" 0 'unreachable'    bash -c "cd $
 # `pp ls` on a laptop with one local session could not see the nine on its node.
 tmux -L "$SOCK" new-session -d -s far-stray "sleep 7200" 2>/dev/null || true
 check "the table asks only what is written down" 0 '0 asked, 1 not asked'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --fresh"
-check "and says which it skipped"                0 'not asked: far2'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --fresh"
+check "and says which it skipped"                0 'not asked'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --fresh"
 check "--all asks every machine"                 0 '1 asked'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --all --fresh"
 check "--node asks just that one"                0 '1 asked'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --node far2 --fresh"
 check "--node takes the number too"              0 '1 asked'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --node 1 --fresh"

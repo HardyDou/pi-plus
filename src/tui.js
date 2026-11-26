@@ -215,7 +215,10 @@ export function computeLayout(cols, rows, { leftWidth: wanted = 0, todoCount = 0
 
   // three columns: which machine, its sessions, what is waiting
   const nodeWidth = Number(nodes) > 0 ? Math.min(NODE_MAX_WIDTH, Math.max(NODE_MIN_WIDTH, Math.floor(width * 0.16))) : 0;
-  const leftWidth = clampLeftWidth(wanted || Math.floor((width - nodeWidth) * DEFAULT_LEFT_RATIO), width - nodeWidth);
+  // with the machines column in place the session name is the longest thing on
+  // screen, so it takes a bigger share than the two-column 34%
+  const ratio = nodeWidth ? 0.46 : DEFAULT_LEFT_RATIO;
+  const leftWidth = clampLeftWidth(wanted || Math.floor((width - nodeWidth) * ratio), width - nodeWidth);
   const sessionsX = nodeWidth ? nodeWidth + 1 : 0;
   const rightWidth = width - sessionsX - leftWidth - 1;
   return {
@@ -497,9 +500,10 @@ export function createTui({
     const sessions = order
       .map((index) => ({ ...state.sessions[index], selected: index === state.sessionIndex }))
       .slice(Math.max(0, state.sessionOffset ?? 0));
+    const nodes = (state.nodes ?? []).map((item) => ({ ...item, selected: item.index === (state.nodeIndex ?? 0) }));
     const visible = state.todos.slice(state.todoOffset, state.todoOffset + 200);
     const todos = visible.map((item, index) => ({ ...item, selected: state.todoOffset + index === state.todoIndex }));
-    return { ...state, machines: machineSummary(state.sessions), sessions, todos };
+    return { ...state, machines: machineSummary(state.sessions), nodes, sessions, todos };
   }
 
   /** While the filter box is open every keystroke is text, not a command. */
@@ -683,7 +687,9 @@ export function createTui({
       return;
     }
     if (key === "tab") {
-      state.focus = state.focus === "sessions" ? "todos" : "sessions";
+      const ring = ["nodes", "sessions", "todos"];
+      const at = ring.indexOf(state.focus);
+      state.focus = ring[(at + 1) % ring.length];
       draw();
       return;
     }
@@ -697,7 +703,8 @@ export function createTui({
     }
     if (key === "up" || key === "down") {
       const delta = key === "up" ? -1 : 1;
-      if (state.focus === "sessions") state.sessionIndex = sessionAt(sessionPos() + delta);
+      if (state.focus === "nodes") state.nodeIndex = moveSelection(state.nodeIndex ?? 0, (state.nodes ?? []).length, delta);
+      else if (state.focus === "sessions") state.sessionIndex = sessionAt(sessionPos() + delta);
       else state.todoIndex = moveSelection(state.todoIndex, state.todos.length, delta);
       keepVisible();
       await refresh();
@@ -706,7 +713,8 @@ export function createTui({
     if (key === "pageup" || key === "pagedown") {
       const step = Math.max(1, panelHeight(state.focus) - 1);
       const delta = key === "pageup" ? -step : step;
-      if (state.focus === "sessions") state.sessionIndex = moveSelection(state.sessionIndex, state.sessions.length, delta);
+      if (state.focus === "nodes") state.nodeIndex = moveSelection(state.nodeIndex ?? 0, (state.nodes ?? []).length, delta);
+      else if (state.focus === "sessions") state.sessionIndex = moveSelection(state.sessionIndex, state.sessions.length, delta);
       else state.todoIndex = moveSelection(state.todoIndex, state.todos.length, delta);
       keepVisible();
       await refresh();
@@ -745,7 +753,7 @@ export function createTui({
       if (state.focus === "nodes") {
         // a machine row: hand the terminal to ssh, then take it back
         cleanup();
-        const said = await io.enterNode?.();
+        const said = await io.enterNode?.(state.nodes?.[state.nodeIndex ?? 0]?.name ?? "");
         if (!finished) {
           running = true;
           enterScreen();
