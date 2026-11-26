@@ -3255,6 +3255,15 @@ async function cmdAttach(config, options, ui) {
     ui.error("usage: pp attach <name>");
     process.exit(2);
   }
+  // Numbers move when sessions come and go; names do not. Attaching to the
+  // wrong session is the one mistake you cannot undo, so this one takes a name.
+  if (/^\d+$/.test(String(name))) {
+    const listed = selectSessions(config, [name], ui, { options })[0];
+    ui.error(
+      `attach takes a name, not a row number${listed ? `: pp attach ${listed.name}` : ""} (numbers move as sessions come and go)`,
+    );
+    process.exit(2);
+  }
   const [session] = selectSessions(config, [name], ui, { options });
   const tmux = makeTmux(config, options, session);
   if (options.dryRun) {
