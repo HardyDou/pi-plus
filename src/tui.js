@@ -471,14 +471,18 @@ export function createTui({
    * the cursor under the user's hands.
    */
   /** Rows that pass the substring filter (`/risk`), by index into state.sessions. */
-  /** The needle `/` typed, or "" — shared by all three lists. */
-  function needleNow() {
+  /**
+   * The needle `/` typed, but only for the column it was typed in — searching
+   * machines must not hide the sessions you went looking for.
+   */
+  function needleNow(panel = state.focus) {
+    if (state.filterPanel && state.filterPanel !== panel) return "";
     return String((state.typing ? state.input : state.filter) ?? "").trim().toLowerCase();
   }
 
   /** Machine rows that match the needle: name, address, or "local". */
   function nodeOrder() {
-    const needle = needleNow();
+    const needle = needleNow("nodes");
     const indices = (state.nodes ?? []).map((_, i) => i);
     if (!needle) return indices;
     return indices.filter((index) => {
@@ -489,7 +493,7 @@ export function createTui({
 
   /** Todo rows that match: the sentence, the session it belongs to, its kind. */
   function todoOrder() {
-    const needle = needleNow();
+    const needle = needleNow("todos");
     const indices = state.todos.map((_, i) => i);
     if (!needle) return indices;
     return indices.filter((index) => {
@@ -501,7 +505,7 @@ export function createTui({
   function filteredIndices() {
     // while the box is open the list narrows as you type, so you see the match
     // count next to what you are typing instead of after pressing Enter
-    const needle = needleNow();
+    const needle = needleNow("sessions");
     const indices = state.sessions.map((_, i) => i);
     if (!needle) return indices;
     return indices.filter((index) => {
@@ -590,6 +594,7 @@ export function createTui({
         state.typing = false;
         state.input = "";
         state.filter = "";
+        state.filterPanel = null;
         state.sessionOffset = 0;
         changed = true;
         break;
@@ -726,6 +731,7 @@ export function createTui({
 
   async function handle(key) {
     if (key === "filter") {
+      state.filterPanel = state.focus;
       state.typing = true;
       state.input = state.filter ?? "";
       draw();
@@ -735,6 +741,7 @@ export function createTui({
       // Esc undoes the narrowest thing first: the filter, then the panel
       state.filter = "";
       state.input = "";
+      state.filterPanel = null;
       state.sessionOffset = 0;
       keepVisible();
       draw();

@@ -2689,6 +2689,10 @@ export function tuiSessionRows(config, live, { stuck = null, owner = null } = {}
   }
   for (const [name, entry] of live) {
     if (seen.has(name)) continue;
+    // a session pp itself spawned to do a job (or a shell) is not an agent the
+    // panel is about: showing it just pushes the real rows off the screen
+    const runsPi = (entry?.panes ?? []).some((pane) => /(^|\/)pi$|(^|\/)pi\s/.test(String(pane?.command ?? "")));
+    if (!runsPi) continue;
     const state = stateOf(entry);
     const age = entry?.activity ? shortAge(Date.now() / 1000 - entry.activity) : "";
     rows.push({
@@ -2698,7 +2702,9 @@ export function tuiSessionRows(config, live, { stuck = null, owner = null } = {}
       activity: entry?.activity ?? 0,
       age,
       label: ` - ${name}${owner?.get(name) ? ` @${owner.get(name)}` : ""}  ${state}`,
-      dim: true,
+      // grey means "not running" everywhere else in this panel; an unmanaged
+      // session that is up is up, so the leading "-" is what marks it
+      dim: state === "off" || state === "dead",
       unmanaged: true,
     });
   }

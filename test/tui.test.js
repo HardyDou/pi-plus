@@ -216,7 +216,7 @@ function screenOf() {
   return { apply, frame };
 }
 
-function fakeIo({ sessions, todos, preview }) {
+function fakeIo({ sessions, todos, preview, nodes = [], size = null }) {
   const input = new EventEmitter();
   input.setRawMode = () => {};
   input.resume = () => {};
@@ -242,10 +242,11 @@ function fakeIo({ sessions, todos, preview }) {
       input,
       output,
       isTTY: true,
-      size: () => ({ cols: 80, rows: 20 }),
+      size: () => size ?? { cols: 80, rows: 20 },
       onResize: () => {},
       refresh: async ({ index = 0 } = {}) => ({
         sessions: sessions.map((item, position) => ({ ...item, selected: position === index })),
+        nodes: nodes.map((item, position) => ({ ...item, selected: position === 0 })),
         todos,
         preview: { title: sessions[index]?.name ?? "—", lines: preview },
       }),
@@ -747,4 +748,31 @@ test("the / box searches the machine and todo lists too", async () => {
   const text = renderFrame(model, layout).join("\n");
   assert.match(text, /work-01/);
   assert.match(text, /review the plan/);
+});
+
+test("searching one column leaves the other two alone", async () => {
+  const { input, io, lastFrame } = fakeIo({
+    size: { cols: 120, rows: 24 },
+    nodes: [{ label: "local" }, { label: "work-01 192.168.1.88" }],
+    sessions: [{ label: " 1 backend  off", name: "backend" }, { label: " 2 risk-01 @work-01  running", name: "risk-01" }],
+    todos: [{ label: "1. ops-5 — review the release", session: "ops-5" }],
+    preview: [],
+  });
+  const tui = createTui({ io, version: "9.9.9" });
+  const done = tui.start();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  input.emit("data", "\u001b[D");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  input.emit("data", "/");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  input.emit("data", "work");
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  const frame = lastFrame();
+  input.emit("data", "\u001b");
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  input.emit("data", "q");
+  await done;
+  assert.match(frame, /machines \(1\)/, "the machines column narrows");
+  assert.match(frame, /sessions \(2\)/, "sessions stay whole");
+  assert.match(frame, /todo \(1\)/, "todo stays whole");
 });
