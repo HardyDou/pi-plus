@@ -2723,6 +2723,8 @@ async function cmdTui(config, options, ui) {
    */
   const REMOTE_TTL_MS = 5000;
   const remoteCache = new Map();
+  // what `pp sync` wrote down for each machine (empty when it never ran)
+  let syncCache = readNodeCache();
   /**
    * Sessions whose agent is mid-turn but has printed nothing for the stall
    * window. The list already shows `!` for "no output at all" (window_activity),
@@ -2763,9 +2765,15 @@ async function cmdTui(config, options, ui) {
     const owner = new Map();
     for (const nodeName of [null, ...nodesInUse()]) {
       const cached = nodeName === null ? null : remoteCache.get(nodeName);
+      // `pp sync` already pulled this: a panel that redraws every second has no
+      // business opening an ssh connection to answer the same question
+      const pulled = nodeName === null ? null : syncCache[nodeName];
       let map;
       if (!fresh && cached && Date.now() - cached.at < REMOTE_TTL_MS) {
         map = cached.map;
+      } else if (!fresh && pulled) {
+        map = fromCache(pulled.sessions);
+        remoteCache.set(nodeName, { at: Date.now(), map });
       } else {
         try {
           map = makeTmux(config, options, { node: nodeName }).listSessions();

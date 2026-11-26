@@ -944,6 +944,7 @@ check "--node takes the number too"              0 '1/1 asked'   bash -c "cd $E2
 check "--node rejects an unknown machine"        2 'no node "99"'     bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --node 99"
 check "sync pulls every machine"                 1 'machine\(s\) synced'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK sync"
 check "and the table then reads the cache"       0 'from cache'             bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls"
+check "the panel reads the same cache"           0 'sessions'               bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK tui --once | head -1"
 check "a machine that will not answer is named"  1 'unreachable'            bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK sync --node dead"
 check "a session on a node shows up in pp ls"  0 '^1$'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls --all | grep -c far-stray"
 check "and it is marked unmanaged"             0 'unmanaged'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls | grep -i unmanaged"
