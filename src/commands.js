@@ -2681,7 +2681,7 @@ export function tuiSessionRows(config, live, { stuck = null, owner = null } = {}
       idleSeconds: idle === null ? null : Math.round(idle),
       todos: waiting(session.tmuxName),
       node: session.node ?? owner?.get(session.tmuxName) ?? "",
-      label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}${session.node ? ` @${session.node}` : ""}${session.role ? ` ${session.role}` : ""}  ${state}${age ? ` ${age}${stale ? " !" : ""}` : ""}${waiting(session.tmuxName) ? ` ${waiting(session.tmuxName)}?` : ""}`,
+      label: `${String(config.sessions.indexOf(session) + 1).padStart(2)} ${session.tmuxName}${session.node ? ` @${session.node}` : ""}  ${state}`,
       dim: state === "off" || state === "dead",
       warn: stale,
       stuck: isStuck,
@@ -2697,7 +2697,7 @@ export function tuiSessionRows(config, live, { stuck = null, owner = null } = {}
       state,
       activity: entry?.activity ?? 0,
       age,
-      label: ` - ${name}${owner?.get(name) ? ` @${owner.get(name)}` : ""}  ${state}${age ? ` ${age}` : ""} (not in config)`,
+      label: ` - ${name}${owner?.get(name) ? ` @${owner.get(name)}` : ""}  ${state}`,
       dim: true,
       unmanaged: true,
     });
@@ -2862,11 +2862,11 @@ async function cmdTui(config, options, ui) {
     const sessionRows = ordered(tuiSessionRows(config, live, { stuck: stuckNow(), owner }), sortKey);
     const onceCounts = new Map();
     for (const row of sessionRows) onceCounts.set(row.node ?? "", (onceCounts.get(row.node ?? "") ?? 0) + 1);
-    const onceNodes = ["", ...(config.nodes ?? []).map((node) => node.name)].map((name, index) => ({
-      name,
-      index,
-      label: `${truncateWidth(name || "local", 15 - String(onceCounts.get(name) ?? 0).length)} ${onceCounts.get(name) ?? 0}`,
-    }));
+    const onceHost = new Map((config.nodes ?? []).map((node) => [node.name, node.host ?? ""]));
+    const onceNodes = ["", ...(config.nodes ?? []).map((node) => node.name)].map((name, index) => {
+      const host = name ? onceHost.get(name) || "" : "";
+      return { name, index, label: truncateWidth(`${name || "local"} ${host}`, 27), dim: !name };
+    });
     const layout = computeLayout(cols, rows, { leftWidth, todoCount: onceTodos.length, nodes: onceNodes.length });
     function ordered(rows, key) {
       // --once should show the same order the live panel would
@@ -2991,11 +2991,11 @@ async function cmdTui(config, options, ui) {
         const sessions = tuiSessionRows(config, live, { stuck: stuckNow(), owner });
         const counts = new Map();
         for (const row of sessions) counts.set(row.node ?? "", (counts.get(row.node ?? "") ?? 0) + 1);
-        const nodes = ["", ...(config.nodes ?? []).map((node) => node.name)].map((name, index) => ({
-          name,
-          index,
-          label: `${truncateWidth(name || "local", 15 - String(counts.get(name) ?? 0).length)} ${counts.get(name) ?? 0}`,
-        }));
+        const hostOf = new Map((config.nodes ?? []).map((node) => [node.name, node.host ?? ""]));
+        const nodes = ["", ...(config.nodes ?? []).map((node) => node.name)].map((name, index) => {
+          const host = name ? hostOf.get(name) || "" : "";
+          return { name, index, label: truncateWidth(`${name || "local"} ${host}`, 27), dim: !name };
+        });
         const todos = tuiTodoRows(filterTodos(readTodos()), Date.now());
         // no pane capture: the panel lists what exists, tmux draws the rest
         return { sessions, todos, nodes };

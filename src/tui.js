@@ -148,8 +148,8 @@ export const MIN_LEFT_WIDTH = 18;
 export const RIGHT_MIN_WIDTH = 26;
 export const DEFAULT_LEFT_RATIO = 0.34;
 export const LEFT_STEP = 4;
-export const NODE_MIN_WIDTH = 14;
-export const NODE_MAX_WIDTH = 22;
+export const NODE_MIN_WIDTH = 16;
+export const NODE_MAX_WIDTH = 28;
 
 export function clampLeftWidth(value, cols) {
   const width = Math.max(40, cols);
@@ -214,7 +214,7 @@ export function computeLayout(cols, rows, { leftWidth: wanted = 0, todoCount = 0
   }
 
   // three columns: which machine, its sessions, what is waiting
-  const nodeWidth = Number(nodes) > 0 ? Math.min(NODE_MAX_WIDTH, Math.max(NODE_MIN_WIDTH, Math.floor(width * 0.16))) : 0;
+  const nodeWidth = Number(nodes) > 0 ? Math.min(NODE_MAX_WIDTH, Math.max(NODE_MIN_WIDTH, Math.floor(width * 0.2))) : 0;
   // with the machines column in place the session name is the longest thing on
   // screen, so it takes a bigger share than the two-column 34%
   const ratio = nodeWidth ? 0.46 : DEFAULT_LEFT_RATIO;

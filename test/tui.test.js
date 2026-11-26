@@ -642,8 +642,8 @@ test("a session that is busy but silent is marked stuck, not healthy", async () 
   assert.equal(free.warn, false, "fresh activity and no stall: nothing to flag");
   const stuck = tuiSessionRows(config, live, { stuck: new Set(["api"]) })[0];
   assert.equal(stuck.stuck, true);
-  assert.equal(stuck.warn, true, "the same yellow ! as a quiet session");
-  assert.match(stuck.label, / !/);
+  assert.equal(stuck.warn, true, "the same yellow as a quiet session");
+  assert.equal(stuck.label.endsWith(" running"), true, "the label stays number, name, state");
 });
 
 test("restoreTerminal undoes raw mode, cursor and the alternate screen", async () => {
