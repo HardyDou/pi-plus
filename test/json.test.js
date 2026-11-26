@@ -198,3 +198,34 @@ test("cron dryrun --json: one entry per job, with the plan or the reason", () =>
 });
 
 
+
+test("todo answer --node dry-run names the ssh command, not a local send", async () => {
+  // the answer has to reach the machine that holds the todo: a local send-keys
+  // would type into a session name that only exists over there
+  const { execFileSync } = await import("node:child_process");
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const root = mkdtempSync(`${tmpdir()}/pp-node-answer-`);
+  const state = `${root}/state/pi-plus`;
+  mkdirSync(state, { recursive: true });
+  writeFileSync(
+    `${state}/node-live.json`,
+    JSON.stringify({
+      far: {
+        at: new Date().toISOString(),
+        tmux: true,
+        sessions: {},
+        todos: [{ id: "aa11bb", session: "api", kind: "prompt", title: "pick a branch", state: "new" }],
+      },
+    }),
+  );
+  writeFileSync(
+    `${root}/plus.yml`,
+    ["version: 1", "defaults:", "  agent: pi", "nodes:", "  - name: far", "    host: box@127.0.0.1", "sessions: []", ""].join("\n"),
+  );
+  const out = execFileSync("node", [BIN, "-c", `${root}/plus.yml`, "todo", "answer", "1", "use main", "--node", "far", "--dry-run"], {
+    env: { ...process.env, XDG_STATE_HOME: `${root}/state`, HOME: root },
+    encoding: "utf8",
+  });
+  assert.match(out, /\[dry-run\] ssh box@127\.0\.0\.1 pp todo answer aa11bb 'use main'/);
+});

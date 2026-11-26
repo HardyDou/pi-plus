@@ -1106,6 +1106,42 @@ async function cmdTodo(config, options, ui) {
           ui.error('usage: pp todo answer <#> "text"');
           process.exit(2);
         }
+        // A todo that lives on another machine has to be answered there: the
+        // todo file and the tmux session are both on that box.
+        if (options.node) {
+          const node = resolveNodeRef(config, options.node) ?? findNode(config, options.node);
+          if (!node) {
+            ui.error(`no node "${options.node}" — see pp node ls`);
+            process.exit(2);
+          }
+          const cached = readNodeCache()[node.name]?.todos ?? [];
+          const waiting = cached.filter((todo) => todo.state !== "done");
+          const wanted = /^[0-9a-f]{4,}$/i.test(refs[0] ?? "")
+            ? waiting.find((todo) => String(todo.id).startsWith(refs[0]))
+            : waiting[(Number(refs[0]) || 0) - 1];
+          if (!wanted) {
+            ui.error(`no waiting todo ${refs[0]} on ${node.name} — pp sync, then pp todo ls --node ${node.name}`);
+            process.exit(2);
+          }
+          const line = ["pp", "todo", "answer", String(wanted.id), text].map(shellQuote).join(" ");
+          if (options.dryRun) {
+            ui.info(`[dry-run] ssh ${nodeTarget(node)} ${line}`);
+            return;
+          }
+          const result = await runOnNodeAsync(node, [line], { timeout: 60000 });
+          const said = String(result.stdout ?? "").trim() || String(result.stderr ?? "").trim();
+          if (result.status === 0) {
+            ui.info(`answered ${wanted.session} on ${node.name} (${wanted.id})`);
+            if (said) ui.out(ui.paint("dim", said.split("\n").slice(-2).join("\n")));
+          } else if (result.status === 127 || /pp: (command )?not found|pp:\s*not found/i.test(said)) {
+            ui.error(`${node.name} has no pp — answer it there: pp todo answer ${wanted.id} "..."`);
+            process.exitCode = 1;
+          } else {
+            ui.error(`${node.name} could not take it: ${said.split("\n").slice(-1)[0] || `exit ${result.status}`}`);
+            process.exitCode = 1;
+          }
+          return;
+        }
         // The todo exists because an agent is blocked on a human; answering it is
         // the whole point of the queue, so it should not need a second command.
         const todos = readTodos();

@@ -870,6 +870,7 @@ export const COMMANDS = [
       "it to blocking prompts and manual notes.",
     ].join("\n"),
     options: [
+      "  --node <name>    with answer: answer it on that machine",
       "--session <name>  add/ls: restrict to one session",
       "--all             ls: include finished todos",
       "--force           clear: drop open todos too",

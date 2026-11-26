@@ -840,6 +840,8 @@ pp back --dry-run        # 只打印要执行的 tmux 命令
 pp todo
 pp todo attach 2
 pp todo answer 2 "用方案 B，别动数据库"   # 就地答复，条目随即消失
+pp todo answer 1 "方案 B" --node work-01   # 那条待办在别的机器上，就在那边回答
+
 pp todo done 2 5
 pp todo add "看一下这份迁移方案" --session backend
 pp todo ls --all --json
