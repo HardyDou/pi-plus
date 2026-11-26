@@ -116,7 +116,7 @@ pp tui --diag
 | `pp node test` 报 `password_env PP_X is not set` | 密码变量在当前环境里没有值。`export PP_X=…`，或改用 `--identity`。pp 不会偷偷退回去用密钥。 |
 | `node "x" uses a password, which needs sshpass` | 远端/本机没装 `sshpass`（`apt install sshpass`），或者改用密钥登录。 |
 | `ssh is not installed (or not on PATH)` | `PATH` 里找不到 ssh 客户端。 |
-| `node "x": ssh to user@host timed out` | 端口/防火墙/`ConnectTimeout=10` 之内没握手成功；先用 `pp node ssh x` 手试。 |
+| `node "x": ssh to user@host timed out` | 端口/防火墙/`ConnectTimeout=4` 之内没握手成功；先用 `pp node ssh x` 手试。 |
 | `pp ls` 整台机器显示 `unreachable` | ssh 层就不通（密钥、端口、`sshd`、`sshpass`）。`pp node test x` 会给一句人话。 |
 | `pp up` 说已启动但状态 `off` | 远端没装 tmux（`pp node test` 会写 `tmux missing`），或 `tmux.socket` 名字在远端没有对应 server。 |
 | `session "x": node "y" is not defined under "nodes"` | `sessions[].node` 写错或 `nodes:` 里删掉了它。`pp doctor --brief` 会指出具体会话。 |

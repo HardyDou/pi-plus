@@ -78,7 +78,7 @@ test("ssh is invoked without a password in argv", () => {
   const node = normalizeNode({ name: "prod", host: "10.0.0.11", user: "deploy", port: 2222 }, 0, "/tmp/x.yml", []);
   const plain = sshInvocation(node, ["tmux", "ls"], { batch: true });
   assert.equal(plain.command, "ssh");
-  assert.deepEqual(plain.argv, ["-p", "2222", "-o", "ConnectTimeout=10", "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes", "deploy@10.0.0.11", "tmux", "ls"]);
+  assert.deepEqual(plain.argv, ["-p", "2222", "-o", "ConnectTimeout=4", "-o", "StrictHostKeyChecking=accept-new", "-o", "BatchMode=yes", "deploy@10.0.0.11", "tmux", "ls"]);
   assert.deepEqual(plain.env, {}, "no secret to pass");
 
   const withPass = normalizeNode({ ...node, password: "s3cret" }, 0, "/tmp/x.yml", []);

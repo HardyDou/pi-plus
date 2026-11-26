@@ -121,6 +121,7 @@ function parseArgs(argv) {
         break;
       case "--started": options.started = true; break;
         case "--fresh": options.fresh = true; break;
+        case "--live": options.live = true; break;
         case "--brief": options.brief = true; break;
         case "--quarantine": options.quarantine = true; break;
         case "--keep": options.keep = takeValue(flag, inline); break;

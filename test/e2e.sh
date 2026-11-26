@@ -884,6 +884,18 @@ exec sh -c "$*"
 SHIMSH
 chmod +x "$SHIM/ssh"
 
+SCOPECFG="$E2E/scope.yml"
+cat > "$SCOPECFG" <<'YAML'
+version: 1
+nodes:
+  - name: far2
+    host: 127.0.0.1
+    user: nobody
+sessions:
+  - name: local-one
+    cwd: /tmp
+YAML
+
 NODECFG="$E2E/nodes.yml"
 cat > "$NODECFG" <<'YAML'
 version: 1
@@ -924,19 +936,23 @@ check "a dead node is unreachable, not stopped" 0 'unreachable'    bash -c "cd $
 # Sessions running on a machine but missing from the config used to be invisible:
 # `pp ls` on a laptop with one local session could not see the nine on its node.
 tmux -L "$SOCK" new-session -d -s far-stray "sleep 7200" 2>/dev/null || true
-check "a session on a node shows up in pp ls"  0 '^1$'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls | grep -c far-stray"
+check "the table asks only what is written down" 0 '0/1 node asked'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls"
+check "and says which it skipped"                0 'not asked: far2'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls"
+check "--all asks every machine"                 0 '1/1 node asked'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --all"
+check "--node asks just that one"                0 '1/1 node asked'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --node far2"
+check "a session on a node shows up in pp ls"  0 '^1$'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls --all | grep -c far-stray"
 check "and it is marked unmanaged"             0 'unmanaged'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls | grep -i unmanaged"
 check "attach works on such a session"         0 'attach-session' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach far-stray --dry-run"
 check "logs works on such a session"           0 ''            bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK logs far-stray -n 2"
 # the numbers in the table must mean the same thing to the commands
 check "a row number reaches an unmanaged session" 0 'attach-session' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach 3 --dry-run"
-check "the CWD of an unmanaged session is known"  0 ''  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls --json | node -e 'const j=JSON.parse(require(\"fs\").readFileSync(0,\"utf8\")); const r=j.sessions.find((s)=>s.name===\"far-stray\"); process.exit(r && r.cwd ? 0 : 1)'"
+check "the CWD of an unmanaged session is known"  0 ''  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls --all --json | node -e 'const j=JSON.parse(require(\"fs\").readFileSync(0,\"utf8\")); const r=j.sessions.find((s)=>s.name===\"far-stray\"); process.exit(r && r.cwd ? 0 : 1)'"
 tmux -L "$SOCK" kill-session -t far-stray 2>/dev/null || true
 check "node test runs the probe"     0 'host +[A-Za-z0-9]'       bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG node test far"
 # maintenance: drain stops an accidental start, undrain gives the machine back
 check "--force still starts it"       0 '1 would start'            bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK --dry-run --force up far-x 2>&1"
 # --force is not a licence to kill things on a box that is being patched
-check "the blocked stop really did not stop it" 0 'running'       bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls far-x | sed -n 2p"
+check "the blocked stop really did not stop it" 0 'running'       bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls --all far-x | sed -n 2p"
 check "down --force --yes stops it"   0 '1 stopped'                bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK down --force --yes far-x 2>&1 | tail -2"
 # put the session back: the sections after this one expect it running
 check "far-x is back for the next section" 0 '1 started'           bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK up --force far-x 2>&1 | grep -E '1 started'"
@@ -1111,7 +1127,7 @@ sessions:
 YAML
 check "node rm refuses a referenced node" 1 'still run on'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK node rm far"
 check "ls --node filters"            0 'far-x'                  bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls --node far"
-check "ls --node hides other nodes"  0 '^$'                     bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/add.yml --socket $SOCK ls --node far | grep -v 'no sessions' || true"
+check "ls --node hides other nodes"  0 '^0$'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $E2E/add.yml --socket $SOCK ls --node far | grep -c 'stray-x' || true"
 check "ls --node rejects an unknown node" 2 'no node'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls --node nope"
 check "node help page"               0 'sshpass'                 bash -c "cd $E2E && $ROOT/bin/pp.js help node"
 check "node appears in the overview" 0 'node \(nodes\)'          bash -c "cd $E2E && $ROOT/bin/pp.js help"

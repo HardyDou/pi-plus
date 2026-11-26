@@ -1963,7 +1963,6 @@ const fromCache = (entry) => {
 async function cmdStatus(config, options, ui) {
   if (options.watch !== undefined && !options.json) return cmdStatusWatch(config, options, ui);
   // status lists every configured session, whatever its restart policy.
-  const sessions = selectSessions(config, options.names, ui, { all: true, options });
   // `--node work-01` means "what runs on work-01", including the sessions
   // nobody wrote down: an empty config for that machine is not an empty machine
   // One tmux query per machine, not one per session: a node is expensive to
@@ -1975,12 +1974,26 @@ async function cmdStatus(config, options, ui) {
   const unreachable = new Set();
   const nodeCache = readNodeCache();
   const ttlMs = NODE_TTL_SECONDS * 1000;
+  // A machine nobody wrote a session for is not worth an ssh on every `pp ls`:
+  // six nodes over the open internet is six timeouts. It is asked when asked
+  // (`--live`), and its last answer is reused for free while it is still warm.
+  const wanted = new Set(nodesToProbe(config));
+  const askedNot = [];
   await Promise.all(
     [null, ...(config.nodes ?? []).map((node) => node.name)].map(async (nodeName) => {
       const key = nodeName ?? "";
       const handle = makeTmux(config, options, { node: nodeName });
       const cached = nodeName ? nodeCache[nodeName] : null;
-      if (nodeName && !options.fresh && cached && Date.now() - Number(cached.at ?? 0) < ttlMs) {
+      const warm = Boolean(cached) && !options.fresh && Date.now() - Number(cached.at ?? 0) < ttlMs;
+      const asked = Boolean(options.live) || Boolean(options.all) || Boolean(options.node);
+      if (nodeName && !wanted.has(nodeName) && !asked && !warm) {
+        // nothing written down for it and nothing warm to show: skip the trip
+        askedNot.push(nodeName);
+        liveCache.set(key, new Map());
+        clientCache.set(key, []);
+        return;
+      }
+      if (nodeName && warm) {
         liveCache.set(key, fromCache(cached.sessions));
         clientCache.set(key, []);
         return;
@@ -2072,6 +2085,13 @@ async function cmdStatus(config, options, ui) {
     return (tmuxName) => counts.get(tmuxName) ?? 0;
   })();
 
+  // Whose sessions? By default this machine's: an operator looking at their own
+  // box should not wait for six ssh round trips. `--node x` is one machine,
+  // `--all` (or `--live`) is every machine that is written down.
+  const scope = options.node ? String(options.node) : options.all || options.live ? null : "";
+  const inScope = (session) => (scope === null ? true : (session.node ?? "") === scope);
+  const scopeNodes = scope === null ? (config.nodes ?? []).map((node) => node.name) : scope ? [scope] : [];
+  const sessions = selectSessions(config, options.names, ui, { all: true, options }).filter(inScope);
   const rows = sessions.map((session) => {
     const entry = liveFor(session.node).get(session.tmuxName);
     const pane = entry?.panes[0];
@@ -2177,10 +2197,10 @@ async function cmdStatus(config, options, ui) {
   // discoverable with `pp adopt`, and promoting them to rows would renumber
   // every table on a busy machine. The rows are for *other* machines, which
   // had no way to be seen at all.
-  for (const node of config.nodes ?? []) {
-    for (const [tmuxName, entry] of liveFor(node.name)) {
-      if (configuredKeys.has(`${node.name}:${tmuxName}`)) continue;
-      addStray(node.name, tmuxName, entry);
+  for (const nodeName of scopeNodes) {
+    for (const [tmuxName, entry] of liveFor(nodeName)) {
+      if (configuredKeys.has(`${nodeName}:${tmuxName}`)) continue;
+      addStray(nodeName, tmuxName, entry);
     }
   }
 
@@ -2419,16 +2439,28 @@ async function cmdStatus(config, options, ui) {
       extras.push(ui.paint("yellow", `${unmanaged.length} unmanaged`));
       notes.push(`${unmanaged.length} unmanaged session(s) are in tmux but not in the config: ${unmanaged.slice(0, 3).join(", ")}${unmanaged.length > 3 ? ", …" : ""} — pp adopt`);
     }
-    if (config.nodes?.length) extras.push(ui.paint("dim", `${config.nodes.length} node${config.nodes.length === 1 ? "" : "s"}`));
+    if (config.nodes?.length) {
+      const asked = config.nodes.length - askedNot.length;
+      extras.push(ui.paint("dim", `${asked}/${config.nodes.length} node${config.nodes.length === 1 ? "" : "s"} asked`));
+    }
     if (unreachableNodes.length) extras.push(ui.paint("red", `unreachable: ${unreachableNodes.join(", ")}`));
     ui.out(short(`\n${running}/${shown.length} running${downText}${extras.length ? `  ${extras.join("  ")}` : ""}  ${ui.paint("dim", `config: ${config.path}`)}`));
     if (sortKey !== "config" && shown.length) notes.push(`sorted by ${sortKey}; # is the row number you are looking at`);
     if (rows.some((r) => r.reason === "hand")) notes.push("(hand) = stopped on purpose; pp up <name> brings it back");
     if (rows.some((r) => r.reason === "drain")) notes.push("(drain) = machine under maintenance; pp node undrain <name> lets it start");
     if (showCron) notes.push("cron: jobs aimed here (* = every session)");
-    const idleNodes = (config.nodes ?? []).filter((node) => !shown.some((row) => row.node === node.name)).map((node) => node.name);
+    // asked about, but nothing written down for it
+    const idleNodes = (config.nodes ?? [])
+      .filter((node) => !askedNot.includes(node.name) && !shown.some((row) => row.node === node.name))
+      .map((node) => node.name);
     if (idleNodes.length) {
       notes.push(`no session on ${idleNodes.join(", ")} yet — pp new --node ${idleNodes[0]} -C <dir> --save   (pp fleet shows what runs there)`);
+    }
+    // not asked this time: say so, and say how to ask
+    if (askedNot.length) {
+      notes.push(
+        `${askedNot.length} machine(s) not asked: ${askedNot.slice(0, 4).join(", ")}${askedNot.length > 4 ? ", …" : ""} — pp ls --live   (pp fleet always asks)`,
+      );
     }
     for (const note of notes) ui.info(ui.paint("dim", short(note)));
   }
@@ -2688,7 +2720,12 @@ async function cmdTui(config, options, ui) {
   // every configured machine is asked, not only the ones that already have a
   // session in the config: a session that is running there but not written down
   // is exactly what the panel should show
-  const nodesInUse = () => (config.nodes ?? []).map((node) => node.name);
+  // The panel is about one machine at a time. Local by default: a refresh
+  // every second must not be six ssh round trips. `n` cycles the scope.
+  const scopes = ["", ...(config.nodes ?? []).map((node) => node.name)];
+  let scopeIndex = 0;
+  const scope = () => scopes[scopeIndex] ?? "";
+  const nodesInUse = () => (scope() ? [scope()] : []);
   const readLive = ({ fresh = false } = {}) => {
     const live = new Map();
     const owner = new Map();
@@ -2727,7 +2764,9 @@ async function cmdTui(config, options, ui) {
     const layout = computeLayout(cols, rows, { leftWidth, todoCount: onceTodos.length });
     const { live, owner } = readLive();
     const sortKey = options.sort ?? config.sort ?? "config";
-    const sessionRows = ordered(tuiSessionRows(config, live, { stuck: stuckNow(), owner }), sortKey);
+    const sessionRows = ordered(tuiSessionRows(config, live, { stuck: stuckNow(), owner }), sortKey).filter(
+      (row) => (row.node ?? "") === scope(),
+    );
     function ordered(rows, key) {
       // --once should show the same order the live panel would
       if (key === "name") return [...rows].sort((a, b) => compareNames(a.name, b.name));
@@ -2755,7 +2794,7 @@ async function cmdTui(config, options, ui) {
       todos: onceTodos,
       machines: machineSummary(sessionRows),
       focus: "sessions",
-      footer: `${onceDrift ? `${onceDrift} · ` : ""}pp tui --once  (--left 30 adjusts the sessions column)`,
+      footer: `${onceDrift ? `${onceDrift} · ` : ""}${scope() || "local"} · pp tui --once  (n cycles machines, --left 30 sets the width)`,
     };
     for (const line of renderFrame(model, layout)) ui.out(line);
     return;
@@ -2822,9 +2861,17 @@ async function cmdTui(config, options, ui) {
       isTTY: Boolean(process.stdin.isTTY),
       size: screenSize,
       onResize: (callback) => process.stdout.on("resize", callback),
+      async cycleScope() {
+        scopeIndex = (scopeIndex + 1) % scopes.length;
+        remoteCache.clear();
+        return scope() || "local";
+      },
       async refresh({ index = 0 } = {}) {
         const { live, owner } = readLive();
-        const sessions = tuiSessionRows(config, live, { stuck: stuckNow(), owner });
+        const wanted = scope();
+        const sessions = tuiSessionRows(config, live, { stuck: stuckNow(), owner }).filter(
+          (row) => (row.node ?? "") === wanted,
+        );
         const todos = tuiTodoRows(filterTodos(readTodos()), Date.now());
         // no pane capture: the panel lists what exists, tmux draws the rest
         return { sessions, todos };

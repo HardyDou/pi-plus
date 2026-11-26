@@ -134,6 +134,7 @@ export function parseKeys(input) {
       else if (char === "g") keys.push("top");
       else if (char === "G") keys.push("bottom");
       else if (char === "s") keys.push("sort");
+      else if (char === "n") keys.push("scope");
       else if (char === "D") keys.push("drift");
       else if (char === "/") keys.push("filter");
       i += 1;
@@ -657,6 +658,14 @@ export function createTui({
       const next = SORTS[(SORTS.indexOf(state.sort) + 1) % SORTS.length];
       state.sort = next;
       await refresh(`sorted: ${{ config: "config order", idle: "quietest first", name: "by name", role: "by role" }[next]} (s cycles)`);
+      state.noteUntil = Date.now() + 5000;
+      return;
+    }
+    if (key === "scope") {
+      // which machine the list is about: local by default, so a panel on a
+      // laptop does not ssh six times a second
+      const label = (await io.cycleScope?.()) ?? "local";
+      await refresh(`machine: ${label} (n cycles)`);
       state.noteUntil = Date.now() + 5000;
       return;
     }

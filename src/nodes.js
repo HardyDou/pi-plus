@@ -284,7 +284,9 @@ export function sshInvocation(node, remoteCommand = [], { env = process.env, bat
   const options = [];
   if (node.port && node.port !== DEFAULT_PORT) options.push("-p", String(node.port));
   if (node.identity) options.push("-i", node.identity);
-  options.push("-o", "ConnectTimeout=10");
+  // 4s, not 10: a status table that waits ten seconds per unreachable machine
+  // is a table nobody asks for twice. `pp node test` has its own timeout.
+  options.push("-o", "ConnectTimeout=4");
   options.push("-o", "StrictHostKeyChecking=accept-new");
   if (batch && !password) options.push("-o", "BatchMode=yes");
   if (tty) options.push("-t");

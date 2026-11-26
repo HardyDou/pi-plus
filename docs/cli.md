@@ -112,6 +112,28 @@ Without a terminal (a script, an autostart job) it refuses unless `--force` is
 given. Comments elsewhere in the file survive — only the deleted block is
 rewritten, so the diff stays small.
 
+### `pp ls` 看到的是哪台机器
+
+默认是**这一台**。
+
+```bash
+pp ls                       # 本机（不问任何节点）
+pp ls --node work-01        # 那台机器，包括没人写进配置的会话
+pp ls --all                 # nodes: 里所有机器
+pp ls --live                # 连"没有任何会话写在配置里"的机器也问
+```
+
+为什么不默认问所有机器：六台节点串行 ssh 是秒级 —— 一张要等的表，人不会问第二次。
+尾行会写清楚跳过了几台：
+
+```
+9/9 running  1/2 nodes asked  config: ~/.pi/plus.yml
+2 machine(s) not asked: blog, nas — pp ls --live   (pp fleet always asks)
+```
+
+`pp tui` 同理：默认只看本机，按 `n` 在那台机器之间循环（`machine: work-01 (n cycles)`），
+远端结果缓存在 `$XDG_STATE_HOME/pi-plus/node-live.json`，`PP_NODE_TTL`（默认 15 秒）内不重复问。
+
 ### `pp status` 的尾行
 
 ```

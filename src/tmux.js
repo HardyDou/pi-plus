@@ -382,7 +382,11 @@ export class Tmux {
    */
   async listSessionsStrict() {
     const res = await this.runAsync(SESSION_QUERY);
-    return res.status === 0 ? parseSessionLines(res.stdout) : null;
+    if (res.status === 0) return parseSessionLines(res.stdout);
+    // "no server running" is an empty machine, not a broken one: tmux exits 1
+    // for both, and only the message tells them apart
+    if (/no server running|no sessions|error connecting to/i.test(String(res.stderr))) return new Map();
+    return null;
   }
 
   /** Map of attached clients: [{ name, session, activity, user, tty }]. */
