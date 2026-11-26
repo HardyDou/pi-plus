@@ -971,8 +971,10 @@ check "and it is marked unmanaged"             0 'unmanaged'   bash -c "cd $E2E 
 check "attach works on such a session"         0 'attach-session' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach far-stray --dry-run"
 check "logs works on such a session"           0 ''            bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK logs far-stray -n 2"
 # the numbers in the table must mean the same thing to the commands
-check "attach takes a name, not a row number" 2 'takes a name, not a row number: pp attach .' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach 3 --dry-run"
-check "and the name still works"            0 'attach-session'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach far-x --dry-run"
+check "attach takes a name"                  0 'attach-session'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach far-x --dry-run"
+PATH=$SHIM:$PATH "$ROOT/bin/pp.js" -c "$NODECFG" --socket "$SOCK" ls > "$E2E/far.txt" 2>&1 || true
+FAR_ROW=$(grep -F 'far-x' "$E2E/far.txt" | head -1 | cut -d' ' -f1)
+check "and a row number resolves to the name" 0 'is far-x on far' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach $FAR_ROW -v --dry-run"
 check "the CWD of an unmanaged session is known"  0 ''  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls --all --json | node -e 'const j=JSON.parse(require(\"fs\").readFileSync(0,\"utf8\")); const r=j.sessions.find((s)=>s.name===\"far-stray\"); process.exit(r && r.cwd ? 0 : 1)'"
 tmux -L "$SOCK" kill-session -t far-stray 2>/dev/null || true
 check "node test runs the probe"     0 'host +[A-Za-z0-9]'       bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG node test far"
