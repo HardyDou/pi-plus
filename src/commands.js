@@ -2898,13 +2898,26 @@ async function cmdTui(config, options, ui) {
     const onceOff = sessionRows.filter((row) => row.state === "off" || row.state === "dead" || row.state === "stopped").length;
     const onceStrays = sessionRows.filter((row) => row.unmanaged).length;
     const onceDrift = [onceOff ? `${onceOff} off` : null, onceStrays ? `${onceStrays} unmanaged` : null].filter(Boolean).join(" · ");
+    const cacheAge = (() => {
+      const cache = readNodeCache();
+      const ages = Object.entries(cache)
+        .map(([name, entry]) => [name, Date.now() - Date.parse(entry.at ?? 0)])
+        .filter(([, ms]) => Number.isFinite(ms));
+      if (!ages.length) return "no cache — pp sync";
+      // the freshest entry is the honest headline; negative means a clock skew
+      const [name, raw] = ages.sort((a, b) => a[1] - b[1])[0];
+      const ms = Math.max(0, raw);
+      if (!Number.isFinite(ms)) return `cache ${name} aged ?`;
+      const minutes = Math.floor(ms / 60000);
+      return minutes >= 1 ? `cache ${name} ${minutes}m` : `cache ${name} ${Math.floor(ms / 1000)}s`;
+    })();
     const model = {
       nodes: onceNodes,
       sessions: sessionRows,
       todos: onceTodos,
       machines: machineSummary(sessionRows),
       focus: "sessions",
-      footer: `${onceDrift ? `${onceDrift} · ` : ""}${scope() || "local"} · pp tui --once  (n cycles machines, --left 30 sets the width)`,
+      footer: `${onceDrift ? `${onceDrift} · ` : ""}${cacheAge} · pp tui --once`,
     };
     for (const line of renderFrame(model, layout)) ui.out(line);
     return;
