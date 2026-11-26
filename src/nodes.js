@@ -277,6 +277,16 @@ export const CONFIG_DUMP = [
   'if [ -f "$cfg" ]; then echo "path=$cfg"; base64 -w0 < "$cfg" 2>/dev/null || base64 < "$cfg"; else echo "path="; fi',
 ].join("; ");
 
+/**
+ * Ask a machine for its todo list. Todos are written where the agent runs, so
+ * the only way to see another machine's is to ask it.
+ */
+export const TODO_DUMP = [
+  'd="$HOME/.local/state/pi-plus/todos.json"',
+  'if [ ! -f "$d" ]; then d="${XDG_STATE_HOME:-$HOME/.local/state}/pi-plus/todos.json"; fi',
+  'if [ -f "$d" ]; then echo "todos=$d"; base64 -w0 < "$d" 2>/dev/null || base64 < "$d"; else echo "todos="; fi',
+].join("; ");
+
 export function nodeTarget(node) {
   return node.user ? `${node.user}@${node.host}` : node.host;
 }

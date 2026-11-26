@@ -36,7 +36,8 @@ import {
   removeAlias,
 } from "./aliases.js";
 import { contentSignature, hasEditor, isRule, lastActionLine, looksBusy, parseSessionLines, resolveExecutable, SESSION_QUERY, Tmux } from "./tmux.js";
-import { authSummary, CONFIG_DUMP, nodeTarget, normalizeNode, NodeError, parseProbe, parseSshConfig, PROBE_SCRIPT, removeNodeFromFile, renderNodeBlock, runOnNode, runOnNodeAsync, sshInvocation, tightenConfigMode, upsertNodeInFile } from "./nodes.js";
+import { authSummary, CONFIG_DUMP, nodeTarget, normalizeNode, NodeError, parseProbe, parseSshConfig, PROBE_SCRIPT,
+  TODO_DUMP, removeNodeFromFile, renderNodeBlock, runOnNode, runOnNodeAsync, sshInvocation, tightenConfigMode, upsertNodeInFile } from "./nodes.js";
 import { installAutostart, uninstallAutostart, autostartState, describeAutostart, isWsl, launchAgentPath, systemdUserDir } from "./autostart.js";
 import { describeStateFiles, inspectStateFiles, quarantineStateFile } from "./selfcheck.js";
 import {
@@ -2736,6 +2737,30 @@ export function tuiSessionRows(config, live, { stuck = null, owner = null } = {}
   return rows;
 }
 
+/**
+ * Todos that `pp sync` brought back from other machines. They are read-only
+ * here: answering one means typing into a session on that machine, which
+ * `pp todo answer` does not do across ssh (yet) — the row still says what needs
+ * a human, and Enter jumps into the session.
+ */
+export function remoteTodoRows(cache = readNodeCache(), now = Date.now()) {
+  const rows = [];
+  for (const [nodeName, entry] of Object.entries(cache ?? {})) {
+    for (const todo of Array.isArray(entry?.todos) ? entry.todos : []) {
+      if (!todo || todo.state === "done") continue;
+      rows.push({
+        name: todo.session,
+        session: todo.session,
+        ref: todo.id,
+        node: nodeName,
+        remote: true,
+        label: `${String(rows.length + 1).padStart(2)}. @${nodeName} ${todo.session} — ${todo.title} (${agoString(todo.createdAt, now)}, ${todo.kind})`,
+      });
+    }
+  }
+  return rows;
+}
+
 function tuiTodoRows(todos, now) {
   return todos.map((todo, index) => ({
     name: todo.session,
@@ -2895,7 +2920,7 @@ async function cmdTui(config, options, ui) {
     const rows = process.stdout.rows || 30;
     // the todo box grows with its content, so its size has to be known before
     // the layout: the snapshot used to clip the second todo and say nothing
-    const onceTodos = tuiTodoRows(filterTodos(readTodos()), Date.now());
+    const onceTodos = [...tuiTodoRows(filterTodos(readTodos()), Date.now()), ...remoteTodoRows()];
     const { live, owner } = readLive();
     const sortKey = options.sort ?? config.sort ?? "config";
     const sessionRows = ordered(tuiSessionRows(config, live, { stuck: stuckNow(), owner }), sortKey);
@@ -3048,7 +3073,7 @@ async function cmdTui(config, options, ui) {
           const host = name ? hostOf.get(name) || "" : "";
           return { name, index, label: truncateWidth(`${name || "local"} ${host}`, 27), dim: !name };
         });
-        const todos = tuiTodoRows(filterTodos(readTodos()), Date.now());
+        const todos = [...tuiTodoRows(filterTodos(readTodos()), Date.now()), ...remoteTodoRows()];
         // no pane capture: the panel lists what exists, tmux draws the rest
         return { sessions, todos, nodes };
       },
@@ -3862,6 +3887,28 @@ export function remoteSessionIndex(dump) {
 }
 
 /**
+ * The waiting todos a machine reported, tagged with the machine they live on.
+ */
+export function remoteTodos(dump, nodeName) {
+  const text = String(dump ?? "");
+  const base64 = text
+    .split("\n")
+    .filter((line) => !line.startsWith("todos="))
+    .join("")
+    .trim();
+  if (!base64) return [];
+  let parsed;
+  try {
+    parsed = JSON.parse(Buffer.from(base64, "base64").toString("utf8"));
+  } catch {
+    return [];
+  }
+  return (Array.isArray(parsed?.todos) ? parsed.todos : [])
+    .filter((todo) => todo && todo.state !== "done")
+    .map((todo) => ({ ...todo, node: nodeName }));
+}
+
+/**
  * Pull what every machine is running, and keep it in the cache `pp ls` reads.
  *
  * Pull, not push: the machines do not know each other and most of them have no
@@ -3891,9 +3938,10 @@ async function cmdSync(config, options, ui) {
         .map(shellQuote)
         .join(" ");
       const dumpCommand = CONFIG_DUMP;
-      const [result, dump] = await Promise.all([
+      const [result, dump, todoDump] = await Promise.all([
         runOnNodeAsync(node, [remote], { timeout: 15000 }),
         runOnNodeAsync(node, [dumpCommand], { timeout: 15000 }).catch(() => null),
+        runOnNodeAsync(node, [TODO_DUMP], { timeout: 15000 }).catch(() => null),
       ]);
       const ms = Date.now() - at;
       if (result.error) return { node: node.name, ok: false, ms, error: result.error.message ?? "ssh failed", why: "unreachable" };
@@ -3916,6 +3964,7 @@ async function cmdSync(config, options, ui) {
           sessions: new Map(),
           tmux: false,
           declared,
+          todos: todoDump && !todoDump.error ? remoteTodos(todoDump.stdout, node.name) : [],
           error: null,
           why: null,
         };
@@ -3926,6 +3975,7 @@ async function cmdSync(config, options, ui) {
         ms,
         sessions,
         declared,
+        todos: todoDump && !todoDump.error ? remoteTodos(todoDump.stdout, node.name) : [],
         tmux: true,
         error: ok ? null : first,
         why: ok ? null : "unreachable",
@@ -3944,6 +3994,7 @@ async function cmdSync(config, options, ui) {
       config: row.declared
         ? { path: row.declared.path, sessions: Object.fromEntries(row.declared.sessions) }
         : undefined,
+      todos: row.todos ?? [],
     };
   }
   writeNodeCache(cache);
