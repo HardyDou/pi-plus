@@ -720,3 +720,14 @@ test("a slow frame never queues another one behind it", async () => {
   assert.equal(worst, 1, "frames never overlap");
   assert.ok(refreshes < 12, `the panel backed off instead of hammering (${refreshes} frames)`);
 });
+
+test("the keys a laptop actually has", async () => {
+  const { parseKeys } = await import("../src/tui.js");
+  assert.deepEqual(parseKeys(" "), ["pagedown"], "space pages down");
+  assert.deepEqual(parseKeys("b"), ["pageup"], "b pages up");
+  assert.deepEqual(parseKeys("\u0004"), ["pagedown"], "ctrl-d pages down");
+  assert.deepEqual(parseKeys("\u0015"), ["pageup"], "ctrl-u pages up");
+  assert.deepEqual(parseKeys("\u001b[C"), ["nextPanel"], "right arrow: next column");
+  assert.deepEqual(parseKeys("\u001b[D"), ["prevPanel"], "left arrow: previous column");
+  assert.deepEqual(parseKeys("\u001b[A"), ["up"], "up arrow: previous row");
+});

@@ -103,6 +103,13 @@ export function parseKeys(input) {
     } else if (rest.startsWith("\u001b[B") || rest.startsWith("\u001bOB")) {
       keys.push("down");
       i += 3;
+    } else if (rest.startsWith("\u001b[D") || rest.startsWith("\u001bOD")) {
+      // left/right move between the three lists
+      keys.push("prevPanel");
+      i += 3;
+    } else if (rest.startsWith("\u001b[C") || rest.startsWith("\u001bOC")) {
+      keys.push("nextPanel");
+      i += 3;
     } else if (rest.startsWith("\u001b[5~")) {
       keys.push("pageup");
       i += 4;
@@ -118,11 +125,29 @@ export function parseKeys(input) {
     } else if (rest.startsWith("\t")) {
       keys.push("tab");
       i += 1;
+    } else if (rest[0] === "\u0015") {
+      // ctrl-u / ctrl-d: the page keys a laptop does not have
+      keys.push("pageup");
+      i += 1;
+    } else if (rest[0] === "\u0004") {
+      keys.push("pagedown");
+      i += 1;
     } else if (rest.startsWith("\u0003")) {
       keys.push("quit");
       i += 1;
     } else {
       const char = rest[0];
+      // space pages down, b pages up: the keys every keyboard has
+      if (char === " ") {
+        keys.push("pagedown");
+        i += 1;
+        continue;
+      }
+      if (char === "b") {
+        keys.push("pageup");
+        i += 1;
+        continue;
+      }
       if (char === "q") keys.push("quit");
       else if (char === "j") keys.push("down");
       else if (char === "k") keys.push("up");
@@ -294,7 +319,9 @@ export function renderFrame(state, layout) {
   const nodeBox = layout.nodes
     ? boxLines(layout.nodes, `machines (${(state.nodes ?? []).length})`, nodeRows, { focus: state.focus === "nodes" })
     : [];
-  const left = boxLines(layout.sessions, `sessions (${state.sessions.length})${state.machines ? ` · ${state.machines}` : ""}`, sessionRows, { focus: state.focus === "sessions" });
+  // the machines column already says which machines: no "local 2 · work-01 9"
+  // in the title, it only made the title too long to read
+  const left = boxLines(layout.sessions, `sessions (${state.sessions.length})`, sessionRows, { focus: state.focus === "sessions" });
   const rightTop = boxLines(layout.todos, `todo (${state.todos.length})`, todoRows, { focus: state.focus === "todos" });
 
   const out = [];
@@ -429,7 +456,7 @@ export function createTui({
     const total = state.sessions.length;
     const shown = filteredIndices().length;
     const filterNote = state.filter ? `filter: ${state.filter} (${shown}/${total}) · / clear · ` : "/ find · ";
-    const base = ` ↑↓ move · PgUp/PgDn · Tab · Enter attach · ${filterNote}d done · D start what is off · [ ] width · q quit `;
+    const base = ` ↑↓ move · ←→ column · Space/b page · Enter attach · ${filterNote}d done · D start what is off · q quit `;
     // the panel stretched its own interval because the link could not keep up:
     // say so, otherwise "why is it not updating" has no answer on screen
     const slow = interval > baseIntervalMs ? `slow ${(interval / 1000).toFixed(1)}s · ` : "";
@@ -700,10 +727,11 @@ export function createTui({
       state.noteUntil = Date.now() + 5000;
       return;
     }
-    if (key === "tab") {
+    if (key === "tab" || key === "nextPanel" || key === "prevPanel") {
       const ring = ["nodes", "sessions", "todos"];
       const at = ring.indexOf(state.focus);
-      state.focus = ring[(at + 1) % ring.length];
+      const step = key === "prevPanel" ? ring.length - 1 : 1;
+      state.focus = ring[(at + step) % ring.length];
       draw();
       return;
     }
@@ -746,7 +774,7 @@ export function createTui({
       return;
     }
     if (key === "help") {
-      await refresh("↑↓/jk move · Tab switch panel · Enter attach · d close todo · D start what is off · r redraw · q quit", { sticky: true });
+      await refresh("↑↓/jk move · ←→/Tab switch column · Enter attach · d close todo · D start what is off · r redraw · q quit", { sticky: true });
       return;
     }
     if (key === "drift") {

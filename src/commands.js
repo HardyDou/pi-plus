@@ -2815,7 +2815,15 @@ async function cmdTui(config, options, ui) {
   const scopes = ["", ...(config.nodes ?? []).map((node) => node.name)];
   let scopeIndex = 0;
   const scope = () => scopes[scopeIndex] ?? "";
-  const nodesInUse = () => (scope() ? [scope()] : []);
+  // The panel shows sessions from every machine `pp sync` has pulled, not only
+  // the ones the config names: on a laptop the interesting sessions all live on
+  // one box that the config may never mention.
+  const nodesInUse = () => {
+    const pulled = Object.keys(readNodeCache());
+    const known = (config.nodes ?? []).map((node) => node.name);
+    const useful = known.filter((name) => pulled.includes(name) || nodesToProbe(config).includes(name));
+    return scope() ? [scope()] : useful;
+  };
   const readLive = ({ fresh = false } = {}) => {
     const live = new Map();
     const owner = new Map();
