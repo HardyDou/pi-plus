@@ -201,14 +201,18 @@ export function computeLayout(cols, rows, { leftWidth: wanted = 0, todoCount = 0
 
   if (mode === "stacked") {
     const todos = todoHeight ? Math.max(TODO_MIN_HEIGHT, Math.min(todoBoxHeight(todoCount, body), body - 4)) : 0;
-    const sessionsHeight = body - todos;
+    // machines on top, then sessions, then todo: a narrow terminal still gets
+    // all three lists, just stacked
+    const machinesHeight = Number(nodes) > 1 ? Math.min(Number(nodes) + 2, Math.max(3, Math.floor(body / 3))) : 0;
+    const sessionsHeight = body - todos - machinesHeight;
     return {
       width,
       height,
       mode,
       todoHeight: todos,
-      sessions: { x: 0, y: 0, w: width, h: sessionsHeight },
-      todos: { x: 0, y: sessionsHeight, w: width, h: todos },
+      nodes: machinesHeight ? { x: 0, y: 0, w: width, h: machinesHeight } : null,
+      sessions: { x: 0, y: machinesHeight, w: width, h: sessionsHeight },
+      todos: { x: 0, y: machinesHeight + sessionsHeight, w: width, h: todos },
       footer: { x: 0, y: body, w: width, h: footer },
     };
   }
@@ -296,6 +300,7 @@ export function renderFrame(state, layout) {
   const out = [];
   if (layout.mode === "stacked") {
     for (const [block, rect] of [
+      [nodeBox, layout.nodes],
       [left, layout.sessions],
       [rightTop, layout.todos],
     ]) {
@@ -551,7 +556,11 @@ export function createTui({
 
   function draw() {
     const { cols, rows } = io.size();
-    const layout = computeLayout(cols, rows, { leftWidth: state.leftWidth, todoCount: state.todos.length });
+    const layout = computeLayout(cols, rows, {
+      leftWidth: state.leftWidth,
+      todoCount: state.todos.length,
+      nodes: (state.nodes ?? []).length,
+    });
     const model = indexItems();
     model.footer = footerText(state.note ?? "");
     // never paint more rows than the terminal actually has
@@ -581,6 +590,7 @@ export function createTui({
     const note = [extra, kept].filter(Boolean).join(" · ");
     state.sessions = data.sessions ?? [];
     state.todos = data.todos ?? [];
+    state.nodes = data.nodes ?? [];
     state.sessionIndex = Math.min(state.sessionIndex, Math.max(0, state.sessions.length - 1));
     state.todoIndex = Math.min(state.todoIndex, Math.max(0, state.todos.length - 1));
     state.note = note;
@@ -634,7 +644,11 @@ export function createTui({
   /** How many rows the focused panel can show right now. */
   function panelHeight(focus) {
     const { cols, rows } = io.size();
-    const layout = computeLayout(cols, rows, { leftWidth: state.leftWidth, todoCount: state.todos.length });
+    const layout = computeLayout(cols, rows, {
+      leftWidth: state.leftWidth,
+      todoCount: state.todos.length,
+      nodes: (state.nodes ?? []).length,
+    });
     const box = focus === "sessions" ? layout.sessions : layout.todos;
     return Math.max(1, (box?.h ?? 3) - 2);
   }

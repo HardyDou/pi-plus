@@ -768,6 +768,7 @@ check "todo attach marks seen"     0 '"state": "seen"'          bash -c "cd $E2E
 check "status counts the open todos" 0 'TODOS'                   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK status"
 check "the count lands on its session" 0 'e-always .* [0-9]+$'   bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK status | grep e-always"
 check "the panel shows the session" 0 'e-always  running'      bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
+check "the panel has a machines column" 0 'machines \(1\)'       bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG --socket $SOCK tui --once"
 
 check "todo done 1"                0 'done #[0-9a-f]'           bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo done 1"
 check "todo ls hides done"         0 'nothing needs you'        bash -c "cd $E2E && $ROOT/bin/pp.js -c $CFG todo ls"
