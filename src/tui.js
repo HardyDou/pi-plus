@@ -665,7 +665,9 @@ export function createTui({
   /** Put the terminal back, whatever killed us: a raw-mode shell is unusable. */
   function restoreTerminal() {
     try {
-      io.output.write(`${SHOW_CURSOR}${WRAP_ON}${MAIN_SCREEN}`);
+      // leaving the alternate screen restores whatever was behind it; wipe that
+      // too, so a client that detaches later does not land under a stale frame
+      io.output.write(`${SHOW_CURSOR}${WRAP_ON}${MAIN_SCREEN}${CLEAR}`);
       io.input.setRawMode?.(false);
     } catch {
       // the tty may already be gone; nothing useful to do
