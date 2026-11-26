@@ -936,10 +936,15 @@ check "a dead node is unreachable, not stopped" 0 'unreachable'    bash -c "cd $
 # Sessions running on a machine but missing from the config used to be invisible:
 # `pp ls` on a laptop with one local session could not see the nine on its node.
 tmux -L "$SOCK" new-session -d -s far-stray "sleep 7200" 2>/dev/null || true
-check "the table asks only what is written down" 0 '0/1 node asked'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls"
-check "and says which it skipped"                0 'not asked: far2'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls"
-check "--all asks every machine"                 0 '1/1 node asked'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --all"
-check "--node asks just that one"                0 '1/1 node asked'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --node far2"
+check "the table asks only what is written down" 0 '0/1 asked'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --fresh"
+check "and says which it skipped"                0 'not asked: far2'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --fresh"
+check "--all asks every machine"                 0 '1/1 asked'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --all --fresh"
+check "--node asks just that one"                0 '1/1 asked'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --node far2 --fresh"
+check "--node takes the number too"              0 '1/1 asked'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --node 1 --fresh"
+check "--node rejects an unknown machine"        2 'no node "99"'     bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $SCOPECFG --socket $SOCK ls --node 99"
+check "sync pulls every machine"                 1 'machine\(s\) synced'  bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK sync"
+check "and the table then reads the cache"       0 'from cache'             bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls"
+check "a machine that will not answer is named"  1 'unreachable'            bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK sync --node dead"
 check "a session on a node shows up in pp ls"  0 '^1$'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls --all | grep -c far-stray"
 check "and it is marked unmanaged"             0 'unmanaged'   bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK ls | grep -i unmanaged"
 check "attach works on such a session"         0 'attach-session' bash -c "cd $E2E && PATH=$SHIM:$PATH $ROOT/bin/pp.js -c $NODECFG --socket $SOCK attach far-stray --dry-run"

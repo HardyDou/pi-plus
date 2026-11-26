@@ -112,6 +112,33 @@ Without a terminal (a script, an autostart job) it refuses unless `--force` is
 given. Comments elsewhere in the file survive — only the deleted block is
 rewritten, so the diff stays small.
 
+### `pp sync`：拉，而不是推
+
+机器之间不互相认识，多数机器上根本没有 pp —— 只有你这台有 ssh 配置和凭据。所以是**一处拉、一处存**：
+
+```bash
+pp sync                  # 每台一次 ssh（并行），写进本地缓存
+pp sync --node work-01    # 只拉那一台
+pp sync --json            # 给脚本
+```
+
+写进 `$XDG_STATE_HOME/pi-plus/node-live.json`，`pp ls` / `pp tui` 直接读它 —— 所以它们是瞬间的，
+并且永远不会卡在一台睡着的机器上。拉不到的机器保留上次的答案，表里写明它有多旧：
+
+```
+9/9 running  0/1 asked, 1 from cache  config: ~/.pi/plus.yml
+cached: nas 6m — pp sync refreshes it (pp ls --live asks now)
+```
+
+`pp install --watch 300` 生成的 systemd 单元里，同一个 oneshot 会跑两条：
+
+```
+ExecStart=… pp.js up   --config … --reconcile --quiet
+ExecStart=… pp.js sync --config … --quiet
+```
+
+所以缓存最多 5 分钟旧；要更近就 `pp sync --quiet` 塞进自己的 cron，或者干脆 `pp ls --live`。
+
 ### `pp ls` 看到的是哪台机器
 
 默认是**这一台**。

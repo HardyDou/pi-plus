@@ -30,8 +30,7 @@ const CANONICAL = [
   "alias",
   "update",
   "version",
-  "help",
-];
+  "help", "sync"];
 
 test("every command has a complete help page", () => {
   for (const name of CANONICAL) {

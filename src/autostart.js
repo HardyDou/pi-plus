@@ -82,6 +82,9 @@ export function renderSystemdService({ scriptPath, configPath, env = process.env
   const args = [scriptPath, "up", "--config", configPath, "--reconcile", "--quiet"]
     .map(quoteSystemd)
     .join(" ");
+  // the same run also pulls what the other machines are doing, so `pp ls` and
+  // `pp tui` have an answer in the cache without asking anybody live
+  const sync = [scriptPath, "sync", "--config", configPath, "--quiet"].map(quoteSystemd).join(" ");
   return `[Unit]
 Description=pi-plus: start pi agents in tmux
 Documentation=https://github.com/HardyDou/pi-plus
@@ -96,6 +99,7 @@ KillMode=none
 WorkingDirectory=%h
 Environment=PATH=${path}
 ExecStart=/usr/bin/env node ${args}
+ExecStart=/usr/bin/env node ${sync}
 TimeoutStartSec=300
 Nice=5
 

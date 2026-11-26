@@ -148,6 +148,8 @@ export const MIN_LEFT_WIDTH = 18;
 export const RIGHT_MIN_WIDTH = 26;
 export const DEFAULT_LEFT_RATIO = 0.34;
 export const LEFT_STEP = 4;
+export const NODE_MIN_WIDTH = 14;
+export const NODE_MAX_WIDTH = 22;
 
 export function clampLeftWidth(value, cols) {
   const width = Math.max(40, cols);
@@ -188,7 +190,7 @@ export function todoBoxHeight(todoCount, body) {
   return Math.max(3, Math.min(wanted, body - 3));
 }
 
-export function computeLayout(cols, rows, { leftWidth: wanted = 0, todoCount = 0 } = {}) {
+export function computeLayout(cols, rows, { leftWidth: wanted = 0, todoCount = 0, nodes = 0 } = {}) {
   const width = Math.max(40, cols);
   const height = Math.max(10, rows);
   const footer = 1;
@@ -211,15 +213,19 @@ export function computeLayout(cols, rows, { leftWidth: wanted = 0, todoCount = 0
     };
   }
 
-  const leftWidth = clampLeftWidth(wanted || Math.floor(width * DEFAULT_LEFT_RATIO), width);
-  const rightWidth = width - leftWidth - 1;
+  // three columns: which machine, its sessions, what is waiting
+  const nodeWidth = Number(nodes) > 0 ? Math.min(NODE_MAX_WIDTH, Math.max(NODE_MIN_WIDTH, Math.floor(width * 0.16))) : 0;
+  const leftWidth = clampLeftWidth(wanted || Math.floor((width - nodeWidth) * DEFAULT_LEFT_RATIO), width - nodeWidth);
+  const sessionsX = nodeWidth ? nodeWidth + 1 : 0;
+  const rightWidth = width - sessionsX - leftWidth - 1;
   return {
     width,
     height,
     mode,
     todoHeight,
-    sessions: { x: 0, y: 0, w: leftWidth, h: body },
-    todos: { x: leftWidth + 1, y: 0, w: rightWidth, h: body },
+    nodes: nodeWidth ? { x: 0, y: 0, w: nodeWidth, h: body } : null,
+    sessions: { x: sessionsX, y: 0, w: leftWidth, h: body },
+    todos: { x: sessionsX + leftWidth + 1, y: 0, w: rightWidth, h: body },
     footer: { x: 0, y: body, w: width, h: footer },
   };
 }
@@ -275,6 +281,12 @@ export function renderFrame(state, layout) {
     .slice(Math.max(0, state.todoOffset ?? 0), Math.max(0, state.todoOffset ?? 0) + Math.max(0, layout.todos.h - 2))
     .map((item) => listRow(item, inner(layout.todos), state.focus === "todos" && item.selected));
 
+  const nodeRows = (state.nodes ?? [])
+    .slice(0, Math.max(0, (layout.nodes?.h ?? 0) - 2))
+    .map((item) => listRow(item, inner(layout.nodes), state.focus === "nodes" && item.selected));
+  const nodeBox = layout.nodes
+    ? boxLines(layout.nodes, `machines (${(state.nodes ?? []).length})`, nodeRows, { focus: state.focus === "nodes" })
+    : [];
   const left = boxLines(layout.sessions, `sessions (${state.sessions.length})${state.machines ? ` · ${state.machines}` : ""}`, sessionRows, { focus: state.focus === "sessions" });
   const rightTop = boxLines(layout.todos, `todo (${state.todos.length})`, todoRows, { focus: state.focus === "todos" });
 
@@ -293,9 +305,10 @@ export function renderFrame(state, layout) {
         out.push(padWidth(state.footer ?? "", layout.width));
         continue;
       }
+      const nodeLine = layout.nodes ? nodeBox[row] ?? "" : "";
       const leftLine = left[row] ?? "";
       const rightLine = rightTop[row] ?? "";
-      out.push(padWidth(`${leftLine} ${rightLine}`, layout.width));
+      out.push(padWidth(`${nodeLine ? `${nodeLine} ` : ""}${leftLine} ${rightLine}`, layout.width));
     }
   }
   out[layout.footer.y] = padWidth(state.footer ?? "", layout.width);
@@ -729,6 +742,18 @@ export function createTui({
       return;
     }
     if (key === "enter") {
+      if (state.focus === "nodes") {
+        // a machine row: hand the terminal to ssh, then take it back
+        cleanup();
+        const said = await io.enterNode?.();
+        if (!finished) {
+          running = true;
+          enterScreen();
+          schedule();
+          await refresh(said ?? "", { sticky: Boolean(said) });
+        }
+        return;
+      }
       const todo = state.todos[state.todoIndex];
       // todo rows carry the session as `name` (from tuiTodoRows); read both so a row shape change cannot
       // silently hand `undefined` to attach — that used to look like "it goes in and comes straight back out"

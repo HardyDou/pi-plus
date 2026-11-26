@@ -35,7 +35,7 @@ import {
   listAliases,
   removeAlias,
 } from "./aliases.js";
-import { contentSignature, hasEditor, isRule, lastActionLine, looksBusy, resolveExecutable, Tmux } from "./tmux.js";
+import { contentSignature, hasEditor, isRule, lastActionLine, looksBusy, parseSessionLines, resolveExecutable, SESSION_QUERY, Tmux } from "./tmux.js";
 import { authSummary, nodeTarget, normalizeNode, NodeError, parseProbe, parseSshConfig, PROBE_SCRIPT, removeNodeFromFile, renderNodeBlock, runOnNode, runOnNodeAsync, sshInvocation, tightenConfigMode, upsertNodeInFile } from "./nodes.js";
 import { installAutostart, uninstallAutostart, autostartState, describeAutostart, isWsl, launchAgentPath, systemdUserDir } from "./autostart.js";
 import { describeStateFiles, inspectStateFiles, quarantineStateFile } from "./selfcheck.js";
@@ -1979,22 +1979,35 @@ async function cmdStatus(config, options, ui) {
   // (`--live`), and its last answer is reused for free while it is still warm.
   const wanted = new Set(nodesToProbe(config));
   const askedNot = [];
+  const staleNodes = [];
+  const cachedAt = new Map();
+  const cachedNodes = new Set();
   await Promise.all(
     [null, ...(config.nodes ?? []).map((node) => node.name)].map(async (nodeName) => {
       const key = nodeName ?? "";
       const handle = makeTmux(config, options, { node: nodeName });
       const cached = nodeName ? nodeCache[nodeName] : null;
-      const warm = Boolean(cached) && !options.fresh && Date.now() - Number(cached.at ?? 0) < ttlMs;
+      const cacheAgeMs = cached ? Date.now() - Number(cached.at ?? 0) : Infinity;
+      const warm = Boolean(cached) && !options.fresh;
+
       const asked = Boolean(options.live) || Boolean(options.all) || Boolean(options.node);
-      if (nodeName && !wanted.has(nodeName) && !asked && !warm) {
-        // nothing written down for it and nothing warm to show: skip the trip
-        askedNot.push(nodeName);
-        liveCache.set(key, new Map());
+      // A cache entry is an answer, even a stale one: `pp ls` prints what was
+      // true N minutes ago and says so, instead of making the operator wait on
+      // an ssh that may never come back. `--live` / `--fresh` re-ask.
+      if (nodeName && warm && !options.fresh) {
+        liveCache.set(key, fromCache(cached.sessions));
         clientCache.set(key, []);
+        if (nodeName) {
+          cachedNodes.add(nodeName);
+          cachedAt.set(nodeName, { at: cached.at ?? null, age: cacheAgeMs, stale: cacheAgeMs >= ttlMs });
+          if (cacheAgeMs >= ttlMs) staleNodes.push(nodeName);
+        }
         return;
       }
-      if (nodeName && warm) {
-        liveCache.set(key, fromCache(cached.sessions));
+      if (nodeName && !wanted.has(nodeName) && !asked && !options.sync) {
+        // nothing written down for it and nothing cached: skip the trip
+        askedNot.push(nodeName);
+        liveCache.set(key, new Map());
         clientCache.set(key, []);
         return;
       }
@@ -2088,7 +2101,18 @@ async function cmdStatus(config, options, ui) {
   // Whose sessions? By default this machine's: an operator looking at their own
   // box should not wait for six ssh round trips. `--node x` is one machine,
   // `--all` (or `--live`) is every machine that is written down.
-  const scope = options.node ? String(options.node) : options.all || options.live ? null : "";
+  let scope = options.all || options.live ? null : "";
+  if (options.node) {
+    // `--node 1` works like `pp node 1`: the number is on screen in `pp node ls`
+    const picked = resolveNodeRef(config, options.node);
+    if (!picked) {
+      ui.error(`no node "${options.node}" — see pp node ls`);
+      process.exit(2);
+    }
+    scope = picked.name;
+    // selectSessions filters by name too, so hand it the name we resolved
+    options = { ...options, node: picked.name };
+  }
   const inScope = (session) => (scope === null ? true : (session.node ?? "") === scope);
   const scopeNodes = scope === null ? (config.nodes ?? []).map((node) => node.name) : scope ? [scope] : [];
   const sessions = selectSessions(config, options.names, ui, { all: true, options }).filter(inScope);
@@ -2440,8 +2464,9 @@ async function cmdStatus(config, options, ui) {
       notes.push(`${unmanaged.length} unmanaged session(s) are in tmux but not in the config: ${unmanaged.slice(0, 3).join(", ")}${unmanaged.length > 3 ? ", …" : ""} — pp adopt`);
     }
     if (config.nodes?.length) {
-      const asked = config.nodes.length - askedNot.length;
-      extras.push(ui.paint("dim", `${asked}/${config.nodes.length} node${config.nodes.length === 1 ? "" : "s"} asked`));
+      const asked = config.nodes.length - askedNot.length - cachedNodes.size;
+      const cached = cachedNodes.size ? `, ${cachedNodes.size} from cache` : "";
+      extras.push(ui.paint("dim", `${asked}/${config.nodes.length} asked${cached}`));
     }
     if (unreachableNodes.length) extras.push(ui.paint("red", `unreachable: ${unreachableNodes.join(", ")}`));
     ui.out(short(`\n${running}/${shown.length} running${downText}${extras.length ? `  ${extras.join("  ")}` : ""}  ${ui.paint("dim", `config: ${config.path}`)}`));
@@ -2456,10 +2481,17 @@ async function cmdStatus(config, options, ui) {
     if (idleNodes.length) {
       notes.push(`no session on ${idleNodes.join(", ")} yet — pp new --node ${idleNodes[0]} -C <dir> --save   (pp fleet shows what runs there)`);
     }
+    if (staleNodes.length) {
+      const worst = staleNodes
+        .map((name) => `${name} ${cachedAt.get(name)?.age ? shortAge(Math.round((cachedAt.get(name).age ?? 0) / 1000)) : "?"}`)
+        .slice(0, 4)
+        .join(", ");
+      notes.push(`cached: ${worst}${staleNodes.length > 4 ? ", …" : ""} — pp sync refreshes it (pp ls --live asks now)`);
+    }
     // not asked this time: say so, and say how to ask
     if (askedNot.length) {
       notes.push(
-        `${askedNot.length} machine(s) not asked: ${askedNot.slice(0, 4).join(", ")}${askedNot.length > 4 ? ", …" : ""} — pp ls --live   (pp fleet always asks)`,
+        `${askedNot.length} machine(s) not asked: ${askedNot.slice(0, 3).join(", ")}${askedNot.length > 3 ? ", …" : ""} — pp ls --node <name|#> for one, --live for all`,
       );
     }
     for (const note of notes) ui.info(ui.paint("dim", short(note)));
@@ -2865,6 +2897,22 @@ async function cmdTui(config, options, ui) {
         scopeIndex = (scopeIndex + 1) % scopes.length;
         remoteCache.clear();
         return scope() || "local";
+      },
+      async selectNode(delta) {
+        scopeIndex = (scopeIndex + delta + scopes.length) % scopes.length;
+        remoteCache.clear();
+        return scope() || "local";
+      },
+      /** Enter on a machine row: log into it, the same way `pp node <n>` does. */
+      async enterNode() {
+        const name = scope();
+        if (!name) return "this machine is the one you are on";
+        const node = (config.nodes ?? []).find((entry) => entry.name === name);
+        if (!node) return `no node "${name}" — see pp node ls`;
+        const inv = sshInvocation(node, [], { tty: true, batch: false });
+        const result = spawnSync(inv.command, inv.argv, { stdio: "inherit", env: { ...process.env, ...(inv.env ?? {}) } });
+        if (result.error) return `could not log into ${name}: ${result.error.message}`;
+        return result.status === 0 ? `back from ${name}` : `ssh to ${name} exited ${result.status}`;
       },
       async refresh({ index = 0 } = {}) {
         const { live, owner } = readLive();
@@ -3639,7 +3687,65 @@ async function cmdStart(options, ui) {
  * Nothing is cached and nothing is written: the point is "what is running right
  * now", and a stale copy of that answer is worse than no answer.
  */
-export async function cmdFleet(config, options, ui) {
+export /**
+ * Pull what every machine is running, and keep it in the cache `pp ls` reads.
+ *
+ * Pull, not push: the machines do not know each other and most of them have no
+ * pp at all — only this one has the ssh config and the credentials. A push
+ * design would need pp and a peer list on every node, and would still leave the
+ * question "which copy is true". One puller, one answer, one clock.
+ */
+async function cmdSync(config, options, ui) {
+  const nodes = config.nodes ?? [];
+  if (!nodes.length) {
+    ui.info("no nodes in this config — nothing to sync");
+    return;
+  }
+  const only = options.node ? resolveNodeRef(config, options.node) : null;
+  if (options.node && !only) {
+    ui.error(`no node "${options.node}" — see pp node ls`);
+    process.exit(2);
+  }
+  const targets = only ? [only] : nodes;
+  const started = Date.now();
+  const rows = await Promise.all(
+    targets.map(async (node) => {
+      const at = Date.now();
+      // one quoted command line: ssh joins argv with spaces, so each token has
+      // to survive the far side's shell on its own
+      const remote = ["tmux", ...(options.socket ? ["-L", String(options.socket)] : []), ...SESSION_QUERY]
+        .map(shellQuote)
+        .join(" ");
+      const result = await runOnNodeAsync(node, [remote], { timeout: 15000 });
+      const ms = Date.now() - at;
+      if (result.error) return { node: node.name, ok: false, ms, error: result.error.message ?? "ssh failed" };
+      const sessions = parseSessionLines(result.stdout);
+      // tmux exits 1 for "no server" as well as for real trouble; the message is
+      // the only difference, and a machine with no tmux running is an empty one
+      const ok = result.status === 0 || /no server running|no sessions|error connecting to/i.test(String(result.stderr));
+      return { node: node.name, ok, ms, sessions, error: ok ? null : String(result.stderr ?? "").trim().split("\n")[0] || `exit ${result.status}` };
+    }),
+  );
+  const cache = readNodeCache();
+  for (const row of rows) {
+    if (!row.ok) continue;
+    cache[row.node] = { at: new Date().toISOString(), sessions: asCache(row.sessions) };
+  }
+  writeNodeCache(cache);
+  if (options.json) {
+    ui.out(JSON.stringify(rows.map((row) => ({ node: row.node, ok: row.ok, ms: row.ms, count: row.ok ? row.sessions.size : null, error: row.error ?? null })), null, 2));
+  } else if (!options.quiet) {
+    for (const row of rows) {
+      const label = row.node.padEnd(Math.min(16, Math.max(...rows.map((entry) => entry.node.length)) + 1));
+      ui.out(row.ok ? `  ${label}${String(row.sessions.size).padStart(3)} session(s)  ${row.ms}ms` : ui.paint("red", `  ${label}unreachable — ${row.error}`));
+    }
+    const bad = rows.filter((row) => !row.ok).length;
+    ui.out(`\n${rows.length - bad}/${rows.length} machine(s) synced in ${Date.now() - started}ms${bad ? ` · ${bad} unreachable (their last answer is kept)` : ""}`);
+  }
+  if (rows.some((row) => !row.ok)) process.exitCode = 1;
+}
+
+async function cmdFleet(config, options, ui) {
   const nodes = config?.nodes ?? [];
   const targets = [
     { label: "local", node: null, tmux: makeTmux(config, options) },
@@ -7430,6 +7536,9 @@ export async function runCommand(command, options) {
       if (options.firstScreen) return cmdStart(options, ui);
       const config = requireConfig(options, ui);
       return cmdUp(config, options, ui);
+    }
+    case "sync": {
+      return cmdSync(requireConfig(options, ui), options, ui);
     }
     case "fleet": case "all":
       return cmdFleet(tryLoadConfig(options), options, ui);

@@ -528,6 +528,7 @@ pp restart [name|#...]        重启（遵守 restart 策略）
 pp adopt [name...]            把已在跑但配置里没有的会话登记进来（--all、--node）
 pp rename <old> <new>         改名：tmux 与配置一起改
 pp fleet                      所有机器上正在跑的会话（现查，不缓存）
+pp sync                       把每台机器的会话拉进本地缓存（pp ls 读它，秒回）
 pp bind <name>                把会话钉在一个 pi 对话上（否则每次重启都是新对话）
 pp tui --static               面板只在按键时重画（慢链路/ssh）
 

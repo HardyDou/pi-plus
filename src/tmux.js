@@ -174,7 +174,7 @@ export function resolveExecutable(command, env = process.env) {
 }
 
 /** The one list-panes query both the sync and the async reader use. */
-const SESSION_QUERY = [
+export const SESSION_QUERY = [
   "list-panes",
   "-a",
   "-F",
@@ -210,7 +210,7 @@ function parseClientLines(stdout) {
 }
 
 /** Turn `list-panes` output into the Map every caller expects. */
-function parseSessionLines(stdout) {
+export function parseSessionLines(stdout) {
   const sessions = new Map();
   for (const line of decodeFields(stdout).split("\n")) {
     if (!line.trim()) continue;
