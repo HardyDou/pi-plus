@@ -117,7 +117,7 @@ import {
   stripAnsi,
   truncateWidth,
 } from "./tui.js";
-import { clipboardFile, dropLocal, dropRemote, FileError } from "./files.js";
+import { clipboardFile, dropLocal, dropRemote, FileError, pastedPath } from "./files.js";
 import { ageOf, listPiSessions } from "./pi-sessions.js";
 import { parseYaml } from "./yaml.js";
 
@@ -3178,6 +3178,9 @@ async function cmdTui(config, options, ui) {
         } catch {
           // a vanished todo is not worth an error in the middle of a redraw
         }
+      },
+      pastedPath(chunk) {
+        return pastedPath(chunk);
       },
       clipboard() {
         try {

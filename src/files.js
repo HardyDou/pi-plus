@@ -118,3 +118,42 @@ export function clipboardFile(env = process.env, run = spawnSync) {
   }
   return null;
 }
+
+/**
+ * A path that arrived as keystrokes, which is what a drag-and-drop looks like.
+ *
+ * iTerm2 does not hand the file over — it types the path into the tty, wrapped
+ * in bracketed-paste markers when the program asked for them. So "was a file
+ * dropped here" and "did someone type slashes" have to be told apart: a drop is
+ * one printable path that exists, not a key press.
+ */
+export function pastedPath(chunk, { exists = (path) => existsSync(path), home = process.env.HOME } = {}) {
+  let text = String(chunk ?? "");
+  if (!text) return null;
+  text = text.replace(/\u001b\[200~/g, "").replace(/\u001b\[201~/g, "");
+  text = text.replace(/[\r\n]+$/, "");
+  if (!text || /[\u0000-\u001f\u007f]/.test(text)) return null;
+  let candidate = text.trim();
+  if (
+    (candidate.startsWith('"') && candidate.endsWith('"')) ||
+    (candidate.startsWith("'") && candidate.endsWith("'"))
+  ) {
+    candidate = candidate.slice(1, -1);
+  }
+  // a shell escape (iTerm2 quotes spaces with backslashes) is still a path
+  candidate = candidate.replace(/\\(.)/g, "$1");
+  if (candidate.startsWith("file://")) {
+    try {
+      candidate = decodeURIComponent(new URL(candidate).pathname);
+    } catch {
+      return null;
+    }
+  }
+  if (!candidate.startsWith("/") && !candidate.startsWith("~")) return null;
+  const expanded = candidate.startsWith("~") ? join(home || "", candidate.slice(1)) : candidate;
+  // existence is the whole test: it separates "a file was dropped" from
+  // "somebody typed slashes". A dropped path may contain spaces, quotes, or
+  // backslash escapes — all of which are still just a path to a file.
+  if (!exists(expanded)) return null;
+  return expanded;
+}

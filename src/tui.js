@@ -969,6 +969,20 @@ export function createTui({
           handleFilterInput(chunk).catch(() => {});
           return;
         }
+        // A drag-and-drop is not an event: iTerm2 types the path into the tty.
+        // Recognise it before it becomes a burst of stray key presses.
+        const dropped = io.pastedPath?.(chunk);
+        if (dropped) {
+          const target = state.sessions[state.sessionIndex]?.name ?? "";
+          if (!target) {
+            refresh("no session selected — pick one, then drop the file", { sticky: true });
+            return;
+          }
+          io.sendFile?.(target, dropped)
+            .then((said) => refresh(said ?? `sent ${dropped}`, { sticky: true }))
+            .catch((error) => refresh(`could not send ${dropped}: ${error.message}`, { sticky: true }));
+          return;
+        }
         for (const key of parseKeys(chunk)) {
           handle(key).catch(() => {});
         }
