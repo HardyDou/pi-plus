@@ -117,7 +117,7 @@ import {
   stripAnsi,
   truncateWidth,
 } from "./tui.js";
-import { dropLocal, dropRemote, FileError } from "./files.js";
+import { clipboardFile, dropLocal, dropRemote, FileError } from "./files.js";
 import { ageOf, listPiSessions } from "./pi-sessions.js";
 import { parseYaml } from "./yaml.js";
 
@@ -3179,6 +3179,24 @@ async function cmdTui(config, options, ui) {
           // a vanished todo is not worth an error in the middle of a redraw
         }
       },
+      clipboard() {
+        try {
+          return clipboardFile(process.env);
+        } catch {
+          return null;
+        }
+      },
+      async sendFile(name, file) {
+        const session = (config?.sessions ?? []).find((item) => item.tmuxName === name || item.name === name);
+        if (!session) return `no session called ${name} in this config — pp adopt first`;
+        try {
+          const result = await sendFileToSession(config, options, session, file);
+          return result.lines.slice(-1)[0] ?? "sent";
+        } catch (error) {
+          if (!(error instanceof FileError)) throw error;
+          return error.message;
+        }
+      },
       async attach(name) {
         if (!name) {
           tui?.noteFromAttach("that row has no session — press r to refresh the lists");
@@ -3960,6 +3978,27 @@ export function remoteTodos(dump, nodeName) {
  * means nothing on the machine the session runs on. This copies the file first
  * and then types the path that machine sees.
  */
+export async function sendFileToSession(config, options, session, file, { send = true } = {}) {
+  const node = nodeForSession(config, session);
+  const tmux = makeTmux(config, options, session);
+  const dropped = node ? dropRemote(node, session.tmuxName, file) : dropLocal(session.tmuxName, file);
+  const where = node ? `${node.name}:${dropped.path}` : dropped.path;
+  const kb = Math.max(1, Math.round(dropped.bytes / 1024));
+  if (!send) return { ok: true, path: dropped.path, lines: [`copied ${dropped.name} (${kb} KB) → ${where}`] };
+  if (!tmux.sessionExists(session.tmuxName)) {
+    return { ok: false, path: dropped.path, lines: [`copied ${dropped.name} (${kb} KB) → ${where}`, `${session.tmuxName} is not running — the file waits at ${dropped.path}`] };
+  }
+  const sent = await tmux.sendText(session.tmuxName, dropped.path);
+  return {
+    ok: Boolean(sent.submitted),
+    path: dropped.path,
+    lines: [
+      `copied ${dropped.name} (${kb} KB) → ${where}`,
+      sent.submitted ? `told ${session.tmuxName}: ${dropped.path}` : `typed the path but Enter never took it — look: pp logs ${session.name}`,
+    ],
+  };
+}
+
 async function cmdFile(config, options, ui) {
   const [ref, ...rest] = options.names ?? [];
   const file = rest.join(" ").trim();
@@ -3969,27 +4008,10 @@ async function cmdFile(config, options, ui) {
   }
   const [session] = selectSessions(config, [ref], ui, { options });
   if (!session) return;
-  const node = nodeForSession(config, session);
-  const tmux = makeTmux(config, options, session);
   try {
-    const dropped = node ? dropRemote(node, session.tmuxName, file) : dropLocal(session.tmuxName, file);
-    const where = node ? `${node.name}:${dropped.path}` : dropped.path;
-    ui.info(`copied ${dropped.name} (${Math.max(1, Math.round(dropped.bytes / 1024))} KB) → ${where}`);
-    if (options.noSend) {
-      ui.out(ui.paint("dim", `type it yourself: ${dropped.path}`));
-      return;
-    }
-    if (!tmux.sessionExists(session.tmuxName)) {
-      ui.warn(`${session.tmuxName} is not running — the file is waiting at ${dropped.path}`);
-      process.exitCode = 1;
-      return;
-    }
-    const sent = await tmux.sendText(session.tmuxName, dropped.path);
-    if (sent.submitted) ui.info(`told ${session.tmuxName}: ${dropped.path}`);
-    else {
-      ui.warn(`typed the path into ${session.tmuxName} but Enter never took it — look: pp logs ${session.name}`);
-      process.exitCode = 1;
-    }
+    const result = await sendFileToSession(config, options, session, file, { send: !options.noSend });
+    for (const line of result.lines) (result.ok ? ui.info : ui.warn)(line);
+    if (!result.ok) process.exitCode = 1;
   } catch (error) {
     if (!(error instanceof FileError)) throw error;
     ui.error(error.message);

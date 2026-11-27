@@ -84,3 +84,37 @@ export function dropRemote(node, session, file, { env = process.env, timeout = 1
   }
   return { path: join(dir, name), name, bytes: stat.size };
 }
+
+/**
+ * The file on the clipboard, if the desktop can tell us.
+ *
+ * Copying a file in Finder or Files puts a *reference* on the clipboard, not
+ * the bytes — which is exactly what we need: pp copies it afterwards. Reading
+ * the clipboard is the only platform-specific part, so it is isolated here and
+ * simply returns null where there is no desktop to ask.
+ */
+export function clipboardFile(env = process.env, run = spawnSync) {
+  const attempts = [];
+  if (process.platform === "darwin") {
+    attempts.push(["osascript", ["-e", 'POSIX path of (the clipboard as «class furl»)']]);
+    attempts.push(["pbpaste", []]);
+  } else {
+    attempts.push(["wl-paste", ["--no-newline"]]);
+    attempts.push(["xclip", ["-selection", "clipboard", "-t", "text/uri-list", "-o"]]);
+    attempts.push(["xclip", ["-selection", "clipboard", "-o"]]);
+  }
+  for (const [command, args] of attempts) {
+    const result = run(command, args, { encoding: "utf8", timeout: 5000, env });
+    if (result.error || result.status !== 0) continue;
+    const said = String(result.stdout ?? "").trim();
+    if (!said) continue;
+    for (const line of said.split("\n").map((item) => item.trim()).filter(Boolean)) {
+      const path = line.startsWith("file://") ? decodeURIComponent(new URL(line).pathname) : line;
+      if (path.startsWith("/") || path.startsWith("~")) {
+        const expanded = path.startsWith("~") ? join(env.HOME || "", path.slice(1)) : path;
+        if (existsSync(expanded)) return expanded;
+      }
+    }
+  }
+  return null;
+}

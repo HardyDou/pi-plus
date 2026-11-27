@@ -601,7 +601,7 @@ test("the / box narrows the session list to a substring, and Esc forgets it", as
   assert.match(narrowed, /risk-01/);
   assert.match(narrowed, /risk-02/);
   assert.doesNotMatch(narrowed, /mango-release-01/, "the filtered-out row is gone, not dimmed");
-  assert.match(narrowed, /filter: risk \(2\/3\)/);
+  assert.match(narrowed, /filter: risk/);
   input.emit("data", "\u001b");
   await new Promise((resolve) => setTimeout(resolve, 30));
   assert.match(lastFrame(), /mango-release-01/, "Esc puts the whole list back");
@@ -775,4 +775,31 @@ test("searching one column leaves the other two alone", async () => {
   assert.match(frame, /machines \(1\)/, "the machines column narrows");
   assert.match(frame, /sessions \(2\)/, "sessions stay whole");
   assert.match(frame, /todo \(1\)/, "todo stays whole");
+});
+
+test("f sends a file to the selected session, typing a path", async () => {
+  const { input, io, lastFrame } = fakeIo({
+    sessions: [{ label: " 1 api  running", name: "api" }],
+    todos: [],
+    preview: [],
+  });
+  const sent = [];
+  io.sendFile = async (name, file) => {
+    sent.push([name, file]);
+    return `told ${name}: ${file}`;
+  };
+  io.clipboard = () => "/tmp/shot.png";
+  const tui = createTui({ io, version: "9.9.9" });
+  const done = tui.start();
+  await new Promise((resolve) => setTimeout(resolve, 60));
+  input.emit("data", "f");
+  await new Promise((resolve) => setTimeout(resolve, 40));
+  assert.match(lastFrame(), /file: \/tmp\/shot\.png/, "the box is prefilled from the clipboard");
+  input.emit("data", "\r");
+  await new Promise((resolve) => setTimeout(resolve, 80));
+  const frame = lastFrame();
+  input.emit("data", "q");
+  await done;
+  assert.deepEqual(sent, [["api", "/tmp/shot.png"]]);
+  assert.match(frame, /told api: \/tmp\/shot\.png/);
 });

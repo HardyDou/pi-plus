@@ -16,7 +16,7 @@ export const COMMANDS = [
     usage: "pp new [name] [options]",
     details: [
       "Creates a detached session for the current directory (or --dir/-C <path>)",
-      "without touching any config file. The name defaults to the directory name,",
+      "without touching any config file. The name defaults to the directory name",
       "sanitised to tmux-safe characters and suffixed -2/-3 if it is already taken.",
       "",
       "The agent defaults to `pi`; it gets `--name <session>` and a remote-pi name",
@@ -339,7 +339,10 @@ export const COMMANDS = [
       "Copied over `ssh ... cat > file`, so the far side needs nothing installed.",
       "For a picture, pi still needs the file to be pasted into its own input;",
       "typing the path is what makes an agent read it.",
+      "In `pp tui`, `f` opens the same box: copy a file in Finder first and it",
+      "is prefilled; Enter sends it to the highlighted session.",
     ],
+
     see: ["send", "attach", "logs"],
   },
   {

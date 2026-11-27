@@ -160,6 +160,7 @@ export function parseKeys(input) {
       else if (char === "G") keys.push("bottom");
       else if (char === "s") keys.push("sort");
       else if (char === "n") keys.push("scope");
+      else if (char === "f") keys.push("file");
       else if (char === "D") keys.push("drift");
       else if (char === "/") keys.push("filter");
       i += 1;
@@ -421,6 +422,7 @@ export function createTui({
     filter: "",
     /** true while the `/` box has the keyboard */
     typing: false,
+    fileBox: false,
     /** what has been typed into that box so far */
     input: "",
     /** the rows currently on screen, so an unchanged row is not sent again */
@@ -449,6 +451,10 @@ export function createTui({
     const drift = [off ? `${off} off` : null, unmanaged ? `${unmanaged} unmanaged` : null, stuck ? `${stuck} stuck` : null]
       .filter(Boolean)
       .join(" · ");
+    if (state.typing && state.fileBox) {
+      const typed = `file: ${state.input}▌`;
+      return `${DIM}${padWidth(` ${typed}  (Enter send to ${state.sessions[state.sessionIndex]?.name ?? "?"} · Esc cancel)`, io.size().cols)}${RESET}`;
+    }
     if (state.typing) {
       const typed = `/ ${state.input}▌`;
       return `${DIM}${padWidth(` ${typed}  (Enter filter · Esc clear · ${filteredIndices().length} match)`, io.size().cols)}${RESET}`;
@@ -456,7 +462,7 @@ export function createTui({
     const total = state.sessions.length;
     const shown = filteredIndices().length;
     const filterNote = state.filter ? `filter: ${state.filter} (${shown}/${total}) · / clear · ` : "/ find · ";
-    const base = ` ↑↓ move · ←→ column · Space/b page · Enter attach · ${filterNote}d done · D start what is off · q quit `;
+    const base = ` ↑↓ move · ←→ column · Space/b page · Enter attach · f send file · ${filterNote}d done · D start what is off · q quit `;
     // the panel stretched its own interval because the link could not keep up:
     // say so, otherwise "why is it not updating" has no answer on screen
     const slow = interval > baseIntervalMs ? `slow ${(interval / 1000).toFixed(1)}s · ` : "";
@@ -580,6 +586,22 @@ export function createTui({
     let changed = false;
     for (const char of text) {
       if (char === "\r" || char === "\n") {
+        if (state.fileBox) {
+          const target = state.sessions[state.sessionIndex]?.name ?? "";
+          const file = state.input.trim() || (io.clipboard?.() ?? "");
+          state.fileBox = false;
+          state.typing = false;
+          state.input = "";
+          if (!target || !file) {
+            refresh("no file to send — type a path or copy one in Finder", { sticky: true });
+            return;
+          }
+          io.sendFile?.(target, file)
+            .then((said) => refresh(said ?? `sent ${file}`, { sticky: true }))
+            .catch((error) => refresh(`could not send ${file}: ${error.message}`, { sticky: true }));
+          changed = true;
+          break;
+        }
         state.filter = state.input.trim();
         state.typing = false;
         state.input = "";
@@ -591,6 +613,7 @@ export function createTui({
       }
       if (char === "\u001b") {
         // escape: forget the filter entirely — the list is never a hidden state
+        state.fileBox = false;
         state.typing = false;
         state.input = "";
         state.filter = "";
@@ -732,6 +755,15 @@ export function createTui({
   }
 
   async function handle(key) {
+    if (key === "file") {
+      // a terminal can only carry a path; io.clipboard gives us the one a
+      // Finder copy left behind, so Enter with an empty box still works
+      state.fileBox = true;
+      state.typing = true;
+      state.input = io.clipboard?.() ?? "";
+      draw();
+      return;
+    }
     if (key === "filter") {
       state.filterPanel = state.focus;
       state.typing = true;
