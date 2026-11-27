@@ -316,6 +316,33 @@ export const COMMANDS = [
     see: ["ls", "node", "adopt"],
   },
   {
+    name: "file",
+    aliases: ["drop"],
+    summary: "hand a file to a session (copied to the machine it runs on)",
+    usage: "pp file <session|#> \"<path>\" [--no-send]",
+    details: [
+      "A terminal can only carry text: dragging a file into iTerm2 types its path,",
+      "and that path means nothing on the machine the session actually runs on.",
+      "So the file is copied first, then the path that machine sees is typed in.",
+    ].join("\n"),
+    options: [
+      "  --no-send         copy only; print the path instead of typing it",
+    ],
+    examples: [
+      'pp file risk-pm ~/Desktop/shot.png',
+      'pp file api ./build.log --no-send',
+      'pp file 3 "~/Downloads/report.pdf"',
+    ],
+    notes: [
+      "Files land in <state>/pi-plus/drops/<session>/ on that machine; a name",
+      "that is already there gets a number instead of being overwritten.",
+      "Copied over `ssh ... cat > file`, so the far side needs nothing installed.",
+      "For a picture, pi still needs the file to be pasted into its own input;",
+      "typing the path is what makes an agent read it.",
+    ],
+    see: ["send", "attach", "logs"],
+  },
+  {
     name: "bind",
     summary: "Pin a session to one pi conversation, so a restart reopens it",
     usage: "pp bind <name|#> [--id <session-id>] [--dry-run]",

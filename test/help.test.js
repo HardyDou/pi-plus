@@ -11,6 +11,7 @@ const CANONICAL = [
   "restart",
   "adopt",
   "bind",
+  "file",
   "rename",
   "fleet",
   "backup",

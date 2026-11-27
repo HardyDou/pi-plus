@@ -117,6 +117,7 @@ import {
   stripAnsi,
   truncateWidth,
 } from "./tui.js";
+import { dropLocal, dropRemote, FileError } from "./files.js";
 import { ageOf, listPiSessions } from "./pi-sessions.js";
 import { parseYaml } from "./yaml.js";
 
@@ -3952,6 +3953,50 @@ export function remoteTodos(dump, nodeName) {
  * design would need pp and a peer list on every node, and would still leave the
  * question "which copy is true". One puller, one answer, one clock.
  */
+/**
+ * `pp file <session> <path>` -- hand a file to a session that may not be here.
+ *
+ * The terminal can only carry text, so a dragged file arrives as a path that
+ * means nothing on the machine the session runs on. This copies the file first
+ * and then types the path that machine sees.
+ */
+async function cmdFile(config, options, ui) {
+  const [ref, ...rest] = options.names ?? [];
+  const file = rest.join(" ").trim();
+  if (!ref || !file) {
+    ui.error('usage: pp file <session|#> "<path>" [--no-send]');
+    process.exit(2);
+  }
+  const [session] = selectSessions(config, [ref], ui, { options });
+  if (!session) return;
+  const node = nodeForSession(config, session);
+  const tmux = makeTmux(config, options, session);
+  try {
+    const dropped = node ? dropRemote(node, session.tmuxName, file) : dropLocal(session.tmuxName, file);
+    const where = node ? `${node.name}:${dropped.path}` : dropped.path;
+    ui.info(`copied ${dropped.name} (${Math.max(1, Math.round(dropped.bytes / 1024))} KB) → ${where}`);
+    if (options.noSend) {
+      ui.out(ui.paint("dim", `type it yourself: ${dropped.path}`));
+      return;
+    }
+    if (!tmux.sessionExists(session.tmuxName)) {
+      ui.warn(`${session.tmuxName} is not running — the file is waiting at ${dropped.path}`);
+      process.exitCode = 1;
+      return;
+    }
+    const sent = await tmux.sendText(session.tmuxName, dropped.path);
+    if (sent.submitted) ui.info(`told ${session.tmuxName}: ${dropped.path}`);
+    else {
+      ui.warn(`typed the path into ${session.tmuxName} but Enter never took it — look: pp logs ${session.name}`);
+      process.exitCode = 1;
+    }
+  } catch (error) {
+    if (!(error instanceof FileError)) throw error;
+    ui.error(error.message);
+    process.exit(1);
+  }
+}
+
 async function cmdSync(config, options, ui) {
   const nodes = config.nodes ?? [];
   if (!nodes.length) {
@@ -7846,6 +7891,11 @@ export async function runCommand(command, options) {
       if (options.firstScreen) return cmdStart(options, ui);
       const config = requireConfig(options, ui);
       return cmdUp(config, options, ui);
+    }
+    case "file":
+    case "drop": {
+      const config = requireConfig(options, ui);
+      return cmdFile(config, options, ui);
     }
     case "sync": {
       return cmdSync(requireConfig(options, ui), options, ui);

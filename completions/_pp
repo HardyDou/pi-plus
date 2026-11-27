@@ -16,6 +16,7 @@ _pp() {
     'delete:alias for rm'
     'stop:alias for down'
     'restart:restart sessions'
+    'file:hand a file to a session (copied to the machine it runs on)'
     'bind:pin a session to one pi conversation so a restart reopens it'
     'rename:rename a session in tmux and in the config together'
     'fleet:every machine builds one table of running sessions'

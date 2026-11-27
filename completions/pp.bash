@@ -4,7 +4,7 @@ _pp() {
   COMPREPLY=()
   cur="${COMP_WORDS[COMP_CWORD]}"
   prev="${COMP_WORDS[COMP_CWORD-1]}"
-  local commands="tui panel back new n create up start down stop rm remove delete adopt bind rename sync fleet restart status ls list attach a logs log send backup restore cron todo todos node nodes doctor init install autostart uninstall alias link update upgrade version help"
+  local commands="tui panel back new n create up start down stop rm remove delete adopt bind file drop rename sync fleet restart status ls list attach a logs log send backup restore cron todo todos node nodes doctor init install autostart uninstall alias link update upgrade version help"
 
   case "$prev" in
     -c|--config)
@@ -18,6 +18,7 @@ _pp() {
       return 0
       ;;
     tui|panel) opts="--once --left --sort --refresh --static --trace --diag -c --socket" ;;
+    file|drop) opts="--no-send -c --socket" ;;
     backup)  opts="--list --keep --out --json --dry-run -c --socket" ;;
     restore) opts="--dry-run --force --out --json -c --socket" ;;
     cron)

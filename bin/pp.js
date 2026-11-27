@@ -141,7 +141,10 @@ function parseArgs(argv) {
       case "--follow": options.follow = true; break;
       case "--stamp": options.stamp = true; break;
       case "--interval": options.interval = Number(takeValue(flag, inline)) || 2; break;
-        case "--no-enter": options.noEnter = true; break;
+        case "--no-send":
+        options.noSend = true;
+        break;
+      case "--no-enter": options.noEnter = true; break;
         case "--no-config": options.noConfig = true; break;
         case "--at": options.at = takeValue(flag, inline); break;
         case "--in": options.in = takeValue(flag, inline); break;
